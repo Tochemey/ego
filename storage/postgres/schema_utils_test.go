@@ -18,7 +18,7 @@ func TestSchemaUtils(t *testing.T) {
 	assert.NoError(t, err)
 
 	// assert existence of the table
-	err = db.TableExists(ctx, "event_journal")
+	err = db.TableExists(ctx, tableName)
 	assert.NoError(t, err)
 
 	// clean up

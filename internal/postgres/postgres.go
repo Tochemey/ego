@@ -7,6 +7,7 @@ import (
 
 	"github.com/XSAM/otelsql"
 	"github.com/georgysavva/scany/sqlscan"
+	_ "github.com/lib/pq" //nolint
 	"github.com/pkg/errors"
 	"go.opentelemetry.io/otel"
 	semconv "go.opentelemetry.io/otel/semconv/v1.18.0"

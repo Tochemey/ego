@@ -35,7 +35,7 @@ func (d SchemaUtils) CreateTable(ctx context.Context) error {
 	);
 	
 	--- create an index on the is_deleted column
-	CREATE INDEX IF NOT EXISTS idx_event_journal_deleted ON event_journal (is_deleted);
+	CREATE INDEX IF NOT EXISTS idx_event_journal_deleted ON events_store (is_deleted);
 	`
 	_, err := d.db.Exec(ctx, schemaDDL)
 	return err
@@ -44,5 +44,5 @@ func (d SchemaUtils) CreateTable(ctx context.Context) error {
 // DropTable drop the table used in unit test
 // This is useful for resource cleanup after a unit test
 func (d SchemaUtils) DropTable(ctx context.Context) error {
-	return d.db.DropTable(ctx, "events_store")
+	return d.db.DropTable(ctx, tableName)
 }

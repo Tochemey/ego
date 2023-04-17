@@ -29,3 +29,44 @@ testprotogen:
 
     # save artifact to
     SAVE ARTIFACT gen/test AS LOCAL test/data
+
+pbs:
+    BUILD +protogen
+    BUILD +testprotogen
+
+test:
+  BUILD +lint
+  BUILD +local-test
+
+code:
+
+    WORKDIR /app
+
+    # download deps
+    COPY go.mod go.sum ./
+    RUN go mod download -x
+
+    # copy in code
+    COPY --dir . ./
+
+vendor:
+    FROM +code
+
+    RUN go mod vendor
+    SAVE ARTIFACT /app /files
+
+lint:
+    FROM +vendor
+
+    COPY .golangci.yml ./
+    # Runs golangci-lint with settings:
+    RUN golangci-lint run --timeout 10m
+
+local-test:
+    FROM +vendor
+
+    WITH DOCKER --pull postgres:11
+        RUN go test -mod=vendor ./... -race -v -coverprofile=coverage.out -covermode=atomic -coverpkg=./...
+    END
+
+    SAVE ARTIFACT coverage.out AS LOCAL coverage.out

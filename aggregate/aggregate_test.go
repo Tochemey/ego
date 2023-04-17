@@ -5,13 +5,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tochemey/ego/storage/memory"
+	postgres2 "github.com/tochemey/ego/storage/postgres"
+
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tochemey/ego/egopb"
 	"github.com/tochemey/ego/internal/postgres"
-	"github.com/tochemey/ego/plugins/store/memory"
-	pg "github.com/tochemey/ego/plugins/store/postgres"
 	testpb "github.com/tochemey/ego/test/data/pb/v1"
 	"github.com/tochemey/goakt/actors"
 	"github.com/tochemey/goakt/log"
@@ -272,7 +273,7 @@ func TestAccountAggregate(t *testing.T) {
 		db := testContainer.GetTestDB()
 		// create the event store table
 		require.NoError(t, db.Connect(ctx))
-		schemaUtils := pg.NewSchemaUtils(db)
+		schemaUtils := postgres2.NewSchemaUtils(db)
 		require.NoError(t, schemaUtils.CreateTable(ctx))
 
 		config := &postgres.Config{
@@ -283,7 +284,7 @@ func TestAccountAggregate(t *testing.T) {
 			DBPassword: testDatabasePassword,
 			DBSchema:   testContainer.Schema(),
 		}
-		eventStore := pg.NewEventsStore(config)
+		eventStore := postgres2.NewEventsStore(config)
 		require.NoError(t, eventStore.Connect(ctx))
 
 		// create a persistence id

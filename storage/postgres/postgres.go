@@ -5,12 +5,13 @@ import (
 	"database/sql"
 	"fmt"
 
+	"github.com/tochemey/ego/storage"
+
 	sq "github.com/Masterminds/squirrel"
 	"github.com/pkg/errors"
 	"github.com/tochemey/ego/egopb"
 	"github.com/tochemey/ego/internal/postgres"
 	"github.com/tochemey/ego/internal/telemetry"
-	"github.com/tochemey/ego/store"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -50,7 +51,7 @@ type EventsStore struct {
 }
 
 // make sure the PostgresEventStore implements the EventsStore interface
-var _ store.EventsStore = &EventsStore{}
+var _ storage.EventsStore = &EventsStore{}
 
 // NewEventsStore creates a new instance of PostgresEventStore
 func NewEventsStore(config *postgres.Config) *EventsStore {

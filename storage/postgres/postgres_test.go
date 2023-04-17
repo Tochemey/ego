@@ -5,11 +5,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tochemey/ego/storage"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tochemey/ego/egopb"
 	"github.com/tochemey/ego/internal/postgres"
-	"github.com/tochemey/ego/store"
 	testpb "github.com/tochemey/ego/test/data/pb/v1"
 	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -30,7 +31,7 @@ func TestPostgresEventsStore(t *testing.T) {
 		estore := NewEventsStore(config)
 		assert.NotNil(t, estore)
 		var p interface{} = estore
-		_, ok := p.(store.EventsStore)
+		_, ok := p.(storage.EventsStore)
 		assert.True(t, ok)
 	})
 	t.Run("testConnect:happy path", func(t *testing.T) {

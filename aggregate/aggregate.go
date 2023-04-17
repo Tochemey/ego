@@ -6,9 +6,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tochemey/ego/storage"
+
 	"github.com/pkg/errors"
 	"github.com/tochemey/ego/egopb"
-	"github.com/tochemey/ego/store"
 	"github.com/tochemey/goakt/actors"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
@@ -45,7 +46,7 @@ type Behavior[T State] interface {
 type Aggregate[T State] struct {
 	Behavior[T]
 	// specifies the events store
-	eventsStore store.EventsStore
+	eventsStore storage.EventsStore
 	// specifies the current state
 	currentState T
 
@@ -58,7 +59,7 @@ type Aggregate[T State] struct {
 var _ actors.Actor = &Aggregate[State]{}
 
 // New creates an instance of Aggregate provided the eventSourcedHandler and the events store
-func New[T State](behavior Behavior[T], eventsStore store.EventsStore) *Aggregate[T] {
+func New[T State](behavior Behavior[T], eventsStore storage.EventsStore) *Aggregate[T] {
 	// create an instance of aggregate and return it
 	return &Aggregate[T]{
 		eventsStore:   eventsStore,
