@@ -88,7 +88,6 @@ func main() {
 	// stop the actor system
 	_ = actorSystem.Stop(ctx)
 	os.Exit(0)
-
 }
 
 // AccountBehavior implements persistence.Behavior
