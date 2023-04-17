@@ -6,10 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tochemey/ego/storage"
-
 	"github.com/pkg/errors"
 	"github.com/tochemey/ego/egopb"
+	"github.com/tochemey/ego/storage"
 	"github.com/tochemey/goakt/actors"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"

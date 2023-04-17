@@ -30,9 +30,23 @@ testprotogen:
     # save artifact to
     SAVE ARTIFACT gen/test AS LOCAL test/data
 
+sample-pb:
+    # copy the proto files to generate
+    COPY --dir protos/ ./
+    COPY buf.work.yaml buf.gen.yaml ./
+
+    # generate the pbs
+    RUN buf generate \
+            --template buf.gen.yaml \
+            --path protos/sample/pb
+
+    # save artifact to
+    SAVE ARTIFACT gen gen AS LOCAL example/pbs
+
 pbs:
     BUILD +protogen
     BUILD +testprotogen
+    BUILD +sample-pb
 
 test:
   BUILD +lint
