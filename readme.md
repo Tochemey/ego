@@ -15,7 +15,15 @@ Under the hood, ego leverages [goakt](https://github.com/Tochemey/goakt) to scal
       They encode the business rules of your event sourced actor and act as a guardian of the Aggregate consistency.
       The command handler must first validate that the incoming command can be applied to the current model state.
       Any decision should be solely based on the data passed in the commands and the state of the Behavior.
-      In case of successful validation, one or more events expressing the mutations are persisted.
+      In case of successful validation, one or more events expressing the mutations are persisted. The following replies to a given command are:
+        - [StateReply](protos): this message is returned when an event is the product of the command handler. The message contains:
+            - the entity id
+            - the resulting state
+            - the actual event to be persisted
+            - the sequence number
+            - the event timestamp
+        - [NoReply](protos): this message is returned when the command does not need a reply.
+        - [ErrorReply](protos): is used when a command processing has failed. This message contains the error message.
       Once the events are persisted, they are applied to the state producing a new valid state.
     - [x] Events handler: The event handlers are used to mutate the state of the Aggregate by applying the events to it.
       Event handlers must be pure functions as they will be used when instantiating the Aggregate and replaying the event store.
