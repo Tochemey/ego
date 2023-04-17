@@ -12,7 +12,7 @@ Ego is a minimal library that help build event-sourcing and CQRS application thr
       which validations must be applied, and finally, which events will be persisted if any. When there is no event to be persisted a nil can
       be returned as a no-op. Command handlers are the meat of the event sourced actor.
       They encode the business rules of your event sourced actor and act as a guardian of the event sourced actor consistency.
-      The command eventSourcedHandler must first validate that the incoming command can be applied to the current model state.
+      The command handler must first validate that the incoming command can be applied to the current model state.
       Any decision should be solely based on the data passed in the commands and the state of the Behavior.
       In case of successful validation, one or more events expressing the mutations are persisted.
       Once the events are persisted, they are applied to the state producing a new valid state.
