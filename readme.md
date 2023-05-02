@@ -32,6 +32,7 @@ Under the hood, ego leverages [goakt](https://github.com/Tochemey/goakt) to scal
       - [x] Postgres
       - [x] Memory
 - [ ] Read Model
+- [ ] Clustering
 
 ## Installation
 ```bash
