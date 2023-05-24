@@ -10,7 +10,7 @@ import (
 	_ "github.com/lib/pq" //nolint
 	"github.com/pkg/errors"
 	"go.opentelemetry.io/otel"
-	semconv "go.opentelemetry.io/otel/semconv/v1.18.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.20.0"
 )
 
 // Postgres helps interact with the Postgres database

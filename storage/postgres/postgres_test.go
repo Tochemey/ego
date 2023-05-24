@@ -5,12 +5,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tochemey/ego/storage"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tochemey/ego/egopb"
 	"github.com/tochemey/ego/internal/postgres"
+	"github.com/tochemey/ego/storage"
 	testpb "github.com/tochemey/ego/test/data/pb/v1"
 	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/types/known/anypb"

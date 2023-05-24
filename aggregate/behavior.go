@@ -8,8 +8,10 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/tochemey/ego/egopb"
+	"github.com/tochemey/ego/internal/telemetry"
 	"github.com/tochemey/ego/storage"
 	"github.com/tochemey/goakt/actors"
+	goaktmessagesv1 "github.com/tochemey/goakt/messages/v1"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -41,8 +43,8 @@ type Behavior[T State] interface {
 	HandleEvent(ctx context.Context, event Event, priorState T) (state T, err error)
 }
 
-// Aggregate is an event sourced based actor
-type Aggregate[T State] struct {
+// Entity is an event sourced based actor
+type Entity[T State] struct {
 	Behavior[T]
 	// specifies the events store
 	eventsStore storage.EventsStore
@@ -55,12 +57,12 @@ type Aggregate[T State] struct {
 }
 
 // enforce compilation error
-var _ actors.Actor = &Aggregate[State]{}
+var _ actors.Actor = &Entity[State]{}
 
-// New creates an instance of Aggregate provided the eventSourcedHandler and the events store
-func New[T State](behavior Behavior[T], eventsStore storage.EventsStore) *Aggregate[T] {
+// New creates an instance of Entity provided the eventSourcedHandler and the events store
+func New[T State](behavior Behavior[T], eventsStore storage.EventsStore) *Entity[T] {
 	// create an instance of aggregate and return it
-	return &Aggregate[T]{
+	return &Entity[T]{
 		eventsStore:   eventsStore,
 		Behavior:      behavior,
 		eventsCounter: atomic.NewUint64(0),
@@ -70,7 +72,7 @@ func New[T State](behavior Behavior[T], eventsStore storage.EventsStore) *Aggreg
 
 // PreStart pre-starts the actor
 // At this stage we connect to the various stores
-func (a *Aggregate[T]) PreStart(ctx context.Context) error {
+func (a *Entity[T]) PreStart(ctx context.Context) error {
 	// add a span context
 	//ctx, span := telemetry.SpanContext(ctx, "PreStart")
 	//defer span.End()
@@ -97,12 +99,10 @@ func (a *Aggregate[T]) PreStart(ctx context.Context) error {
 }
 
 // Receive processes any message dropped into the actor mailbox.
-func (a *Aggregate[T]) Receive(ctx actors.ReceiveContext) {
-	// grab the context
-	goCtx := ctx.Context()
+func (a *Entity[T]) Receive(ctx actors.ReceiveContext) {
 	// add a span context
-	//goCtx, span := telemetry.SpanContext(ctx.Context(), "Receive")
-	//defer span.End()
+	_, span := telemetry.SpanContext(ctx.Context(), "Receive")
+	defer span.End()
 
 	// acquire the lock
 	a.mu.Lock()
@@ -111,147 +111,31 @@ func (a *Aggregate[T]) Receive(ctx actors.ReceiveContext) {
 
 	// grab the command sent
 	switch command := ctx.Message().(type) {
-	case *egopb.GetStateCommand:
-		// let us fetch the latest journal
-		latestEvent, err := a.eventsStore.GetLatestEvent(goCtx, a.ID())
+	case *goaktmessagesv1.RemoteMessage:
+		// this will help handle messages when cluster mode is enabled
+		msg := command.GetMessage()
+		// let us unpack the message
+		unpacked, err := msg.UnmarshalNew()
 		// handle the error
 		if err != nil {
-			// create a new error reply
-			reply := &egopb.CommandReply{
-				Reply: &egopb.CommandReply_ErrorReply{
-					ErrorReply: &egopb.ErrorReply{
-						Message: err.Error(),
-					},
-				},
-			}
-			// send the response
-			ctx.Response(reply)
+			a.sendErrorReply(ctx, err)
 			return
 		}
-
-		// reply with the state unmarshalled
-		resultingState := latestEvent.GetResultingState()
-		reply := &egopb.CommandReply{
-			Reply: &egopb.CommandReply_StateReply{
-				StateReply: &egopb.StateReply{
-					PersistenceId:  a.ID(),
-					State:          resultingState,
-					SequenceNumber: latestEvent.GetSequenceNumber(),
-					Timestamp:      latestEvent.GetTimestamp(),
-				},
-			},
+		switch unpacked.(type) {
+		case *egopb.GetStateCommand:
+			a.getStateAndReply(ctx)
+		default:
+			a.processCommandAndReply(ctx, unpacked)
 		}
-
-		// send the response
-		ctx.Response(reply)
+	case *egopb.GetStateCommand:
+		a.getStateAndReply(ctx)
 	default:
-		// pass the received command to the command handler
-		event, err := a.HandleCommand(goCtx, command, a.currentState)
-		// handle the command handler error
-		if err != nil {
-			// create a new error reply
-			reply := &egopb.CommandReply{
-				Reply: &egopb.CommandReply_ErrorReply{
-					ErrorReply: &egopb.ErrorReply{
-						Message: err.Error(),
-					},
-				},
-			}
-			// send the response
-			ctx.Response(reply)
-			return
-		}
-
-		// if the event is nil nothing is persisted, and we return no reply
-		if event == nil {
-			// create a new error reply
-			reply := &egopb.CommandReply{
-				Reply: &egopb.CommandReply_NoReply{
-					NoReply: &egopb.NoReply{},
-				},
-			}
-			// send the response
-			ctx.Response(reply)
-			return
-		}
-
-		// process the event by calling the event handler
-		resultingState, err := a.HandleEvent(goCtx, event, a.currentState)
-		// handle the event handler error
-		if err != nil {
-			// create a new error reply
-			reply := &egopb.CommandReply{
-				Reply: &egopb.CommandReply_ErrorReply{
-					ErrorReply: &egopb.ErrorReply{
-						Message: err.Error(),
-					},
-				},
-			}
-			// send the response
-			ctx.Response(reply)
-			return
-		}
-
-		// increment the event counter
-		a.eventsCounter.Inc()
-
-		// set the current state for the next command
-		a.currentState = resultingState
-
-		// marshal the event and the resulting state
-		marshaledEvent, _ := anypb.New(event)
-		marshaledState, _ := anypb.New(resultingState)
-
-		sequenceNumber := a.eventsCounter.Load()
-		timestamp := timestamppb.Now()
-		a.lastCommandTime = timestamp.AsTime()
-
-		// create the event
-		envelope := &egopb.Event{
-			PersistenceId:  a.ID(),
-			SequenceNumber: sequenceNumber,
-			IsDeleted:      false,
-			Event:          marshaledEvent,
-			ResultingState: marshaledState,
-			Timestamp:      a.lastCommandTime.Unix(),
-		}
-
-		// create a journal list
-		journals := []*egopb.Event{envelope}
-
-		// TODO persist the event in batch using a child actor
-		if err := a.eventsStore.WriteEvents(goCtx, journals); err != nil {
-			// create a new error reply
-			reply := &egopb.CommandReply{
-				Reply: &egopb.CommandReply_ErrorReply{
-					ErrorReply: &egopb.ErrorReply{
-						Message: err.Error(),
-					},
-				},
-			}
-			// send the response
-			ctx.Response(reply)
-			return
-		}
-
-		reply := &egopb.CommandReply{
-			Reply: &egopb.CommandReply_StateReply{
-				StateReply: &egopb.StateReply{
-					PersistenceId:  a.ID(),
-					State:          marshaledState,
-					SequenceNumber: sequenceNumber,
-					Timestamp:      a.lastCommandTime.Unix(),
-				},
-			},
-		}
-
-		// send the response
-		ctx.Response(reply)
+		a.processCommandAndReply(ctx, command)
 	}
 }
 
 // PostStop prepares the actor to gracefully shutdown
-func (a *Aggregate[T]) PostStop(ctx context.Context) error {
+func (a *Entity[T]) PostStop(ctx context.Context) error {
 	// add a span context
 	//ctx, span := telemetry.SpanContext(ctx, "PostStop")
 	//defer span.End()
@@ -270,7 +154,7 @@ func (a *Aggregate[T]) PostStop(ctx context.Context) error {
 
 // recoverFromSnapshot reset the persistent actor to the latest snapshot in case there is one
 // this is vital when the aggregate actor is restarting.
-func (a *Aggregate[T]) recoverFromSnapshot(ctx context.Context) error {
+func (a *Entity[T]) recoverFromSnapshot(ctx context.Context) error {
 	// add a span context
 	//ctx, span := telemetry.SpanContext(ctx, "RecoverFromSnapshot")
 	//defer span.End()
@@ -297,4 +181,129 @@ func (a *Aggregate[T]) recoverFromSnapshot(ctx context.Context) error {
 	// in case there is no snapshot
 	a.currentState = a.InitialState()
 	return nil
+}
+
+// sendErrorReply sends an error as a reply message
+func (a *Entity[T]) sendErrorReply(ctx actors.ReceiveContext, err error) {
+	// create a new error reply
+	reply := &egopb.CommandReply{
+		Reply: &egopb.CommandReply_ErrorReply{
+			ErrorReply: &egopb.ErrorReply{
+				Message: err.Error(),
+			},
+		},
+	}
+	// send the response
+	ctx.Response(reply)
+}
+
+// getStateAndReply returns the current state of the entity
+func (a *Entity[T]) getStateAndReply(ctx actors.ReceiveContext) {
+	// let us fetch the latest journal
+	latestEvent, err := a.eventsStore.GetLatestEvent(ctx.Context(), a.ID())
+	// handle the error
+	if err != nil {
+		a.sendErrorReply(ctx, err)
+		return
+	}
+
+	// reply with the state unmarshalled
+	resultingState := latestEvent.GetResultingState()
+	reply := &egopb.CommandReply{
+		Reply: &egopb.CommandReply_StateReply{
+			StateReply: &egopb.StateReply{
+				PersistenceId:  a.ID(),
+				State:          resultingState,
+				SequenceNumber: latestEvent.GetSequenceNumber(),
+				Timestamp:      latestEvent.GetTimestamp(),
+			},
+		},
+	}
+
+	// send the response
+	ctx.Response(reply)
+}
+
+// processCommandAndReply processes the incoming command
+func (a *Entity[T]) processCommandAndReply(ctx actors.ReceiveContext, command Command) {
+	// set the go context
+	goCtx := ctx.Context()
+	// pass the received command to the command handler
+	event, err := a.HandleCommand(goCtx, command, a.currentState)
+	// handle the command handler error
+	if err != nil {
+		// send an error reply
+		a.sendErrorReply(ctx, err)
+		return
+	}
+
+	// if the event is nil nothing is persisted, and we return no reply
+	if event == nil {
+		// create a new error reply
+		reply := &egopb.CommandReply{
+			Reply: &egopb.CommandReply_NoReply{
+				NoReply: &egopb.NoReply{},
+			},
+		}
+		// send the response
+		ctx.Response(reply)
+		return
+	}
+
+	// process the event by calling the event handler
+	resultingState, err := a.HandleEvent(goCtx, event, a.currentState)
+	// handle the event handler error
+	if err != nil {
+		// send an error reply
+		a.sendErrorReply(ctx, err)
+		return
+	}
+
+	// increment the event counter
+	a.eventsCounter.Inc()
+
+	// set the current state for the next command
+	a.currentState = resultingState
+
+	// marshal the event and the resulting state
+	marshaledEvent, _ := anypb.New(event)
+	marshaledState, _ := anypb.New(resultingState)
+
+	sequenceNumber := a.eventsCounter.Load()
+	timestamp := timestamppb.Now()
+	a.lastCommandTime = timestamp.AsTime()
+
+	// create the event
+	envelope := &egopb.Event{
+		PersistenceId:  a.ID(),
+		SequenceNumber: sequenceNumber,
+		IsDeleted:      false,
+		Event:          marshaledEvent,
+		ResultingState: marshaledState,
+		Timestamp:      a.lastCommandTime.Unix(),
+	}
+
+	// create a journal list
+	journals := []*egopb.Event{envelope}
+
+	// TODO persist the event in batch using a child actor
+	if err := a.eventsStore.WriteEvents(goCtx, journals); err != nil {
+		// send an error reply
+		a.sendErrorReply(ctx, err)
+		return
+	}
+
+	reply := &egopb.CommandReply{
+		Reply: &egopb.CommandReply_StateReply{
+			StateReply: &egopb.StateReply{
+				PersistenceId:  a.ID(),
+				State:          marshaledState,
+				SequenceNumber: sequenceNumber,
+				Timestamp:      a.lastCommandTime.Unix(),
+			},
+		},
+	}
+
+	// send the response
+	ctx.Response(reply)
 }

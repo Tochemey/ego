@@ -7,45 +7,32 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/google/uuid"
+	"github.com/tochemey/ego"
 	"github.com/tochemey/ego/aggregate"
 	"github.com/tochemey/ego/egopb"
 	samplepb "github.com/tochemey/ego/example/pbs/sample/pb/v1"
 	"github.com/tochemey/ego/storage/memory"
-	goakt "github.com/tochemey/goakt/actors"
 	"google.golang.org/protobuf/proto"
 )
 
 func main() {
 	// create the go context
 	ctx := context.Background()
-	// create the actor system
-	// create the actor system configuration. kindly in real-life application handle the error
-	config, _ := goakt.NewConfig("SampleActorSystem", "127.0.0.1:0",
-		goakt.WithPassivationDisabled(),
-		goakt.WithActorInitMaxRetries(1))
-
-	// create the actor system. kindly in real-life application handle the error
-	actorSystem, _ := goakt.NewActorSystem(config)
-
-	// start the actor system
-	_ = actorSystem.Start(ctx)
-
 	// create the event store
 	eventStore := memory.NewEventsStore()
-
+	// create the ego engine
+	e := ego.New("Sample", eventStore)
+	// start ego engine
+	_ = e.Start(ctx)
 	// create a persistence id
 	entityID := uuid.NewString()
-
 	// create an aggregate behavior with a given id
 	behavior := NewAccountBehavior(entityID)
+	// create an aggregate
+	ego.CreateAggregate[*samplepb.Account](ctx, e, behavior)
 
-	// create the given aggregate
-	aggregate := aggregate.New[*samplepb.Account](behavior, eventStore)
-	// spawn an actor
-	pid := actorSystem.StartActor(ctx, behavior.ID(), aggregate)
 	// send some commands to the pid
 	var command proto.Message
 	// create an account
@@ -54,10 +41,8 @@ func main() {
 		AccountBalance: 500.00,
 	}
 	// send the command to the actor. Please don't ignore the error in production grid code
-	reply, _ := goakt.SendSync(ctx, pid, command, time.Second)
-	// cast the reply to a command reply because we know the persistence actor will always send a command reply
-	commandReply := reply.(*egopb.CommandReply)
-	state := commandReply.GetReply().(*egopb.CommandReply_StateReply)
+	reply, _ := e.SendCommand(ctx, command, entityID)
+	state := reply.GetReply().(*egopb.CommandReply_StateReply)
 	log.Printf("resulting sequence number: %d", state.StateReply.GetSequenceNumber())
 
 	account := new(samplepb.Account)
@@ -70,9 +55,8 @@ func main() {
 		AccountId: entityID,
 		Balance:   250,
 	}
-	reply, _ = goakt.SendSync(ctx, pid, command, time.Second)
-	commandReply = reply.(*egopb.CommandReply)
-	state = commandReply.GetReply().(*egopb.CommandReply_StateReply)
+	reply, _ = e.SendCommand(ctx, command, entityID)
+	state = reply.GetReply().(*egopb.CommandReply_StateReply)
 	log.Printf("resulting sequence number: %d", state.StateReply.GetSequenceNumber())
 
 	account = new(samplepb.Account)
@@ -86,7 +70,7 @@ func main() {
 	<-interruptSignal
 
 	// stop the actor system
-	_ = actorSystem.Stop(ctx)
+	_ = e.Stop(ctx)
 	os.Exit(0)
 }
 

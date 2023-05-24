@@ -5,14 +5,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tochemey/ego/storage/memory"
-	postgres2 "github.com/tochemey/ego/storage/postgres"
-
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tochemey/ego/egopb"
 	"github.com/tochemey/ego/internal/postgres"
+	"github.com/tochemey/ego/storage/memory"
+	pgstore "github.com/tochemey/ego/storage/postgres"
 	testpb "github.com/tochemey/ego/test/data/pb/v1"
 	"github.com/tochemey/goakt/actors"
 	"github.com/tochemey/goakt/log"
@@ -25,7 +24,7 @@ func TestAccountAggregate(t *testing.T) {
 		defer goleak.VerifyNone(t)
 		ctx := context.TODO()
 		// create an actor config
-		actorConfig, err := actors.NewConfig("TestActorSystem", "127.0.0.1:0",
+		actorConfig, err := actors.NewConfig("TestActorSystem",
 			actors.WithPassivationDisabled(),
 			actors.WithLogger(log.DiscardLogger),
 			actors.WithActorInitMaxRetries(3))
@@ -47,7 +46,7 @@ func TestAccountAggregate(t *testing.T) {
 		// create a persistence id
 		persistenceID := uuid.NewString()
 		// create the persistence behavior
-		behavior := NewAccountAggregateBehavior(persistenceID)
+		behavior := NewAccountEntityBehavior(persistenceID)
 
 		// create the persistence actor using the behavior previously created
 		actor := New[*testpb.Account](behavior, eventStore)
@@ -59,7 +58,7 @@ func TestAccountAggregate(t *testing.T) {
 
 		command = &testpb.CreateAccount{AccountBalance: 500.00}
 		// send the command to the actor
-		reply, err := actors.SendSync(ctx, pid, command, 5*time.Second)
+		reply, err := actors.Ask(ctx, pid, command, 5*time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, reply)
 		require.IsType(t, new(egopb.CommandReply), reply)
@@ -86,7 +85,7 @@ func TestAccountAggregate(t *testing.T) {
 			AccountId: persistenceID,
 			Balance:   250,
 		}
-		reply, err = actors.SendSync(ctx, pid, command, 5*time.Second)
+		reply, err = actors.Ask(ctx, pid, command, 5*time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, reply)
 		require.IsType(t, new(egopb.CommandReply), reply)
@@ -116,7 +115,7 @@ func TestAccountAggregate(t *testing.T) {
 		defer goleak.VerifyNone(t)
 		ctx := context.TODO()
 		// create an actor config
-		actorConfig, err := actors.NewConfig("TestActorSystem", "127.0.0.1:0",
+		actorConfig, err := actors.NewConfig("TestActorSystem",
 			actors.WithPassivationDisabled(),
 			actors.WithLogger(log.DiscardLogger),
 			actors.WithActorInitMaxRetries(3))
@@ -138,7 +137,7 @@ func TestAccountAggregate(t *testing.T) {
 		// create a persistence id
 		persistenceID := uuid.NewString()
 		// create the persistence behavior
-		behavior := NewAccountAggregateBehavior(persistenceID)
+		behavior := NewAccountEntityBehavior(persistenceID)
 
 		// create the persistence actor using the behavior previously created
 		persistentActor := New[*testpb.Account](behavior, eventStore)
@@ -150,7 +149,7 @@ func TestAccountAggregate(t *testing.T) {
 
 		command = &testpb.CreateAccount{AccountBalance: 500.00}
 		// send the command to the actor
-		reply, err := actors.SendSync(ctx, pid, command, time.Second)
+		reply, err := actors.Ask(ctx, pid, command, time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, reply)
 		require.IsType(t, new(egopb.CommandReply), reply)
@@ -177,7 +176,7 @@ func TestAccountAggregate(t *testing.T) {
 			AccountId: "different-id",
 			Balance:   250,
 		}
-		reply, err = actors.SendSync(ctx, pid, command, time.Second)
+		reply, err = actors.Ask(ctx, pid, command, time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, reply)
 		require.IsType(t, new(egopb.CommandReply), reply)
@@ -196,7 +195,7 @@ func TestAccountAggregate(t *testing.T) {
 		defer goleak.VerifyNone(t)
 		ctx := context.TODO()
 		// create an actor config
-		actorConfig, err := actors.NewConfig("TestActorSystem", "127.0.0.1:0",
+		actorConfig, err := actors.NewConfig("TestActorSystem",
 			actors.WithPassivationDisabled(),
 			actors.WithLogger(log.DiscardLogger),
 			actors.WithActorInitMaxRetries(3))
@@ -218,7 +217,7 @@ func TestAccountAggregate(t *testing.T) {
 		// create a persistence id
 		persistenceID := uuid.NewString()
 		// create the persistence behavior
-		behavior := NewAccountAggregateBehavior(persistenceID)
+		behavior := NewAccountEntityBehavior(persistenceID)
 
 		// create the persistence actor using the behavior previously created
 		persistentActor := New[*testpb.Account](behavior, eventStore)
@@ -228,7 +227,7 @@ func TestAccountAggregate(t *testing.T) {
 
 		command := &testpb.TestSend{}
 		// send the command to the actor
-		reply, err := actors.SendSync(ctx, pid, command, time.Second)
+		reply, err := actors.Ask(ctx, pid, command, time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, reply)
 		require.IsType(t, new(egopb.CommandReply), reply)
@@ -245,7 +244,7 @@ func TestAccountAggregate(t *testing.T) {
 	t.Run("with state recovery from event store", func(t *testing.T) {
 		ctx := context.TODO()
 		// create an actor config
-		actorConfig, err := actors.NewConfig("TestActorSystem", "127.0.0.1:0",
+		actorConfig, err := actors.NewConfig("TestActorSystem",
 			actors.WithPassivationDisabled(),
 			actors.WithLogger(log.DiscardLogger),
 			actors.WithActorInitMaxRetries(3))
@@ -273,7 +272,7 @@ func TestAccountAggregate(t *testing.T) {
 		db := testContainer.GetTestDB()
 		// create the event store table
 		require.NoError(t, db.Connect(ctx))
-		schemaUtils := postgres2.NewSchemaUtils(db)
+		schemaUtils := pgstore.NewSchemaUtils(db)
 		require.NoError(t, schemaUtils.CreateTable(ctx))
 
 		config := &postgres.Config{
@@ -284,13 +283,13 @@ func TestAccountAggregate(t *testing.T) {
 			DBPassword: testDatabasePassword,
 			DBSchema:   testContainer.Schema(),
 		}
-		eventStore := postgres2.NewEventsStore(config)
+		eventStore := pgstore.NewEventsStore(config)
 		require.NoError(t, eventStore.Connect(ctx))
 
 		// create a persistence id
 		persistenceID := uuid.NewString()
 		// create the persistence behavior
-		behavior := NewAccountAggregateBehavior(persistenceID)
+		behavior := NewAccountEntityBehavior(persistenceID)
 
 		// create the persistence actor using the behavior previously created
 		persistentActor := New[*testpb.Account](behavior, eventStore)
@@ -302,7 +301,7 @@ func TestAccountAggregate(t *testing.T) {
 
 		command = &testpb.CreateAccount{AccountBalance: 500.00}
 		// send the command to the actor
-		reply, err := actors.SendSync(ctx, pid, command, time.Second)
+		reply, err := actors.Ask(ctx, pid, command, time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, reply)
 		require.IsType(t, new(egopb.CommandReply), reply)
@@ -329,7 +328,7 @@ func TestAccountAggregate(t *testing.T) {
 			AccountId: persistenceID,
 			Balance:   250,
 		}
-		reply, err = actors.SendSync(ctx, pid, command, time.Second)
+		reply, err = actors.Ask(ctx, pid, command, time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, reply)
 		require.IsType(t, new(egopb.CommandReply), reply)
@@ -362,7 +361,7 @@ func TestAccountAggregate(t *testing.T) {
 
 		// fetch the current state
 		command = &egopb.GetStateCommand{}
-		reply, err = actors.SendSync(ctx, pid, command, time.Second)
+		reply, err = actors.Ask(ctx, pid, command, time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, reply)
 		require.IsType(t, new(egopb.CommandReply), reply)

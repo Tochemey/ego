@@ -7,27 +7,27 @@ import (
 	testpb "github.com/tochemey/ego/test/data/pb/v1"
 )
 
-// AccountAggregateBehavior implement Behavior
-type AccountAggregateBehavior struct {
+// AccountEntityBehavior implement Behavior
+type AccountEntityBehavior struct {
 	id string
 }
 
 // make sure that testAccountBehavior is a true persistence behavior
-var _ Behavior[*testpb.Account] = &AccountAggregateBehavior{}
+var _ Behavior[*testpb.Account] = &AccountEntityBehavior{}
 
-// NewAccountAggregateBehavior creates an instance of AccountAggregateBehavior
-func NewAccountAggregateBehavior(id string) *AccountAggregateBehavior {
-	return &AccountAggregateBehavior{id: id}
+// NewAccountEntityBehavior creates an instance of AccountEntityBehavior
+func NewAccountEntityBehavior(id string) *AccountEntityBehavior {
+	return &AccountEntityBehavior{id: id}
 }
-func (t *AccountAggregateBehavior) ID() string {
+func (t *AccountEntityBehavior) ID() string {
 	return t.id
 }
 
-func (t *AccountAggregateBehavior) InitialState() *testpb.Account {
+func (t *AccountEntityBehavior) InitialState() *testpb.Account {
 	return new(testpb.Account)
 }
 
-func (t *AccountAggregateBehavior) HandleCommand(ctx context.Context, command Command, priorState *testpb.Account) (event Event, err error) {
+func (t *AccountEntityBehavior) HandleCommand(ctx context.Context, command Command, priorState *testpb.Account) (event Event, err error) {
 	switch cmd := command.(type) {
 	case *testpb.CreateAccount:
 		// TODO in production grid app validate the command using the prior state
@@ -51,7 +51,7 @@ func (t *AccountAggregateBehavior) HandleCommand(ctx context.Context, command Co
 	}
 }
 
-func (t *AccountAggregateBehavior) HandleEvent(ctx context.Context, event Event, priorState *testpb.Account) (state *testpb.Account, err error) {
+func (t *AccountEntityBehavior) HandleEvent(ctx context.Context, event Event, priorState *testpb.Account) (state *testpb.Account, err error) {
 	switch evt := event.(type) {
 	case *testpb.AccountCreated:
 		return &testpb.Account{

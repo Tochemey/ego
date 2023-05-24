@@ -1,4 +1,4 @@
-# Ego [Experimental]
+# Ego
 
 [![build](https://img.shields.io/github/actions/workflow/status/Tochemey/ego/build.yml?branch=main)](https://github.com/Tochemey/ego/actions/workflows/build.yml)
 [![codecov](https://codecov.io/gh/Tochemey/ego/branch/main/graph/badge.svg?token=Z5b9gM6Mnt)](https://codecov.io/gh/Tochemey/ego)
@@ -8,8 +8,8 @@ Under the hood, ego leverages [goakt](https://github.com/Tochemey/goakt) to scal
 
 ## Features
 
-- [x] Write Model:
-    - [x] Commands handler: The command handlers define how to handle each incoming command,
+- Write Model:
+    - Commands handler: The command handlers define how to handle each incoming command,
       which validations must be applied, and finally, which events will be persisted if any. When there is no event to be persisted a nil can
       be returned as a no-op. Command handlers are the meat of the event sourced actor.
       They encode the business rules of your event sourced actor and act as a guardian of the Aggregate consistency.
@@ -25,14 +25,13 @@ Under the hood, ego leverages [goakt](https://github.com/Tochemey/goakt) to scal
         - [NoReply](protos): this message is returned when the command does not need a reply.
         - [ErrorReply](protos): is used when a command processing has failed. This message contains the error message.
       Once the events are persisted, they are applied to the state producing a new valid state.
-    - [x] Events handler: The event handlers are used to mutate the state of the Aggregate by applying the events to it.
+    - Events handler: The event handlers are used to mutate the state of the Aggregate by applying the events to it.
       Event handlers must be pure functions as they will be used when instantiating the Aggregate and replaying the event store.
-    - [x] Extensible events store 
-    - [x] Built-in events store
-      - [x] Postgres
-      - [x] Memory
-- [ ] Read Model
-- [ ] Clustering
+    - Extensible events store 
+    - Built-in events store
+      - Postgres
+      - Memory
+- Clustering
 
 ## Installation
 ```bash
@@ -50,45 +49,35 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/google/uuid"
+	"github.com/tochemey/ego"
 	"github.com/tochemey/ego/aggregate"
 	"github.com/tochemey/ego/egopb"
 	samplepb "github.com/tochemey/ego/example/pbs/sample/pb/v1"
 	"github.com/tochemey/ego/storage/memory"
-	goakt "github.com/tochemey/goakt/actors"
 	"google.golang.org/protobuf/proto"
 )
 
 func main() {
 	// create the go context
 	ctx := context.Background()
-	// create the actor system
-	// create the actor system configuration. kindly in real-life application handle the error
-	config, _ := goakt.NewConfig("SampleActorSystem", "127.0.0.1:0",
-		goakt.WithPassivationDisabled(),
-		goakt.WithActorInitMaxRetries(1))
-
-	// create the actor system. kindly in real-life application handle the error
-	actorSystem, _ := goakt.NewActorSystem(config)
-
-	// start the actor system
-	_ = actorSystem.Start(ctx)
-
+	
 	// create the event store
 	eventStore := memory.NewEventsStore()
-
+	// create the ego engine
+	e := ego.New("Sample", eventStore)
+	
+	// start ego engine
+	_ = e.Start(ctx)
+	
 	// create a persistence id
 	entityID := uuid.NewString()
-
 	// create an aggregate behavior with a given id
 	behavior := NewAccountBehavior(entityID)
+	// create an aggregate
+	ego.CreateAggregate[*samplepb.Account](ctx, e, behavior)
 
-	// create the given aggregate
-	aggregate := aggregate.New[*samplepb.Account](behavior, eventStore)
-	// spawn an actor
-	pid := actorSystem.StartActor(ctx, behavior.ID(), aggregate)
 	// send some commands to the pid
 	var command proto.Message
 	// create an account
@@ -97,10 +86,8 @@ func main() {
 		AccountBalance: 500.00,
 	}
 	// send the command to the actor. Please don't ignore the error in production grid code
-	reply, _ := goakt.SendSync(ctx, pid, command, time.Second)
-	// cast the reply to a command reply because we know the persistence actor will always send a command reply
-	commandReply := reply.(*egopb.CommandReply)
-	state := commandReply.GetReply().(*egopb.CommandReply_StateReply)
+	reply, _ := e.SendCommand(ctx, command, entityID)
+	state := reply.GetReply().(*egopb.CommandReply_StateReply)
 	log.Printf("resulting sequence number: %d", state.StateReply.GetSequenceNumber())
 
 	account := new(samplepb.Account)
@@ -113,9 +100,8 @@ func main() {
 		AccountId: entityID,
 		Balance:   250,
 	}
-	reply, _ = goakt.SendSync(ctx, pid, command, time.Second)
-	commandReply = reply.(*egopb.CommandReply)
-	state = commandReply.GetReply().(*egopb.CommandReply_StateReply)
+	reply, _ = e.SendCommand(ctx, command, entityID)
+	state = reply.GetReply().(*egopb.CommandReply_StateReply)
 	log.Printf("resulting sequence number: %d", state.StateReply.GetSequenceNumber())
 
 	account = new(samplepb.Account)
@@ -128,10 +114,9 @@ func main() {
 	signal.Notify(interruptSignal, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	<-interruptSignal
 
-	// stop the actor system
-	_ = actorSystem.Stop(ctx)
+	// stop the ego engine
+	_ = e.Stop(ctx)
 	os.Exit(0)
-
 }
 
 // AccountBehavior implements persistence.Behavior
@@ -199,7 +184,6 @@ func (a *AccountBehavior) HandleEvent(ctx context.Context, event aggregate.Event
 		return nil, errors.New("unhandled event")
 	}
 }
-
 ```
 
 ## Contribution
