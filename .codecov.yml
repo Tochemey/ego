@@ -5,3 +5,4 @@ coverage:
 ignore:
   - "egopb"
   - "test"
+  - "example"

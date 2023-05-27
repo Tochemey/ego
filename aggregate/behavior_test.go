@@ -23,17 +23,11 @@ func TestAccountAggregate(t *testing.T) {
 	t.Run("with state reply", func(t *testing.T) {
 		defer goleak.VerifyNone(t)
 		ctx := context.TODO()
-		// create an actor config
-		actorConfig, err := actors.NewConfig("TestActorSystem",
+		// create an actor system
+		actorSystem, err := actors.NewActorSystem("TestActorSystem",
 			actors.WithPassivationDisabled(),
 			actors.WithLogger(log.DiscardLogger),
 			actors.WithActorInitMaxRetries(3))
-
-		require.NoError(t, err)
-		assert.NotNil(t, actorConfig)
-
-		// create an actor system
-		actorSystem, err := actors.NewActorSystem(actorConfig)
 		require.NoError(t, err)
 		assert.NotNil(t, actorSystem)
 
@@ -114,17 +108,12 @@ func TestAccountAggregate(t *testing.T) {
 	t.Run("with error reply", func(t *testing.T) {
 		defer goleak.VerifyNone(t)
 		ctx := context.TODO()
-		// create an actor config
-		actorConfig, err := actors.NewConfig("TestActorSystem",
+
+		// create an actor system
+		actorSystem, err := actors.NewActorSystem("TestActorSystem",
 			actors.WithPassivationDisabled(),
 			actors.WithLogger(log.DiscardLogger),
 			actors.WithActorInitMaxRetries(3))
-
-		require.NoError(t, err)
-		assert.NotNil(t, actorConfig)
-
-		// create an actor system
-		actorSystem, err := actors.NewActorSystem(actorConfig)
 		require.NoError(t, err)
 		assert.NotNil(t, actorSystem)
 
@@ -194,17 +183,12 @@ func TestAccountAggregate(t *testing.T) {
 	t.Run("with unhandled command", func(t *testing.T) {
 		defer goleak.VerifyNone(t)
 		ctx := context.TODO()
-		// create an actor config
-		actorConfig, err := actors.NewConfig("TestActorSystem",
+
+		// create an actor system
+		actorSystem, err := actors.NewActorSystem("TestActorSystem",
 			actors.WithPassivationDisabled(),
 			actors.WithLogger(log.DiscardLogger),
 			actors.WithActorInitMaxRetries(3))
-
-		require.NoError(t, err)
-		assert.NotNil(t, actorConfig)
-
-		// create an actor system
-		actorSystem, err := actors.NewActorSystem(actorConfig)
 		require.NoError(t, err)
 		assert.NotNil(t, actorSystem)
 
@@ -243,17 +227,12 @@ func TestAccountAggregate(t *testing.T) {
 	})
 	t.Run("with state recovery from event store", func(t *testing.T) {
 		ctx := context.TODO()
-		// create an actor config
-		actorConfig, err := actors.NewConfig("TestActorSystem",
+
+		// create an actor system
+		actorSystem, err := actors.NewActorSystem("TestActorSystem",
 			actors.WithPassivationDisabled(),
 			actors.WithLogger(log.DiscardLogger),
 			actors.WithActorInitMaxRetries(3))
-
-		require.NoError(t, err)
-		assert.NotNil(t, actorConfig)
-
-		// create an actor system
-		actorSystem, err := actors.NewActorSystem(actorConfig)
 		require.NoError(t, err)
 		assert.NotNil(t, actorSystem)
 

@@ -62,17 +62,9 @@ func (e *Ego) Start(ctx context.Context) error {
 		opts = append(opts, actors.WithClustering(e.discoveryMode, e.remotingPort))
 	}
 
-	// create the actor system configuration
-	cfg, err := actors.NewConfig(e.name, opts...)
-	// handle the error
-	if err != nil {
-		// log the error
-		e.logger.Error(errors.Wrap(err, "failed to create the ego actor system configuration"))
-		return err
-	}
-
+	var err error
 	// create the actor system that will empower the entities
-	e.actorSystem, err = actors.NewActorSystem(cfg)
+	e.actorSystem, err = actors.NewActorSystem(e.name, opts...)
 	// handle the error
 	if err != nil {
 		// log the error
