@@ -31,7 +31,9 @@ Under the hood, ego leverages [goakt](https://github.com/Tochemey/goakt) to scal
     - Built-in events store
       - Postgres
       - Memory
-- Clustering
+    - Cluster Mode
+- Read Model: To enable the read model just start the projection engine with an event handler and one can build a read model of all events persisted by the write model. 
+            At the moment the projection engine only come bundled with an in-memory offset store. One can easily implement an offset store using the interface provided.
 
 ## Installation
 ```bash
@@ -39,6 +41,7 @@ go get github.com/tochemey/ego
 ```
 
 ## Example
+
 ```go
 package main
 
@@ -55,22 +58,22 @@ import (
 	"github.com/tochemey/ego/aggregate"
 	"github.com/tochemey/ego/egopb"
 	samplepb "github.com/tochemey/ego/example/pbs/sample/pb/v1"
-	"github.com/tochemey/ego/storage/memory"
+	"github.com/tochemey/ego/eventstore/memory"
 	"google.golang.org/protobuf/proto"
 )
 
 func main() {
 	// create the go context
 	ctx := context.Background()
-	
+
 	// create the event store
 	eventStore := memory.NewEventsStore()
 	// create the ego engine
 	e := ego.New("Sample", eventStore)
-	
+
 	// start ego engine
 	_ = e.Start(ctx)
-	
+
 	// create a persistence id
 	entityID := uuid.NewString()
 	// create an aggregate behavior with a given id

@@ -8,12 +8,13 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/tochemey/ego/eventstore/memory"
+
 	"github.com/google/uuid"
 	"github.com/tochemey/ego"
 	"github.com/tochemey/ego/aggregate"
 	"github.com/tochemey/ego/egopb"
 	samplepb "github.com/tochemey/ego/example/pbs/sample/pb/v1"
-	"github.com/tochemey/ego/storage/memory"
 	"google.golang.org/protobuf/proto"
 )
 

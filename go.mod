@@ -5,6 +5,7 @@ go 1.20
 require (
 	github.com/Masterminds/squirrel v1.5.4
 	github.com/XSAM/otelsql v0.23.0
+	github.com/flowchartsman/retry v1.2.0
 	github.com/georgysavva/scany v1.2.1
 	github.com/google/uuid v1.3.0
 	github.com/hashicorp/go-memdb v1.3.4
@@ -17,6 +18,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.16.0
 	go.uber.org/atomic v1.11.0
 	go.uber.org/goleak v1.2.1
+	golang.org/x/sync v0.2.0
 	google.golang.org/protobuf v1.30.0
 )
 
@@ -40,7 +42,6 @@ require (
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/emicklei/go-restful/v3 v3.10.2 // indirect
-	github.com/flowchartsman/retry v1.2.0 // indirect
 	github.com/go-logr/logr v1.2.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-openapi/jsonpointer v0.19.6 // indirect

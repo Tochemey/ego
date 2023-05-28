@@ -8,19 +8,19 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tochemey/ego/egopb"
-	"github.com/tochemey/ego/storage"
+	"github.com/tochemey/ego/eventstore"
 	testpb "github.com/tochemey/ego/test/data/pb/v1"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func TestMemoryJournalStore(t *testing.T) {
+func TestEventsStore(t *testing.T) {
 	t.Run("testNew", func(t *testing.T) {
 		estore := NewEventsStore()
 		assert.NotNil(t, estore)
 		var p interface{} = estore
-		_, ok := p.(storage.EventsStore)
+		_, ok := p.(eventstore.EventsStore)
 		assert.True(t, ok)
 	})
 	t.Run("testConnect", func(t *testing.T) {

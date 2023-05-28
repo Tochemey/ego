@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tochemey/ego/aggregate"
 	"github.com/tochemey/ego/egopb"
+	"github.com/tochemey/ego/eventstore/memory"
 	samplepb "github.com/tochemey/ego/example/pbs/sample/pb/v1"
-	"github.com/tochemey/ego/storage/memory"
 	"google.golang.org/protobuf/proto"
 )
 

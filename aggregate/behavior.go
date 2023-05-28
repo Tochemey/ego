@@ -8,8 +8,8 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/tochemey/ego/egopb"
+	"github.com/tochemey/ego/eventstore"
 	"github.com/tochemey/ego/internal/telemetry"
-	"github.com/tochemey/ego/storage"
 	"github.com/tochemey/goakt/actors"
 	goaktmessagesv1 "github.com/tochemey/goakt/messages/v1"
 	"go.uber.org/atomic"
@@ -47,7 +47,7 @@ type Behavior[T State] interface {
 type Entity[T State] struct {
 	Behavior[T]
 	// specifies the events store
-	eventsStore storage.EventsStore
+	eventsStore eventstore.EventsStore
 	// specifies the current state
 	currentState T
 
@@ -60,7 +60,7 @@ type Entity[T State] struct {
 var _ actors.Actor = &Entity[State]{}
 
 // New creates an instance of Entity provided the eventSourcedHandler and the events store
-func New[T State](behavior Behavior[T], eventsStore storage.EventsStore) *Entity[T] {
+func New[T State](behavior Behavior[T], eventsStore eventstore.EventsStore) *Entity[T] {
 	// create an instance of aggregate and return it
 	return &Entity[T]{
 		eventsStore:   eventsStore,

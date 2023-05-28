@@ -1,4 +1,4 @@
-package storage
+package eventstore
 
 import (
 	"context"
@@ -24,6 +24,7 @@ type EventsStore interface {
 	// GetLatestEvent fetches the latest event
 	GetLatestEvent(ctx context.Context, persistenceID string) (*egopb.Event, error)
 	// PersistenceIDs returns the distinct list of all the persistence ids in the journal store
+	// TODO: make it paginated
 	PersistenceIDs(ctx context.Context) (persistenceIDs []string, err error)
 	// Ping verifies a connection to the database is still alive, establishing a connection if necessary.
 	Ping(ctx context.Context) error

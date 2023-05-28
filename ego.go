@@ -7,7 +7,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/tochemey/ego/aggregate"
 	"github.com/tochemey/ego/egopb"
-	"github.com/tochemey/ego/storage"
+	"github.com/tochemey/ego/eventstore"
 	"github.com/tochemey/goakt/actors"
 	"github.com/tochemey/goakt/discovery"
 	"github.com/tochemey/goakt/log"
@@ -16,19 +16,19 @@ import (
 
 // Ego represents the engine that empowers the various entities
 type Ego struct {
-	name          string               // name is the application name
-	remotingHost  string               // remotingHost is the host machine ip address
-	remotingPort  int32                // remotingPort is the host machine port number. This port number is the remoting port number
-	eventsStore   storage.EventsStore  // eventsStore is the events store
-	enableCluster bool                 // enableCluster enable/disable cluster mode
-	actorSystem   actors.ActorSystem   // actorSystem is the underlying actor system
-	logger        log.Logger           // logger is the logging engine to use
-	discoveryMode discovery.Discovery  // discoveryMode is the discovery provider for clustering
-	telemetry     *telemetry.Telemetry // telemetry is the observability engine
+	name          string                 // name is the application name
+	remotingHost  string                 // remotingHost is the host machine ip address
+	remotingPort  int32                  // remotingPort is the host machine port number. This port number is the remoting port number
+	eventsStore   eventstore.EventsStore // eventsStore is the events store
+	enableCluster bool                   // enableCluster enable/disable cluster mode
+	actorSystem   actors.ActorSystem     // actorSystem is the underlying actor system
+	logger        log.Logger             // logger is the logging engine to use
+	discoveryMode discovery.Discovery    // discoveryMode is the discovery provider for clustering
+	telemetry     *telemetry.Telemetry   // telemetry is the observability engine
 }
 
 // New creates an instance of Ego
-func New(name string, eventsStore storage.EventsStore, opts ...Option) *Ego {
+func New(name string, eventsStore eventstore.EventsStore, opts ...Option) *Ego {
 	// create an instance of ego
 	e := &Ego{
 		name:          name,
