@@ -35,6 +35,11 @@ Under the hood, ego leverages [goakt](https://github.com/Tochemey/goakt) to scal
 - Read Model: To enable the read model just start the projection engine with an event handler and one can build a read model of all events persisted by the write model. 
             At the moment the projection engine only come bundled with an in-memory offset store. One can easily implement an offset store using the interface provided.
 
+## TODOs
+- [ ] Add cursor pagination for events store listing of persistence ids
+- [ ] Add some compaction mechanism to the events store
+- [ ] Test the cluster mode
+
 ## Installation
 ```bash
 go get github.com/tochemey/ego
