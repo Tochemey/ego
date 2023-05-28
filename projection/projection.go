@@ -203,11 +203,17 @@ func (p *Projection) processingLoop(ctx context.Context) {
 
 			// Start a fixed number of goroutines process the persistenceIDs.
 			for i := 0; i < 20; i++ {
-				for persistenceID := range idsChan {
-					g.Go(func() error {
-						return p.doProcess(ctx, persistenceID)
-					})
-				}
+				g.Go(func() error {
+					for persistenceID := range idsChan {
+						select {
+						case <-ctx.Done():
+							return ctx.Err()
+						default:
+							return p.doProcess(ctx, persistenceID)
+						}
+					}
+					return nil
+				})
 			}
 
 			// wait for all the processing to be done
