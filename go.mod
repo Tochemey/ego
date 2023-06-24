@@ -12,7 +12,7 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/ory/dockertest v3.3.5+incompatible
 	github.com/pkg/errors v0.9.1
-	github.com/stretchr/testify v1.8.3
+	github.com/stretchr/testify v1.8.4
 	github.com/tochemey/goakt v0.2.1-0.20230527222120-47904f16a2ad
 	go.opentelemetry.io/otel v1.16.0
 	go.opentelemetry.io/otel/trace v1.16.0
