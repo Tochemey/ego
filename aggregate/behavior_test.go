@@ -11,10 +11,10 @@ import (
 	"github.com/tochemey/ego/egopb"
 	"github.com/tochemey/ego/eventstore/memory"
 	pgeventstore "github.com/tochemey/ego/eventstore/postgres"
-	"github.com/tochemey/ego/internal/postgres"
 	testpb "github.com/tochemey/ego/test/data/pb/v1"
 	"github.com/tochemey/goakt/actors"
 	"github.com/tochemey/goakt/log"
+	"github.com/tochemey/gopack/postgres"
 	"go.uber.org/goleak"
 	"google.golang.org/protobuf/proto"
 )

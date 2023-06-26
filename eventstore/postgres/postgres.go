@@ -9,8 +9,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/tochemey/ego/egopb"
 	"github.com/tochemey/ego/eventstore"
-	"github.com/tochemey/ego/internal/postgres"
 	"github.com/tochemey/ego/internal/telemetry"
+	"github.com/tochemey/gopack/postgres"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -36,7 +36,7 @@ var (
 // EventsStore implements the EventsStore interface
 // and helps persist events in a Postgres database
 type EventsStore struct {
-	db postgres.IDatabase
+	db postgres.Postgres
 	sb sq.StatementBuilderType
 	// insertBatchSize represents the chunk of data to bulk insert.
 	// This helps avoid the postgres 65535 parameter limit.

@@ -3,7 +3,7 @@ package postgres
 import (
 	"context"
 
-	"github.com/tochemey/ego/internal/postgres"
+	"github.com/tochemey/gopack/postgres"
 )
 
 // SchemaUtils help create the various test tables in unit/integration tests

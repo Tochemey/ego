@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/tochemey/ego/internal/postgres"
+	"github.com/tochemey/gopack/postgres"
 )
 
 var testContainer *postgres.TestContainer
