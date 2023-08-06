@@ -321,10 +321,7 @@ func (p *Projection) doProcess(ctx context.Context, persistenceID string) error 
 			backoff := retry.NewRetrier(int(retries), 100*time.Millisecond, delay)
 			// pass the data to the projection handler
 			if err := backoff.Run(func() error {
-				if err := p.handler(ctx, persistenceID, event, state, seqNr); err != nil {
-					return err
-				}
-				return nil
+				return p.handler(ctx, persistenceID, event, state, seqNr)
 			}); err != nil {
 				// here we just log the error, but we skip the event and commit the offset
 				p.logger.Error(errors.Wrapf(err, "failed to process event for persistence id=%s, sequence=%d", persistenceID, seqNr))
