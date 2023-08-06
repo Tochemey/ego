@@ -39,7 +39,6 @@ Under the hood, ego leverages [goakt](https://github.com/Tochemey/goakt) to scal
 - [ ] Add cursor pagination for events store listing of persistence ids
 - [ ] Add some compaction mechanism to the events store
 - [ ] Test the cluster mode
-- [ ] Shard entities
 - [ ] Enhance projection using sharding
 
 ## Installation

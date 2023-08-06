@@ -30,12 +30,14 @@ func (d SchemaUtils) CreateTable(ctx context.Context) error {
 	    state_payload   BYTEA                 NOT NULL,
 	    state_manifest  VARCHAR(255)          NOT NULL,
 	    timestamp       BIGINT                NOT NULL,
+	    shard_number BIGINT NOT NULL ,
 	
 	    PRIMARY KEY (persistence_id, sequence_number)
 	);
 	
 	--- create an index on the is_deleted column
 	CREATE INDEX IF NOT EXISTS idx_event_journal_deleted ON events_store (is_deleted);
+	CREATE INDEX IF NOT EXISTS idx_event_journal_shard ON events_store (shard_number);
 	`
 	_, err := d.db.Exec(ctx, schemaDDL)
 	return err
