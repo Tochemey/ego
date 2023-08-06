@@ -12,19 +12,20 @@ import (
 	"github.com/tochemey/goakt/discovery"
 	"github.com/tochemey/goakt/log"
 	"github.com/tochemey/goakt/pkg/telemetry"
+	"go.uber.org/atomic"
 )
 
 // Ego represents the engine that empowers the various entities
 type Ego struct {
-	name          string                 // name is the application name
-	remotingHost  string                 // remotingHost is the host machine ip address
-	remotingPort  int32                  // remotingPort is the host machine port number. This port number is the remoting port number
-	eventsStore   eventstore.EventsStore // eventsStore is the events store
-	enableCluster bool                   // enableCluster enable/disable cluster mode
-	actorSystem   actors.ActorSystem     // actorSystem is the underlying actor system
-	logger        log.Logger             // logger is the logging engine to use
-	discoveryMode discovery.Discovery    // discoveryMode is the discovery provider for clustering
-	telemetry     *telemetry.Telemetry   // telemetry is the observability engine
+	name              string                 // name is the application name
+	eventsStore       eventstore.EventsStore // eventsStore is the events store
+	enableCluster     *atomic.Bool           // enableCluster enable/disable cluster mode
+	actorSystem       actors.ActorSystem     // actorSystem is the underlying actor system
+	logger            log.Logger             // logger is the logging engine to use
+	discoveryProvider discovery.Provider     // discoveryProvider is the discovery provider for clustering
+	discoveryConfig   discovery.Config       // discoveryConfig is the discovery provider config for clustering
+	telemetry         *telemetry.Telemetry   // telemetry is the observability engine
+	partitionsCount   uint64                 // partitionsCount specifies the number of partitions
 }
 
 // New creates an instance of Ego
@@ -33,9 +34,7 @@ func New(name string, eventsStore eventstore.EventsStore, opts ...Option) *Ego {
 	e := &Ego{
 		name:          name,
 		eventsStore:   eventsStore,
-		enableCluster: false,
-		remotingPort:  0,
-		remotingHost:  "",
+		enableCluster: atomic.NewBool(false),
 		logger:        log.DefaultLogger,
 		telemetry:     telemetry.New(),
 	}
@@ -58,8 +57,10 @@ func (e *Ego) Start(ctx context.Context) error {
 		actors.WithSupervisorStrategy(actors.StopDirective),
 	}
 	// set the remaining options
-	if e.enableCluster {
-		opts = append(opts, actors.WithClustering(e.discoveryMode, e.remotingPort))
+	if e.enableCluster.Load() {
+		opts = append(opts, actors.WithClustering(
+			discovery.NewServiceDiscovery(e.discoveryProvider, e.discoveryConfig),
+			e.partitionsCount))
 	}
 
 	var err error
@@ -83,7 +84,7 @@ func (e *Ego) Stop(ctx context.Context) error {
 // SendCommand sends command to a given entity ref
 func (e *Ego) SendCommand(ctx context.Context, command aggregate.Command, entityID string) (*egopb.CommandReply, error) {
 	// first check whether we are running in cluster mode or not
-	if e.enableCluster {
+	if e.enableCluster.Load() {
 		// grab the remote address of the actor
 		addr, err := e.actorSystem.GetRemoteActor(ctx, entityID)
 		// handle the error

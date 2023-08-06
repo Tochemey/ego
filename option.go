@@ -4,6 +4,7 @@ import (
 	"github.com/tochemey/goakt/discovery"
 	"github.com/tochemey/goakt/log"
 	"github.com/tochemey/goakt/pkg/telemetry"
+	"go.uber.org/atomic"
 )
 
 // Option is the interface that applies a configuration option.
@@ -17,17 +18,18 @@ var _ Option = OptionFunc(nil)
 // OptionFunc implements the Option interface.
 type OptionFunc func(e *Ego)
 
+// Apply applies the options to Ego
 func (f OptionFunc) Apply(e *Ego) {
 	f(e)
 }
 
 // WithCluster enables cluster mode
-func WithCluster(disco discovery.Discovery, remotingHost string, remotingPort int32) Option {
+func WithCluster(discoProvider discovery.Provider, config discovery.Config, partitionsCount uint64) Option {
 	return OptionFunc(func(e *Ego) {
-		e.remotingHost = remotingHost
-		e.remotingPort = remotingPort
-		e.enableCluster = true
-		e.discoveryMode = disco
+		e.enableCluster = atomic.NewBool(true)
+		e.discoveryProvider = discoProvider
+		e.discoveryConfig = config
+		e.partitionsCount = partitionsCount
 	})
 }
 

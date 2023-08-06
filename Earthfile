@@ -1,8 +1,8 @@
 VERSION 0.7
-PROJECT tochemey/goakt
+PROJECT tochemey26/ego
 
 
-FROM tochemey/docker-go:1.20.1-0.7.0
+FROM tochemey/docker-go:1.20.7-0.9.2
 
 protogen:
     # copy the proto files to generate

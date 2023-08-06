@@ -72,42 +72,42 @@ func New[T State](behavior Behavior[T], eventsStore eventstore.EventsStore) *Ent
 
 // PreStart pre-starts the actor
 // At this stage we connect to the various stores
-func (a *Entity[T]) PreStart(ctx context.Context) error {
+func (entity *Entity[T]) PreStart(ctx context.Context) error {
 	// add a span context
 	//ctx, span := telemetry.SpanContext(ctx, "PreStart")
 	//defer span.End()
 	// acquire the lock
-	a.mu.Lock()
+	entity.mu.Lock()
 	// release lock when done
-	defer a.mu.Unlock()
+	defer entity.mu.Unlock()
 
 	// connect to the various stores
-	if a.eventsStore == nil {
+	if entity.eventsStore == nil {
 		return errors.New("events store is not defined")
 	}
 
 	// call the connect method of the journal store
-	if err := a.eventsStore.Connect(ctx); err != nil {
+	if err := entity.eventsStore.Connect(ctx); err != nil {
 		return fmt.Errorf("failed to connect to the events store: %v", err)
 	}
 
 	// check whether there is a snapshot to recover from
-	if err := a.recoverFromSnapshot(ctx); err != nil {
+	if err := entity.recoverFromSnapshot(ctx); err != nil {
 		return errors.Wrap(err, "failed to recover from snapshot")
 	}
 	return nil
 }
 
 // Receive processes any message dropped into the actor mailbox.
-func (a *Entity[T]) Receive(ctx actors.ReceiveContext) {
+func (entity *Entity[T]) Receive(ctx actors.ReceiveContext) {
 	// add a span context
 	_, span := telemetry.SpanContext(ctx.Context(), "Receive")
 	defer span.End()
 
 	// acquire the lock
-	a.mu.Lock()
+	entity.mu.Lock()
 	// release lock when done
-	defer a.mu.Unlock()
+	defer entity.mu.Unlock()
 
 	// grab the command sent
 	switch command := ctx.Message().(type) {
@@ -118,35 +118,35 @@ func (a *Entity[T]) Receive(ctx actors.ReceiveContext) {
 		unpacked, err := msg.UnmarshalNew()
 		// handle the error
 		if err != nil {
-			a.sendErrorReply(ctx, err)
+			entity.sendErrorReply(ctx, err)
 			return
 		}
 		switch unpacked.(type) {
 		case *egopb.GetStateCommand:
-			a.getStateAndReply(ctx)
+			entity.getStateAndReply(ctx)
 		default:
-			a.processCommandAndReply(ctx, unpacked)
+			entity.processCommandAndReply(ctx, unpacked)
 		}
 	case *egopb.GetStateCommand:
-		a.getStateAndReply(ctx)
+		entity.getStateAndReply(ctx)
 	default:
-		a.processCommandAndReply(ctx, command)
+		entity.processCommandAndReply(ctx, command)
 	}
 }
 
 // PostStop prepares the actor to gracefully shutdown
-func (a *Entity[T]) PostStop(ctx context.Context) error {
+func (entity *Entity[T]) PostStop(ctx context.Context) error {
 	// add a span context
 	//ctx, span := telemetry.SpanContext(ctx, "PostStop")
 	//defer span.End()
 
 	// acquire the lock
-	a.mu.Lock()
+	entity.mu.Lock()
 	// release lock when done
-	defer a.mu.Unlock()
+	defer entity.mu.Unlock()
 
 	// disconnect the journal
-	if err := a.eventsStore.Disconnect(ctx); err != nil {
+	if err := entity.eventsStore.Disconnect(ctx); err != nil {
 		return fmt.Errorf("failed to disconnect the events store: %v", err)
 	}
 	return nil
@@ -154,13 +154,13 @@ func (a *Entity[T]) PostStop(ctx context.Context) error {
 
 // recoverFromSnapshot reset the persistent actor to the latest snapshot in case there is one
 // this is vital when the aggregate actor is restarting.
-func (a *Entity[T]) recoverFromSnapshot(ctx context.Context) error {
+func (entity *Entity[T]) recoverFromSnapshot(ctx context.Context) error {
 	// add a span context
 	//ctx, span := telemetry.SpanContext(ctx, "RecoverFromSnapshot")
 	//defer span.End()
 
 	// check whether there is a snapshot to recover from
-	event, err := a.eventsStore.GetLatestEvent(ctx, a.ID())
+	event, err := entity.eventsStore.GetLatestEvent(ctx, entity.ID())
 	// handle the error
 	if err != nil {
 		return errors.Wrap(err, "failed to recover the latest journal")
@@ -169,22 +169,22 @@ func (a *Entity[T]) recoverFromSnapshot(ctx context.Context) error {
 	// we do have the latest state just recover from it
 	if event != nil {
 		// set the current state
-		if err := event.GetResultingState().UnmarshalTo(a.currentState); err != nil {
+		if err := event.GetResultingState().UnmarshalTo(entity.currentState); err != nil {
 			return errors.Wrap(err, "failed unmarshal the latest state")
 		}
 
 		// set the event counter
-		a.eventsCounter.Store(event.GetSequenceNumber())
+		entity.eventsCounter.Store(event.GetSequenceNumber())
 		return nil
 	}
 
 	// in case there is no snapshot
-	a.currentState = a.InitialState()
+	entity.currentState = entity.InitialState()
 	return nil
 }
 
 // sendErrorReply sends an error as a reply message
-func (a *Entity[T]) sendErrorReply(ctx actors.ReceiveContext, err error) {
+func (entity *Entity[T]) sendErrorReply(ctx actors.ReceiveContext, err error) {
 	// create a new error reply
 	reply := &egopb.CommandReply{
 		Reply: &egopb.CommandReply_ErrorReply{
@@ -198,12 +198,12 @@ func (a *Entity[T]) sendErrorReply(ctx actors.ReceiveContext, err error) {
 }
 
 // getStateAndReply returns the current state of the entity
-func (a *Entity[T]) getStateAndReply(ctx actors.ReceiveContext) {
+func (entity *Entity[T]) getStateAndReply(ctx actors.ReceiveContext) {
 	// let us fetch the latest journal
-	latestEvent, err := a.eventsStore.GetLatestEvent(ctx.Context(), a.ID())
+	latestEvent, err := entity.eventsStore.GetLatestEvent(ctx.Context(), entity.ID())
 	// handle the error
 	if err != nil {
-		a.sendErrorReply(ctx, err)
+		entity.sendErrorReply(ctx, err)
 		return
 	}
 
@@ -212,7 +212,7 @@ func (a *Entity[T]) getStateAndReply(ctx actors.ReceiveContext) {
 	reply := &egopb.CommandReply{
 		Reply: &egopb.CommandReply_StateReply{
 			StateReply: &egopb.StateReply{
-				PersistenceId:  a.ID(),
+				PersistenceId:  entity.ID(),
 				State:          resultingState,
 				SequenceNumber: latestEvent.GetSequenceNumber(),
 				Timestamp:      latestEvent.GetTimestamp(),
@@ -225,15 +225,15 @@ func (a *Entity[T]) getStateAndReply(ctx actors.ReceiveContext) {
 }
 
 // processCommandAndReply processes the incoming command
-func (a *Entity[T]) processCommandAndReply(ctx actors.ReceiveContext, command Command) {
+func (entity *Entity[T]) processCommandAndReply(ctx actors.ReceiveContext, command Command) {
 	// set the go context
 	goCtx := ctx.Context()
 	// pass the received command to the command handler
-	event, err := a.HandleCommand(goCtx, command, a.currentState)
+	event, err := entity.HandleCommand(goCtx, command, entity.currentState)
 	// handle the command handler error
 	if err != nil {
 		// send an error reply
-		a.sendErrorReply(ctx, err)
+		entity.sendErrorReply(ctx, err)
 		return
 	}
 
@@ -251,55 +251,57 @@ func (a *Entity[T]) processCommandAndReply(ctx actors.ReceiveContext, command Co
 	}
 
 	// process the event by calling the event handler
-	resultingState, err := a.HandleEvent(goCtx, event, a.currentState)
+	resultingState, err := entity.HandleEvent(goCtx, event, entity.currentState)
 	// handle the event handler error
 	if err != nil {
 		// send an error reply
-		a.sendErrorReply(ctx, err)
+		entity.sendErrorReply(ctx, err)
 		return
 	}
 
 	// increment the event counter
-	a.eventsCounter.Inc()
+	entity.eventsCounter.Inc()
 
 	// set the current state for the next command
-	a.currentState = resultingState
+	entity.currentState = resultingState
 
 	// marshal the event and the resulting state
 	marshaledEvent, _ := anypb.New(event)
 	marshaledState, _ := anypb.New(resultingState)
 
-	sequenceNumber := a.eventsCounter.Load()
+	sequenceNumber := entity.eventsCounter.Load()
 	timestamp := timestamppb.Now()
-	a.lastCommandTime = timestamp.AsTime()
+	entity.lastCommandTime = timestamp.AsTime()
+	shardNumber := ctx.Self().ActorSystem().GetPartition(goCtx, entity.ID())
 
 	// create the event
 	envelope := &egopb.Event{
-		PersistenceId:  a.ID(),
+		PersistenceId:  entity.ID(),
 		SequenceNumber: sequenceNumber,
 		IsDeleted:      false,
 		Event:          marshaledEvent,
 		ResultingState: marshaledState,
-		Timestamp:      a.lastCommandTime.Unix(),
+		Timestamp:      entity.lastCommandTime.Unix(),
+		Shard:          shardNumber,
 	}
 
 	// create a journal list
 	journals := []*egopb.Event{envelope}
 
 	// TODO persist the event in batch using a child actor
-	if err := a.eventsStore.WriteEvents(goCtx, journals); err != nil {
+	if err := entity.eventsStore.WriteEvents(goCtx, journals); err != nil {
 		// send an error reply
-		a.sendErrorReply(ctx, err)
+		entity.sendErrorReply(ctx, err)
 		return
 	}
 
 	reply := &egopb.CommandReply{
 		Reply: &egopb.CommandReply_StateReply{
 			StateReply: &egopb.StateReply{
-				PersistenceId:  a.ID(),
+				PersistenceId:  entity.ID(),
 				State:          marshaledState,
 				SequenceNumber: sequenceNumber,
-				Timestamp:      a.lastCommandTime.Unix(),
+				Timestamp:      entity.lastCommandTime.Unix(),
 			},
 		},
 	}
