@@ -99,8 +99,7 @@ func (a *AccountBehavior) InitialState() *samplepb.Account {
 }
 
 // HandleCommand handles every command that is sent to the persistent behavior
-// nolint
-func (a *AccountBehavior) HandleCommand(ctx context.Context, command aggregate.Command, priorState *samplepb.Account) (event aggregate.Event, err error) {
+func (a *AccountBehavior) HandleCommand(_ context.Context, command aggregate.Command, _ *samplepb.Account) (event aggregate.Event, err error) {
 	switch cmd := command.(type) {
 	case *samplepb.CreateAccount:
 		// TODO in production grid app validate the command using the prior state
@@ -122,8 +121,7 @@ func (a *AccountBehavior) HandleCommand(ctx context.Context, command aggregate.C
 }
 
 // HandleEvent handles every event emitted
-// nolint
-func (a *AccountBehavior) HandleEvent(ctx context.Context, event aggregate.Event, priorState *samplepb.Account) (state *samplepb.Account, err error) {
+func (a *AccountBehavior) HandleEvent(_ context.Context, event aggregate.Event, priorState *samplepb.Account) (state *samplepb.Account, err error) {
 	switch evt := event.(type) {
 	case *samplepb.AccountCreated:
 		return &samplepb.Account{
