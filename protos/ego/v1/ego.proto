@@ -20,6 +20,8 @@ message Event {
   google.protobuf.Any resulting_state = 5;
   // Specifies the timestamp
   int64 timestamp = 6;
+  // Specifies the shard number
+  uint64 shard = 7;
 }
 
 // CommandReply specifies the reply to a command sent to

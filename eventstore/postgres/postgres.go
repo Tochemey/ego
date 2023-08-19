@@ -28,6 +28,7 @@ var (
 		"state_payload",
 		"state_manifest",
 		"timestamp",
+		"shard_number",
 	}
 
 	tableName = "events_store"
@@ -217,6 +218,7 @@ func (s *EventsStore) WriteEvents(ctx context.Context, events []*egopb.Event) er
 			stateBytes,
 			stateManifest,
 			event.GetTimestamp(),
+			event.GetShard(),
 		)
 
 		if (index+1)%s.insertBatchSize == 0 || index == len(events)-1 {
@@ -319,6 +321,7 @@ func (s *EventsStore) ReplayEvents(ctx context.Context, persistenceID string, fr
 		StatePayload   []byte
 		StateManifest  string
 		Timestamp      int64
+		ShardNumber    uint64
 	}
 
 	// execute the query against the database
@@ -347,6 +350,7 @@ func (s *EventsStore) ReplayEvents(ctx context.Context, persistenceID string, fr
 			Event:          evt,
 			ResultingState: state,
 			Timestamp:      row.Timestamp,
+			Shard:          row.ShardNumber,
 		})
 	}
 
@@ -388,6 +392,7 @@ func (s *EventsStore) GetLatestEvent(ctx context.Context, persistenceID string) 
 		StatePayload   []byte
 		StateManifest  string
 		Timestamp      int64
+		ShardNumber    uint64
 	}
 
 	// execute the query against the database
@@ -419,6 +424,7 @@ func (s *EventsStore) GetLatestEvent(ctx context.Context, persistenceID string) 
 		Event:          evt,
 		ResultingState: state,
 		Timestamp:      data.Timestamp,
+		Shard:          data.ShardNumber,
 	}, nil
 }
 

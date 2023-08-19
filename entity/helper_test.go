@@ -1,4 +1,4 @@
-package aggregate
+package entity
 
 import (
 	"context"
@@ -27,7 +27,7 @@ func (t *AccountEntityBehavior) InitialState() *testpb.Account {
 	return new(testpb.Account)
 }
 
-func (t *AccountEntityBehavior) HandleCommand(ctx context.Context, command Command, priorState *testpb.Account) (event Event, err error) {
+func (t *AccountEntityBehavior) HandleCommand(_ context.Context, command Command, _ *testpb.Account) (event Event, err error) {
 	switch cmd := command.(type) {
 	case *testpb.CreateAccount:
 		// TODO in production grid app validate the command using the prior state
@@ -51,7 +51,7 @@ func (t *AccountEntityBehavior) HandleCommand(ctx context.Context, command Comma
 	}
 }
 
-func (t *AccountEntityBehavior) HandleEvent(ctx context.Context, event Event, priorState *testpb.Account) (state *testpb.Account, err error) {
+func (t *AccountEntityBehavior) HandleEvent(_ context.Context, event Event, priorState *testpb.Account) (state *testpb.Account, err error) {
 	switch evt := event.(type) {
 	case *testpb.AccountCreated:
 		return &testpb.Account{

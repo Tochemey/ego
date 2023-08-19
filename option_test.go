@@ -3,7 +3,10 @@ package ego
 import (
 	"testing"
 
+	"go.uber.org/atomic"
+
 	"github.com/stretchr/testify/assert"
+	"github.com/tochemey/goakt/discovery"
 	"github.com/tochemey/goakt/discovery/kubernetes"
 	"github.com/tochemey/goakt/log"
 	"github.com/tochemey/goakt/pkg/telemetry"
@@ -13,7 +16,8 @@ func TestOptions(t *testing.T) {
 	// use the default logger of GoAkt
 	logger := log.DefaultLogger
 	// create a discovery provider
-	disco := kubernetes.New(logger)
+	discoveryProvider := kubernetes.NewDiscovery()
+	config := discovery.NewConfig()
 	tel := telemetry.New()
 
 	testCases := []struct {
@@ -22,9 +26,14 @@ func TestOptions(t *testing.T) {
 		expected Ego
 	}{
 		{
-			name:     "WithCluster",
-			option:   WithCluster(disco, "localhost", 3333),
-			expected: Ego{discoveryMode: disco, remotingHost: "localhost", remotingPort: 3333, enableCluster: true},
+			name:   "WithCluster",
+			option: WithCluster(discoveryProvider, config, 30),
+			expected: Ego{
+				discoveryProvider: discoveryProvider,
+				discoveryConfig:   config,
+				partitionsCount:   30,
+				enableCluster:     atomic.NewBool(true),
+			},
 		},
 		{
 			name:     "WithLogger",
