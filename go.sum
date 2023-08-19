@@ -385,6 +385,7 @@ github.com/tochemey/goakt v0.4.0/go.mod h1:EoilCdgrl1LIUsti3CiEZNFb4b2WVGdChycrL
 github.com/tochemey/gopack v0.0.0-20230727231542-2877cbb5df35 h1:i3fe9oRuDb7ziixdVWVembQPebVQgjgxn4kI1+NXAEI=
 github.com/tochemey/gopack v0.0.0-20230727231542-2877cbb5df35/go.mod h1:Og9ggzenB3SuJxuvdyh6gnx8tIIgbLYc5T1H8nTQ6Ts=
 github.com/travisjeffery/go-dynaport v1.0.0 h1:m/qqf5AHgB96CMMSworIPyo1i7NZueRsnwdzdCJ8Ajw=
+github.com/travisjeffery/go-dynaport v1.0.0/go.mod h1:0LHuDS4QAx+mAc4ri3WkQdavgVoBIZ7cE9ob17KIAJk=
 github.com/tv42/httpunix v0.0.0-20150427012821-b75d8614f926/go.mod h1:9ESjWnEqriFuLhtthL60Sar/7RFoluCcXsuvEwTV5KM=
 github.com/vmihailenco/msgpack/v5 v5.3.5 h1:5gO0H1iULLWGhs2H5tbAHIZTV8/cYafcFOr9znI5mJU=
 github.com/vmihailenco/msgpack/v5 v5.3.5/go.mod h1:7xyJ9e+0+9SaZT0Wt1RGleJXzli6Q/V5KbhBonMG9jc=

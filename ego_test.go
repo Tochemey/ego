@@ -2,7 +2,10 @@ package ego
 
 import (
 	"context"
+	"net"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -12,59 +15,155 @@ import (
 	"github.com/tochemey/ego/entity"
 	"github.com/tochemey/ego/eventstore/memory"
 	samplepb "github.com/tochemey/ego/example/pbs/sample/pb/v1"
+	"github.com/tochemey/goakt/discovery"
+	mockdisco "github.com/tochemey/goakt/goaktmocks/discovery"
+	"github.com/travisjeffery/go-dynaport"
 	"google.golang.org/protobuf/proto"
 )
 
 func TestEgo(t *testing.T) {
-	ctx := context.TODO()
-	// create the event store
-	eventStore := memory.NewEventsStore()
-	// create the ego engine
-	e := New("Sample", eventStore)
-	// start ego engine
-	err := e.Start(ctx)
-	require.NoError(t, err)
-	// create a persistence id
-	entityID := uuid.NewString()
-	// create an entity behavior with a given id
-	behavior := NewAccountBehavior(entityID)
-	// create an entity
-	NewEntity[*samplepb.Account](ctx, e, behavior)
-	// send some commands to the pid
-	var command proto.Message
-	// create an account
-	command = &samplepb.CreateAccount{
-		AccountId:      entityID,
-		AccountBalance: 500.00,
-	}
-	// send the command to the actor. Please don't ignore the error in production grid code
-	reply, err := e.SendCommand(ctx, command, entityID)
-	require.NoError(t, err)
-	require.IsType(t, new(egopb.CommandReply_StateReply), reply.GetReply())
-	assert.EqualValues(t, 1, reply.GetStateReply().GetSequenceNumber())
+	t.Run("With single node cluster enabled", func(t *testing.T) {
+		ctx := context.TODO()
+		// create the event store
+		eventStore := memory.NewEventsStore()
 
-	resultingState := new(samplepb.Account)
-	assert.NoError(t, reply.GetStateReply().GetState().UnmarshalTo(resultingState))
-	assert.EqualValues(t, 500.00, resultingState.GetAccountBalance())
-	assert.Equal(t, entityID, resultingState.GetAccountId())
+		nodePorts := dynaport.Get(3)
+		gossipPort := nodePorts[0]
+		clusterPort := nodePorts[1]
+		remotingPort := nodePorts[2]
 
-	// send another command to credit the balance
-	command = &samplepb.CreditAccount{
-		AccountId: entityID,
-		Balance:   250,
-	}
-	reply, err = e.SendCommand(ctx, command, entityID)
-	require.NoError(t, err)
-	require.IsType(t, new(egopb.CommandReply_StateReply), reply.GetReply())
-	assert.EqualValues(t, 2, reply.GetStateReply().GetSequenceNumber())
+		podName := "pod"
+		host := "127.0.0.1"
 
-	newState := new(samplepb.Account)
-	assert.NoError(t, reply.GetStateReply().GetState().UnmarshalTo(newState))
-	assert.EqualValues(t, 750.00, newState.GetAccountBalance())
-	assert.Equal(t, entityID, newState.GetAccountId())
+		// set the environments
+		t.Setenv("GOSSIP_PORT", strconv.Itoa(gossipPort))
+		t.Setenv("CLUSTER_PORT", strconv.Itoa(clusterPort))
+		t.Setenv("REMOTING_PORT", strconv.Itoa(remotingPort))
+		t.Setenv("NODE_NAME", podName)
+		t.Setenv("NODE_IP", host)
 
-	// free resources
-	assert.NoError(t, e.Stop(ctx))
+		// define discovered addresses
+		addrs := []string{
+			net.JoinHostPort(host, strconv.Itoa(gossipPort)),
+		}
+
+		// mock the discovery provider
+		provider := new(mockdisco.Provider)
+		config := discovery.NewConfig()
+
+		provider.EXPECT().ID().Return("testDisco")
+		provider.EXPECT().Initialize().Return(nil)
+		provider.EXPECT().Register().Return(nil)
+		provider.EXPECT().Deregister().Return(nil)
+		provider.EXPECT().SetConfig(config).Return(nil)
+		provider.EXPECT().DiscoverPeers().Return(addrs, nil)
+
+		// create the ego engine
+		e := New("Sample", eventStore, WithCluster(provider, config, 4))
+		// start ego engine
+		err := e.Start(ctx)
+
+		// wait for the cluster to fully start
+		time.Sleep(time.Second)
+
+		require.NoError(t, err)
+		// create a persistence id
+		entityID := uuid.NewString()
+		// create an entity behavior with a given id
+		behavior := NewAccountBehavior(entityID)
+		// create an entity
+		NewEntity[*samplepb.Account](ctx, e, behavior)
+		// send some commands to the pid
+		var command proto.Message
+		// create an account
+		command = &samplepb.CreateAccount{
+			AccountId:      entityID,
+			AccountBalance: 500.00,
+		}
+
+		// wait for the cluster to fully start
+		time.Sleep(time.Second)
+
+		// send the command to the actor. Please don't ignore the error in production grid code
+		reply, err := e.SendCommand(ctx, command, entityID)
+		require.NoError(t, err)
+		require.IsType(t, new(egopb.CommandReply_StateReply), reply.GetReply())
+		assert.EqualValues(t, 1, reply.GetStateReply().GetSequenceNumber())
+
+		resultingState := new(samplepb.Account)
+		assert.NoError(t, reply.GetStateReply().GetState().UnmarshalTo(resultingState))
+		assert.EqualValues(t, 500.00, resultingState.GetAccountBalance())
+		assert.Equal(t, entityID, resultingState.GetAccountId())
+
+		// send another command to credit the balance
+		command = &samplepb.CreditAccount{
+			AccountId: entityID,
+			Balance:   250,
+		}
+		reply, err = e.SendCommand(ctx, command, entityID)
+		require.NoError(t, err)
+		require.IsType(t, new(egopb.CommandReply_StateReply), reply.GetReply())
+		assert.EqualValues(t, 2, reply.GetStateReply().GetSequenceNumber())
+
+		newState := new(samplepb.Account)
+		assert.NoError(t, reply.GetStateReply().GetState().UnmarshalTo(newState))
+		assert.EqualValues(t, 750.00, newState.GetAccountBalance())
+		assert.Equal(t, entityID, newState.GetAccountId())
+
+		// free resources
+		assert.NoError(t, e.Stop(ctx))
+	})
+	t.Run("With no cluster enabled", func(t *testing.T) {
+		ctx := context.TODO()
+		// create the event store
+		eventStore := memory.NewEventsStore()
+		// create the ego engine
+		e := New("Sample", eventStore)
+		// start ego engine
+		err := e.Start(ctx)
+		require.NoError(t, err)
+		// create a persistence id
+		entityID := uuid.NewString()
+		// create an entity behavior with a given id
+		behavior := NewAccountBehavior(entityID)
+		// create an entity
+		NewEntity[*samplepb.Account](ctx, e, behavior)
+		// send some commands to the pid
+		var command proto.Message
+		// create an account
+		command = &samplepb.CreateAccount{
+			AccountId:      entityID,
+			AccountBalance: 500.00,
+		}
+		// send the command to the actor. Please don't ignore the error in production grid code
+		reply, err := e.SendCommand(ctx, command, entityID)
+		require.NoError(t, err)
+		require.IsType(t, new(egopb.CommandReply_StateReply), reply.GetReply())
+		assert.EqualValues(t, 1, reply.GetStateReply().GetSequenceNumber())
+
+		resultingState := new(samplepb.Account)
+		assert.NoError(t, reply.GetStateReply().GetState().UnmarshalTo(resultingState))
+		assert.EqualValues(t, 500.00, resultingState.GetAccountBalance())
+		assert.Equal(t, entityID, resultingState.GetAccountId())
+
+		// send another command to credit the balance
+		command = &samplepb.CreditAccount{
+			AccountId: entityID,
+			Balance:   250,
+		}
+		reply, err = e.SendCommand(ctx, command, entityID)
+		require.NoError(t, err)
+		require.IsType(t, new(egopb.CommandReply_StateReply), reply.GetReply())
+		assert.EqualValues(t, 2, reply.GetStateReply().GetSequenceNumber())
+
+		newState := new(samplepb.Account)
+		assert.NoError(t, reply.GetStateReply().GetState().UnmarshalTo(newState))
+		assert.EqualValues(t, 750.00, newState.GetAccountBalance())
+		assert.Equal(t, entityID, newState.GetAccountId())
+
+		// free resources
+		assert.NoError(t, e.Stop(ctx))
+	})
 }
 
 // AccountBehavior implements persistence.Behavior
