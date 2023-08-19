@@ -6,3 +6,4 @@ ignore:
   - "egopb"
   - "test"
   - "example"
+  - "internal"

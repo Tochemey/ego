@@ -25,6 +25,8 @@ type journal struct {
 	StateManifest string
 	// Specifies time the record has been persisted
 	Timestamp int64
+	// Specifies the shard number
+	ShardNumber uint64
 }
 
 const (
@@ -33,6 +35,7 @@ const (
 	isDeletedIndex      = "deletion"
 	persistenceIDIndex  = "persistenceId"
 	sequenceNumberIndex = "sequenceNumber"
+	shardNumberIndex    = "shardNumber"
 )
 
 var (
@@ -75,6 +78,14 @@ var (
 						Unique:       false,
 						Indexer: &memdb.UintFieldIndex{
 							Field: "SequenceNumber",
+						},
+					},
+					shardNumberIndex: {
+						Name:         shardNumberIndex,
+						AllowMissing: false,
+						Unique:       false,
+						Indexer: &memdb.UintFieldIndex{
+							Field: "ShardNumber",
 						},
 					},
 				},

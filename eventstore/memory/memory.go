@@ -182,6 +182,7 @@ func (s *EventsStore) WriteEvents(ctx context.Context, events []*egopb.Event) er
 			StatePayload:   stateBytes,
 			StateManifest:  stateManifest,
 			Timestamp:      event.GetTimestamp(),
+			ShardNumber:    event.GetShard(),
 		}
 
 		// persist the record
@@ -311,6 +312,7 @@ func (s *EventsStore) ReplayEvents(ctx context.Context, persistenceID string, fr
 					Event:          evt,
 					ResultingState: state,
 					Timestamp:      journal.Timestamp,
+					Shard:          journal.ShardNumber,
 				})
 			}
 		}
@@ -342,7 +344,7 @@ func (s *EventsStore) GetLatestEvent(ctx context.Context, persistenceID string) 
 	raw, err := txn.Last(journalTableName, persistenceIDIndex, persistenceID)
 	if err != nil {
 		// if the error is not found then return nil
-		if err == memdb.ErrNotFound {
+		if errors.Is(err, memdb.ErrNotFound) {
 			return nil, nil
 		}
 		return nil, errors.Wrapf(err, "failed to fetch the latest event from the database for persistenceId=%s", persistenceID)
@@ -372,6 +374,7 @@ func (s *EventsStore) GetLatestEvent(ctx context.Context, persistenceID string) 
 			Event:          evt,
 			ResultingState: state,
 			Timestamp:      journal.Timestamp,
+			Shard:          journal.ShardNumber,
 		}, nil
 	}
 
