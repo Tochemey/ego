@@ -31,7 +31,7 @@ Under the hood, ego leverages [goakt](https://github.com/Tochemey/goakt) to scal
     - Built-in events store
       - Postgres
       - Memory
-    - Clustering: check the doc at :[Cluster Mode](https://github.com/Tochemey/goakt#clustering)
+    - Clustering:[Cluster Mode](https://github.com/Tochemey/goakt#clustering)
 - Examples (check the [examples](./example))
 
 ## TODOs
