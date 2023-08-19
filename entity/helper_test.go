@@ -1,4 +1,4 @@
-package aggregate
+package entity
 
 import (
 	"context"

@@ -8,8 +8,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tochemey/ego/aggregate"
 	"github.com/tochemey/ego/egopb"
+	"github.com/tochemey/ego/entity"
 	"github.com/tochemey/ego/eventstore/memory"
 	samplepb "github.com/tochemey/ego/example/pbs/sample/pb/v1"
 	"google.golang.org/protobuf/proto"
@@ -26,10 +26,10 @@ func TestEgo(t *testing.T) {
 	require.NoError(t, err)
 	// create a persistence id
 	entityID := uuid.NewString()
-	// create an aggregate behavior with a given id
+	// create an entity behavior with a given id
 	behavior := NewAccountBehavior(entityID)
-	// create an aggregate
-	CreateAggregate[*samplepb.Account](ctx, e, behavior)
+	// create an entity
+	NewEntity[*samplepb.Account](ctx, e, behavior)
 	// send some commands to the pid
 	var command proto.Message
 	// create an account
@@ -73,7 +73,7 @@ type AccountBehavior struct {
 }
 
 // make sure that AccountBehavior is a true persistence behavior
-var _ aggregate.Behavior[*samplepb.Account] = &AccountBehavior{}
+var _ entity.Behavior[*samplepb.Account] = &AccountBehavior{}
 
 // NewAccountBehavior creates an instance of AccountBehavior
 func NewAccountBehavior(id string) *AccountBehavior {
@@ -91,7 +91,7 @@ func (a *AccountBehavior) InitialState() *samplepb.Account {
 }
 
 // HandleCommand handles every command that is sent to the persistent behavior
-func (a *AccountBehavior) HandleCommand(_ context.Context, command aggregate.Command, _ *samplepb.Account) (event aggregate.Event, err error) {
+func (a *AccountBehavior) HandleCommand(_ context.Context, command entity.Command, _ *samplepb.Account) (event entity.Event, err error) {
 	switch cmd := command.(type) {
 	case *samplepb.CreateAccount:
 		// TODO in production grid app validate the command using the prior state
@@ -113,7 +113,7 @@ func (a *AccountBehavior) HandleCommand(_ context.Context, command aggregate.Com
 }
 
 // HandleEvent handles every event emitted
-func (a *AccountBehavior) HandleEvent(_ context.Context, event aggregate.Event, priorState *samplepb.Account) (state *samplepb.Account, err error) {
+func (a *AccountBehavior) HandleEvent(_ context.Context, event entity.Event, priorState *samplepb.Account) (state *samplepb.Account, err error) {
 	switch evt := event.(type) {
 	case *samplepb.AccountCreated:
 		return &samplepb.Account{

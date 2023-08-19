@@ -9,7 +9,7 @@ require (
 	github.com/hashicorp/go-memdb v1.3.4
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.8.4
-	github.com/tochemey/goakt v0.3.1-0.20230806003040-2058d76bbeec
+	github.com/tochemey/goakt v0.4.0
 	github.com/tochemey/gopack v0.0.0-20230727231542-2877cbb5df35
 	go.opentelemetry.io/otel v1.16.0
 	go.opentelemetry.io/otel/trace v1.16.0
@@ -20,6 +20,8 @@ require (
 )
 
 require (
+	connectrpc.com/connect v1.11.0 // indirect
+	connectrpc.com/otelconnect v0.5.0 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 // indirect
 	github.com/Microsoft/go-winio v0.6.1 // indirect
 	github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 // indirect
@@ -27,8 +29,6 @@ require (
 	github.com/XSAM/otelsql v0.23.0 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/bits-and-blooms/bitset v1.8.0 // indirect
-	github.com/bufbuild/connect-go v1.10.0 // indirect
-	github.com/bufbuild/connect-opentelemetry-go v0.4.0 // indirect
 	github.com/buraksezer/consistent v0.10.0 // indirect
 	github.com/buraksezer/olric v0.5.4 // indirect
 	github.com/caarlos0/env/v9 v9.0.0 // indirect

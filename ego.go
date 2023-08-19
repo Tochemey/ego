@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/tochemey/ego/aggregate"
 	"github.com/tochemey/ego/egopb"
+	"github.com/tochemey/ego/entity"
 	"github.com/tochemey/ego/eventstore"
 	"github.com/tochemey/goakt/actors"
 	"github.com/tochemey/goakt/discovery"
@@ -46,58 +46,61 @@ func New(name string, eventsStore eventstore.EventsStore, opts ...Option) *Ego {
 }
 
 // Start starts the ego engine
-func (e *Ego) Start(ctx context.Context) error {
+func (x *Ego) Start(ctx context.Context) error {
 	// create a variable to hold the options
 	opts := []actors.Option{
-		actors.WithLogger(e.logger),
+		actors.WithLogger(x.logger),
 		actors.WithPassivationDisabled(),
 		actors.WithActorInitMaxRetries(1),
 		actors.WithReplyTimeout(5 * time.Second),
-		actors.WithTelemetry(e.telemetry),
+		actors.WithTelemetry(x.telemetry),
 		actors.WithSupervisorStrategy(actors.StopDirective),
 	}
 	// set the remaining options
-	if e.enableCluster.Load() {
+	if x.enableCluster.Load() {
 		opts = append(opts, actors.WithClustering(
-			discovery.NewServiceDiscovery(e.discoveryProvider, e.discoveryConfig),
-			e.partitionsCount))
+			discovery.NewServiceDiscovery(x.discoveryProvider, x.discoveryConfig),
+			x.partitionsCount))
 	}
 
 	var err error
 	// create the actor system that will empower the entities
-	e.actorSystem, err = actors.NewActorSystem(e.name, opts...)
+	x.actorSystem, err = actors.NewActorSystem(x.name, opts...)
 	// handle the error
 	if err != nil {
 		// log the error
-		e.logger.Error(errors.Wrap(err, "failed to create the ego actor system"))
+		x.logger.Error(errors.Wrap(err, "failed to create the ego actor system"))
 		return err
 	}
 	// start the actor system
-	return e.actorSystem.Start(ctx)
+	return x.actorSystem.Start(ctx)
 }
 
 // Stop stops the ego engine
-func (e *Ego) Stop(ctx context.Context) error {
-	return e.actorSystem.Stop(ctx)
+func (x *Ego) Stop(ctx context.Context) error {
+	return x.actorSystem.Stop(ctx)
 }
 
 // SendCommand sends command to a given entity ref
-func (e *Ego) SendCommand(ctx context.Context, command aggregate.Command, entityID string) (*egopb.CommandReply, error) {
+func (x *Ego) SendCommand(ctx context.Context, command entity.Command, entityID string) (*egopb.CommandReply, error) {
 	// first check whether we are running in cluster mode or not
-	if e.enableCluster.Load() {
+	if x.enableCluster.Load() {
 		// grab the remote address of the actor
-		addr, err := e.actorSystem.GetRemoteActor(ctx, entityID)
+		addr, err := x.actorSystem.RemoteActor(ctx, entityID)
 		// handle the error
 		if err != nil {
-			e.logger.Error(errors.Wrap(err, "failed to remotely locate actor address"))
+			x.logger.Error(errors.Wrap(err, "failed to remotely locate actor address"))
 			return nil, err
 		}
 		// send a remote message to the actor
 		reply, err := actors.RemoteAsk(ctx, addr, command)
 		// handle the error
 		if err != nil {
-			e.logger.Error(err)
-			return nil, err
+			// create a custom error
+			e := errors.Wrapf(err, "failed to send command to entity=(%s)", entityID)
+			// log the error
+			x.logger.Error(e)
+			return nil, e
 		}
 		// let us unmarshall the reply
 		commandReply := new(egopb.CommandReply)
@@ -105,17 +108,20 @@ func (e *Ego) SendCommand(ctx context.Context, command aggregate.Command, entity
 		return commandReply, err
 	}
 	// locate the given actor
-	pid, err := e.actorSystem.GetLocalActor(ctx, entityID)
+	pid, err := x.actorSystem.LocalActor(ctx, entityID)
 	// handle the error
 	if err != nil {
-		e.logger.Error(errors.Wrap(err, "failed to locally locate actor address"))
-		return nil, err
+		// create a custom error
+		e := errors.Wrap(err, "failed to locally locate actor address")
+		// log the error
+		x.logger.Error(e)
+		return nil, e
 	}
 	// send the command to the actor
 	reply, err := actors.Ask(ctx, pid, command, time.Second)
 	// handle the error
 	if err != nil {
-		e.logger.Error(err)
+		x.logger.Error(err)
 		return nil, err
 	}
 
@@ -123,8 +129,8 @@ func (e *Ego) SendCommand(ctx context.Context, command aggregate.Command, entity
 	return reply.(*egopb.CommandReply), nil
 }
 
-// CreateAggregate creates an entity and return the entity reference
-func CreateAggregate[T aggregate.State](ctx context.Context, e *Ego, behavior aggregate.Behavior[T]) {
+// NewEntity creates an entity and return the entity reference
+func NewEntity[T entity.State](ctx context.Context, e *Ego, entityBehavior entity.Behavior[T]) actors.PID {
 	// create the entity
-	e.actorSystem.StartActor(ctx, behavior.ID(), aggregate.New(behavior, e.eventsStore))
+	return e.actorSystem.Spawn(ctx, entityBehavior.ID(), entity.New(entityBehavior, e.eventsStore))
 }

@@ -1,4 +1,4 @@
-package aggregate
+package entity
 
 import (
 	"context"
@@ -25,7 +25,7 @@ type State proto.Message
 // Behavior defines an event sourced behavior when modeling a CQRS Behavior.
 type Behavior[T State] interface {
 	// ID defines the id that will be used in the event journal.
-	// This helps track the aggregate in the events store.
+	// This helps track the entity in the events store.
 	ID() string
 	// InitialState returns the event sourced actor initial state
 	InitialState() T
@@ -61,7 +61,7 @@ var _ actors.Actor = &Entity[State]{}
 
 // New creates an instance of Entity provided the eventSourcedHandler and the events store
 func New[T State](behavior Behavior[T], eventsStore eventstore.EventsStore) *Entity[T] {
-	// create an instance of aggregate and return it
+	// create an instance of entity and return it
 	return &Entity[T]{
 		eventsStore:   eventsStore,
 		Behavior:      behavior,
@@ -153,7 +153,7 @@ func (entity *Entity[T]) PostStop(ctx context.Context) error {
 }
 
 // recoverFromSnapshot reset the persistent actor to the latest snapshot in case there is one
-// this is vital when the aggregate actor is restarting.
+// this is vital when the entity actor is restarting.
 func (entity *Entity[T]) recoverFromSnapshot(ctx context.Context) error {
 	// add a span context
 	//ctx, span := telemetry.SpanContext(ctx, "RecoverFromSnapshot")

@@ -1,4 +1,4 @@
-package aggregate
+package entity
 
 import (
 	"context"
@@ -45,7 +45,7 @@ func TestAccountAggregate(t *testing.T) {
 		// create the persistence actor using the behavior previously created
 		actor := New[*testpb.Account](behavior, eventStore)
 		// spawn the actor
-		pid := actorSystem.StartActor(ctx, behavior.ID(), actor)
+		pid := actorSystem.Spawn(ctx, behavior.ID(), actor)
 		require.NotNil(t, pid)
 
 		var command proto.Message
@@ -131,7 +131,7 @@ func TestAccountAggregate(t *testing.T) {
 		// create the persistence actor using the behavior previously created
 		persistentActor := New[*testpb.Account](behavior, eventStore)
 		// spawn the actor
-		pid := actorSystem.StartActor(ctx, behavior.ID(), persistentActor)
+		pid := actorSystem.Spawn(ctx, behavior.ID(), persistentActor)
 		require.NotNil(t, pid)
 
 		var command proto.Message
@@ -206,7 +206,7 @@ func TestAccountAggregate(t *testing.T) {
 		// create the persistence actor using the behavior previously created
 		persistentActor := New[*testpb.Account](behavior, eventStore)
 		// spawn the actor
-		pid := actorSystem.StartActor(ctx, behavior.ID(), persistentActor)
+		pid := actorSystem.Spawn(ctx, behavior.ID(), persistentActor)
 		require.NotNil(t, pid)
 
 		command := &testpb.TestSend{}
@@ -273,7 +273,7 @@ func TestAccountAggregate(t *testing.T) {
 		// create the persistence actor using the behavior previously created
 		persistentActor := New[*testpb.Account](behavior, eventStore)
 		// spawn the actor
-		pid := actorSystem.StartActor(ctx, behavior.ID(), persistentActor)
+		pid := actorSystem.Spawn(ctx, behavior.ID(), persistentActor)
 		require.NotNil(t, pid)
 
 		var command proto.Message
@@ -330,12 +330,12 @@ func TestAccountAggregate(t *testing.T) {
 		assert.True(t, proto.Equal(expected, resultingState))
 
 		// shutdown the persistent actor
-		assert.NoError(t, actorSystem.StopActor(ctx, behavior.ID()))
+		assert.NoError(t, actorSystem.Kill(ctx, behavior.ID()))
 		// wait a while
 		time.Sleep(time.Second)
 
 		// restart the actor
-		pid, err = actorSystem.RestartActor(ctx, behavior.ID())
+		pid, err = actorSystem.ReSpawn(ctx, behavior.ID())
 		assert.NoError(t, err)
 
 		// fetch the current state
