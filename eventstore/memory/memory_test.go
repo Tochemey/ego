@@ -185,8 +185,11 @@ func TestEventsStore(t *testing.T) {
 			"persistence-4",
 		}
 
-		actual, err := store.PersistenceIDs(ctx)
+		pageSize := uint64(5)
+		pageToken := ""
+		actual, nextPageToken, err := store.PersistenceIDs(ctx, pageSize, pageToken)
 		assert.NoError(t, err)
+		assert.Empty(t, nextPageToken)
 		assert.ElementsMatch(t, expected, actual)
 
 		err = store.Disconnect(ctx)

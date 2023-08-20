@@ -122,27 +122,34 @@ func (s *EventsStore) Ping(ctx context.Context) error {
 }
 
 // PersistenceIDs returns the distinct list of all the persistence ids in the journal store
-func (s *EventsStore) PersistenceIDs(ctx context.Context) (persistenceIDs []string, err error) {
+func (s *EventsStore) PersistenceIDs(ctx context.Context, pageSize uint64, pageToken string) (persistenceIDs []string, nextPageToken string, err error) {
 	// add a span context
 	ctx, span := telemetry.SpanContext(ctx, "eventsStore.PersistenceIDs")
 	defer span.End()
 
 	// check whether this instance of the journal is connected or not
 	if !s.connected.Load() {
-		return nil, errors.New("journal store is not connected")
+		return nil, "", errors.New("journal store is not connected")
 	}
 
 	// create the database delete statement
 	statement := s.sb.
 		Select("persistence_id").
 		Distinct().
-		From(tableName)
+		From(tableName).
+		Limit(pageSize).
+		OrderBy("persistence_id ASC")
+
+	// set the page token
+	if pageToken != "" {
+		statement = statement.Where(sq.Gt{"persistence_id": pageToken})
+	}
 
 	// get the sql statement and the arguments
 	query, args, err := statement.ToSql()
 	// handle the error
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to build the sql statement")
+		return nil, "", errors.Wrap(err, "failed to build the sql statement")
 	}
 
 	// create the ds to hold the database record
@@ -154,7 +161,7 @@ func (s *EventsStore) PersistenceIDs(ctx context.Context) (persistenceIDs []stri
 	var rows []*row
 	err = s.db.SelectAll(ctx, &rows, query, args...)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to fetch the events from the database")
+		return nil, "", errors.Wrap(err, "failed to fetch the events from the database")
 	}
 
 	// grab the fetched records
@@ -162,6 +169,9 @@ func (s *EventsStore) PersistenceIDs(ctx context.Context) (persistenceIDs []stri
 	for index, row := range rows {
 		persistenceIDs[index] = row.PersistenceID
 	}
+
+	// set the next page token
+	nextPageToken = persistenceIDs[len(persistenceIDs)-1]
 
 	return
 }

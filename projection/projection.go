@@ -164,32 +164,39 @@ func (p *Projection) processingLoop(ctx context.Context) {
 		case <-p.stopSignal:
 			return
 		default:
-			// let us fetch all the persistence persistenceIDs
-			// TODO: use cursor pagination to avoid memory outage
-			persistenceIDs, err := p.eventsStore.PersistenceIDs(ctx)
-			// handle the error
-			if err != nil {
-				// log the error
-				p.logger.Error(errors.Wrap(err, "failed to fetch the list of persistence IDs"))
-				// here we stop the projection
-				err := p.Stop(ctx)
-				// handle the error
-				if err != nil {
-					// log the error
-					p.logger.Error(err)
-					return
-				}
-				return
-			}
-
-			// with a simple parallelism we process all persistence IDs
-			// TODO: break the work with workers that can fail without failing the entire projection
 			g, ctx := errgroup.WithContext(ctx)
 			idsChan := make(chan string, 1)
 
 			// let us push the id into the channel
 			g.Go(func() error {
+				// close the ids channel
 				defer close(idsChan)
+
+				// pagination setting
+				pageSize := uint64(100)
+				pageToken := ""
+				// let us fetch all the persistence persistenceIDs
+				persistenceIDs, nextPageToken, err := p.eventsStore.PersistenceIDs(ctx, pageSize, pageToken)
+				// handle the error
+				if err != nil {
+					// log the error
+					p.logger.Error(errors.Wrap(err, "failed to fetch the list of persistence IDs"))
+					// here we stop the projection
+					err := p.Stop(ctx)
+					// handle the error
+					if err != nil {
+						// log the error
+						p.logger.Error(err)
+						return err
+					}
+					return err
+				}
+
+				// finish fetching the list of persistence ids
+				if len(persistenceIDs) == 0 && nextPageToken == "" {
+					return nil
+				}
+
 				// let us push the persistence id into the channel
 				for _, persistenceID := range persistenceIDs {
 					select {
@@ -198,6 +205,9 @@ func (p *Projection) processingLoop(ctx context.Context) {
 						return ctx.Err()
 					}
 				}
+
+				// set the next page token
+				pageToken = nextPageToken
 				return nil
 			})
 

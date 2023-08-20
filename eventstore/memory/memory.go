@@ -112,14 +112,15 @@ func (s *EventsStore) Ping(ctx context.Context) error {
 }
 
 // PersistenceIDs returns the distinct list of all the persistence ids in the journal store
-func (s *EventsStore) PersistenceIDs(ctx context.Context) (persistenceIDs []string, err error) {
+// FIXME: the pagination
+func (s *EventsStore) PersistenceIDs(ctx context.Context, pageSize uint64, pageToken string) (persistenceIDs []string, nextPageToken string, err error) {
 	// add a span context
 	ctx, span := telemetry.SpanContext(ctx, "eventsStore.PersistenceIDs")
 	defer span.End()
 
 	// check whether this instance of the journal is connected or not
 	if !s.connected.Load() {
-		return nil, errors.New("journal store is not connected")
+		return nil, "", errors.New("journal store is not connected")
 	}
 
 	// spawn a db transaction for read-only
@@ -130,11 +131,12 @@ func (s *EventsStore) PersistenceIDs(ctx context.Context) (persistenceIDs []stri
 	it, err := txn.Get(journalTableName, persistenceIDIndex)
 	// handle the error
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to get the persistence Ids")
+		return nil, "", errors.Wrap(err, "failed to get the persistence Ids")
 	}
 
 	var journals []*journal
 	for row := it.Next(); row != nil; row = it.Next() {
+		// parse the next record
 		if journal, ok := row.(*journal); ok {
 			journals = append(journals, journal)
 		}
