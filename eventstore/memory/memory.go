@@ -113,6 +113,7 @@ func (s *EventsStore) Ping(ctx context.Context) error {
 
 // PersistenceIDs returns the distinct list of all the persistence ids in the journal store
 // FIXME: the pagination
+// nolint
 func (s *EventsStore) PersistenceIDs(ctx context.Context, pageSize uint64, pageToken string) (persistenceIDs []string, nextPageToken string, err error) {
 	// add a span context
 	ctx, span := telemetry.SpanContext(ctx, "eventsStore.PersistenceIDs")
