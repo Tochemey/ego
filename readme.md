@@ -32,6 +32,8 @@ Under the hood, ego leverages [goakt](https://github.com/Tochemey/goakt) to scal
       - Postgres
       - Memory
     - [Cluster Mode](https://github.com/Tochemey/goakt#clustering)
+- Read Model:  To enable the read model just start the projection engine with an event handler and one can build a read model of all events persisted by the write model.
+  At the moment the projection engine only come bundled with an in-memory offset store. One can easily implement an offset store using the interface provided.
 - Examples (check the [examples](./example))
 
 ## TODOs

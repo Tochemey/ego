@@ -11,7 +11,6 @@ import (
 	"github.com/tochemey/ego/eventstore"
 	"github.com/tochemey/ego/internal/telemetry"
 	"github.com/tochemey/goakt/actors"
-	goaktmessagesv1 "github.com/tochemey/goakt/messages/v1"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -111,22 +110,6 @@ func (entity *Entity[T]) Receive(ctx actors.ReceiveContext) {
 
 	// grab the command sent
 	switch command := ctx.Message().(type) {
-	case *goaktmessagesv1.RemoteMessage:
-		// this will help handle messages when cluster mode is enabled
-		msg := command.GetMessage()
-		// let us unpack the message
-		unpacked, err := msg.UnmarshalNew()
-		// handle the error
-		if err != nil {
-			entity.sendErrorReply(ctx, err)
-			return
-		}
-		switch unpacked.(type) {
-		case *egopb.GetStateCommand:
-			entity.getStateAndReply(ctx)
-		default:
-			entity.processCommandAndReply(ctx, unpacked)
-		}
 	case *egopb.GetStateCommand:
 		entity.getStateAndReply(ctx)
 	default:

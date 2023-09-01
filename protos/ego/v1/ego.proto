@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package actors.v1;
+package ego.v1;
 
 import "google/protobuf/any.proto";
 
@@ -82,7 +82,7 @@ message Offset {
 enum ProjectionRecoveryStrategy {
   // States that if the first attempt to invoke the handler fails it will immediately give up and fail the projection
   FAIL = 0;
-  // States that if he first attempt to invoke the handler fails it will retry invoking the handler with the
+  // States that if he first attempts to invoke the handler fails it will retry invoking the handler with the
   // same envelope this number of `retries` with the `delay` between each attempt. It will give up
   // and fail the projection if all attempts fail. For this to work as expected one need to define the `retries` and `delay`
   // settings in the projection configuration.
@@ -91,7 +91,7 @@ enum ProjectionRecoveryStrategy {
   // continue with next. This will commit the offset assuming the event has been successfully processed.
   // Use this strategy with care.
   SKIP = 2;
-  // States that if he first attempt to invoke the handler fails it will retry invoking the handler with the
+  // States that if he first attempts to invoke the handler fails it will retry invoking the handler with the
   // same envelope this number of `retries` with the `delay` between each attempt. It will give up,
   // discard the element and continue with next if all attempts fail.
   // For this to work as expected one need to define the `retries` and `delay` settings in the projection configuration.
