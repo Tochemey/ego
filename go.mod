@@ -10,7 +10,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.8.4
 	github.com/tochemey/goakt v0.5.1
-	github.com/tochemey/gopack v0.0.0-20230831231518-a5a26f3fd887
+	github.com/tochemey/gopack v0.0.0-20230901205014-06584bf05eb5
 	github.com/travisjeffery/go-dynaport v1.0.0
 	go.opentelemetry.io/otel v1.17.0
 	go.opentelemetry.io/otel/trace v1.17.0
