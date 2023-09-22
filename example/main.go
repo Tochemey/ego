@@ -8,12 +8,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/tochemey/ego/entity"
-	"github.com/tochemey/ego/eventstore/memory"
-
 	"github.com/google/uuid"
 	"github.com/tochemey/ego"
-	"github.com/tochemey/ego/egopb"
+	"github.com/tochemey/ego/entity"
+	"github.com/tochemey/ego/eventstore/memory"
 	samplepb "github.com/tochemey/ego/example/pbs/sample/pb/v1"
 	"google.golang.org/protobuf/proto"
 )
@@ -43,11 +41,8 @@ func main() {
 	}
 	// send the command to the actor. Please don't ignore the error in production grid code
 	reply, _ := e.SendCommand(ctx, command, entityID)
-	state := reply.GetReply().(*egopb.CommandReply_StateReply)
-	log.Printf("resulting sequence number: %d", state.StateReply.GetSequenceNumber())
 
-	account := new(samplepb.Account)
-	_ = state.StateReply.GetState().UnmarshalTo(account)
+	account := reply.(*samplepb.Account)
 
 	log.Printf("current balance: %v", account.GetAccountBalance())
 
@@ -57,12 +52,7 @@ func main() {
 		Balance:   250,
 	}
 	reply, _ = e.SendCommand(ctx, command, entityID)
-	state = reply.GetReply().(*egopb.CommandReply_StateReply)
-	log.Printf("resulting sequence number: %d", state.StateReply.GetSequenceNumber())
-
-	account = new(samplepb.Account)
-	_ = state.StateReply.GetState().UnmarshalTo(account)
-
+	account = reply.(*samplepb.Account)
 	log.Printf("current balance: %v", account.GetAccountBalance())
 
 	// capture ctrl+c

@@ -11,12 +11,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tochemey/ego/egopb"
 	"github.com/tochemey/ego/entity"
 	"github.com/tochemey/ego/eventstore/memory"
 	samplepb "github.com/tochemey/ego/example/pbs/sample/pb/v1"
 	"github.com/tochemey/goakt/discovery"
-	mockdisco "github.com/tochemey/goakt/goaktmocks/discovery"
+	mockdisco "github.com/tochemey/goakt/testkit/discovery"
 	"github.com/travisjeffery/go-dynaport"
 	"google.golang.org/protobuf/proto"
 )
@@ -87,11 +86,8 @@ func TestEgo(t *testing.T) {
 		// send the command to the actor. Please don't ignore the error in production grid code
 		reply, err := e.SendCommand(ctx, command, entityID)
 		require.NoError(t, err)
-		require.IsType(t, new(egopb.CommandReply_StateReply), reply.GetReply())
-		assert.EqualValues(t, 1, reply.GetStateReply().GetSequenceNumber())
 
-		resultingState := new(samplepb.Account)
-		assert.NoError(t, reply.GetStateReply().GetState().UnmarshalTo(resultingState))
+		resultingState := reply.(*samplepb.Account)
 		assert.EqualValues(t, 500.00, resultingState.GetAccountBalance())
 		assert.Equal(t, entityID, resultingState.GetAccountId())
 
@@ -102,11 +98,8 @@ func TestEgo(t *testing.T) {
 		}
 		reply, err = e.SendCommand(ctx, command, entityID)
 		require.NoError(t, err)
-		require.IsType(t, new(egopb.CommandReply_StateReply), reply.GetReply())
-		assert.EqualValues(t, 2, reply.GetStateReply().GetSequenceNumber())
 
-		newState := new(samplepb.Account)
-		assert.NoError(t, reply.GetStateReply().GetState().UnmarshalTo(newState))
+		newState := reply.(*samplepb.Account)
 		assert.EqualValues(t, 750.00, newState.GetAccountBalance())
 		assert.Equal(t, entityID, newState.GetAccountId())
 
@@ -138,11 +131,8 @@ func TestEgo(t *testing.T) {
 		// send the command to the actor. Please don't ignore the error in production grid code
 		reply, err := e.SendCommand(ctx, command, entityID)
 		require.NoError(t, err)
-		require.IsType(t, new(egopb.CommandReply_StateReply), reply.GetReply())
-		assert.EqualValues(t, 1, reply.GetStateReply().GetSequenceNumber())
 
-		resultingState := new(samplepb.Account)
-		assert.NoError(t, reply.GetStateReply().GetState().UnmarshalTo(resultingState))
+		resultingState := reply.(*samplepb.Account)
 		assert.EqualValues(t, 500.00, resultingState.GetAccountBalance())
 		assert.Equal(t, entityID, resultingState.GetAccountId())
 
@@ -153,11 +143,8 @@ func TestEgo(t *testing.T) {
 		}
 		reply, err = e.SendCommand(ctx, command, entityID)
 		require.NoError(t, err)
-		require.IsType(t, new(egopb.CommandReply_StateReply), reply.GetReply())
-		assert.EqualValues(t, 2, reply.GetStateReply().GetSequenceNumber())
 
-		newState := new(samplepb.Account)
-		assert.NoError(t, reply.GetStateReply().GetState().UnmarshalTo(newState))
+		newState := reply.(*samplepb.Account)
 		assert.EqualValues(t, 750.00, newState.GetAccountBalance())
 		assert.Equal(t, entityID, newState.GetAccountId())
 

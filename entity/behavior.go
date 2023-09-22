@@ -26,7 +26,8 @@ type Behavior[T State] interface {
 	// ID defines the id that will be used in the event journal.
 	// This helps track the entity in the events store.
 	ID() string
-	// InitialState returns the event sourced actor initial state
+	// InitialState returns the event sourced actor initial state.
+	// This is set as the initial state when there are no snapshots found the entity
 	InitialState() T
 	// HandleCommand helps handle commands received by the event sourced actor. The command handlers define how to handle each incoming command,
 	// which validations must be applied, and finally, which events will be persisted if any. When there is no event to be persisted a nil can
@@ -120,8 +121,8 @@ func (entity *Entity[T]) Receive(ctx actors.ReceiveContext) {
 // PostStop prepares the actor to gracefully shutdown
 func (entity *Entity[T]) PostStop(ctx context.Context) error {
 	// add a span context
-	//ctx, span := telemetry.SpanContext(ctx, "PostStop")
-	//defer span.End()
+	ctx, span := telemetry.SpanContext(ctx, "PostStop")
+	defer span.End()
 
 	// acquire the lock
 	entity.mu.Lock()
@@ -139,8 +140,8 @@ func (entity *Entity[T]) PostStop(ctx context.Context) error {
 // this is vital when the entity actor is restarting.
 func (entity *Entity[T]) recoverFromSnapshot(ctx context.Context) error {
 	// add a span context
-	//ctx, span := telemetry.SpanContext(ctx, "RecoverFromSnapshot")
-	//defer span.End()
+	ctx, span := telemetry.SpanContext(ctx, "RecoverFromSnapshot")
+	defer span.End()
 
 	// check whether there is a snapshot to recover from
 	event, err := entity.eventsStore.GetLatestEvent(ctx, entity.ID())
@@ -278,6 +279,7 @@ func (entity *Entity[T]) processCommandAndReply(ctx actors.ReceiveContext, comma
 		return
 	}
 
+	// create the command reply to send
 	reply := &egopb.CommandReply{
 		Reply: &egopb.CommandReply_StateReply{
 			StateReply: &egopb.StateReply{

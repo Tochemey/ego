@@ -327,10 +327,8 @@ func TestAccountAggregate(t *testing.T) {
 			AccountId:      persistenceID,
 			AccountBalance: 750.00,
 		}
-		assert.True(t, proto.Equal(expected, resultingState))
 
-		// shutdown the persistent actor
-		assert.NoError(t, actorSystem.Kill(ctx, behavior.ID()))
+		assert.True(t, proto.Equal(expected, resultingState))
 		// wait a while
 		time.Sleep(time.Second)
 

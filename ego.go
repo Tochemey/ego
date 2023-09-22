@@ -11,7 +11,7 @@ import (
 	"github.com/tochemey/goakt/actors"
 	"github.com/tochemey/goakt/discovery"
 	"github.com/tochemey/goakt/log"
-	"github.com/tochemey/goakt/pkg/telemetry"
+	"github.com/tochemey/goakt/telemetry"
 	"go.uber.org/atomic"
 )
 
@@ -81,8 +81,11 @@ func (x *Ego) Stop(ctx context.Context) error {
 	return x.actorSystem.Stop(ctx)
 }
 
-// SendCommand sends command to a given entity ref
-func (x *Ego) SendCommand(ctx context.Context, command entity.Command, entityID string) (*egopb.CommandReply, error) {
+// SendCommand sends command to a given entity ref. This will return:
+// 1. the resulting state after the command has been handled and the emitted event persisted
+// 2. nil when there is no resulting state or no event persisted
+// 3. an error in case of error
+func (x *Ego) SendCommand(ctx context.Context, command entity.Command, entityID string) (entity.State, error) {
 	// first check whether we are running in cluster mode or not
 	if x.enableCluster.Load() {
 		// grab the remote address of the actor
@@ -104,8 +107,13 @@ func (x *Ego) SendCommand(ctx context.Context, command entity.Command, entityID 
 		}
 		// let us unmarshall the reply
 		commandReply := new(egopb.CommandReply)
-		err = reply.UnmarshalTo(commandReply)
-		return commandReply, err
+		// parse the reply and return the error when there is one
+		if err = reply.UnmarshalTo(commandReply); err != nil {
+			return nil, err
+		}
+
+		// parse the command reply and return the appropriate responses
+		return parseCommandReply(commandReply)
 	}
 	// locate the given actor
 	pid, err := x.actorSystem.LocalActor(ctx, entityID)
@@ -125,8 +133,33 @@ func (x *Ego) SendCommand(ctx context.Context, command entity.Command, entityID 
 		return nil, err
 	}
 
-	// TODO use ok, comma idiom to cast
-	return reply.(*egopb.CommandReply), nil
+	// cast the reply to a command reply because that is the expected return type
+	commandReply, ok := reply.(*egopb.CommandReply)
+	// when casting is successful
+	if ok {
+		// parse the command reply and return the appropriate responses
+		return parseCommandReply(commandReply)
+	}
+	// casting failed
+	return nil, errors.New("failed to parse command reply")
+}
+
+// parseCommandReply parses the command reply
+func parseCommandReply(reply *egopb.CommandReply) (entity.State, error) {
+	var (
+		state entity.State
+		err   error
+	)
+	// parse the command reply
+	switch r := reply.GetReply().(type) {
+	case *egopb.CommandReply_StateReply:
+		state, err = r.StateReply.GetState().UnmarshalNew()
+	case *egopb.CommandReply_NoReply:
+		// nothing to be done here
+	case *egopb.CommandReply_ErrorReply:
+		err = errors.New(r.ErrorReply.GetMessage())
+	}
+	return state, err
 }
 
 // NewEntity creates an entity and return the entity reference

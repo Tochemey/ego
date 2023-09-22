@@ -29,7 +29,7 @@ message Event {
 message CommandReply {
   // the actual command reply
   oneof reply {
-    // actual state is wrapped with meta data
+    // actual state is wrapped with metadata
     StateReply state_reply = 1;
     // gRPC failure
     ErrorReply error_reply = 2;

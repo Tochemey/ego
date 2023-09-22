@@ -25,42 +25,38 @@ Under the hood, ego leverages [goakt](https://github.com/Tochemey/goakt) to scal
             - the event timestamp
         - [NoReply](protos): this message is returned when the command does not need a reply.
         - [ErrorReply](protos): is used when a command processing has failed. This message contains the error message.
-      Once the events are persisted, they are applied to the state producing a new valid state.
+          Once the events are persisted, they are applied to the state producing a new valid state.
     - Events handler: The event handlers are used to mutate the state of the Aggregate by applying the events to it.
       Event handlers must be pure functions as they will be used when instantiating the Aggregate and replaying the event store.
-    - Extensible events store 
+    - Extensible events store
     - Built-in events store
-      - Postgres
-      - Memory
+        - Postgres
+        - Memory (only for testing purpose)
     - [Cluster Mode](https://github.com/Tochemey/goakt#clustering)
-- Read Model:  To enable the read model just start the projection engine with an event handler and one can build a read model of all events persisted by the write model.
-  At the moment the projection engine only come bundled with an in-memory offset store. One can easily implement an offset store using the interface provided.
 - Examples (check the [examples](./example))
 
-## TODOs
-- [ ] Add cursor pagination for events store listing of persistence ids
-- [ ] Add some compaction mechanism to the events store
-- [ ] Enhance projection using sharding
-- [ ] Rewrite the projection implementation
-
 ## Installation
+
 ```bash
 go get github.com/tochemey/ego
 ```
 
-
 ## Contribution
+
 Contributions are welcome!
 The project adheres to [Semantic Versioning](https://semver.org) and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 This repo uses [Earthly](https://earthly.dev/get-earthly).
 
 To contribute please:
+
 - Fork the repository
 - Create a feature branch
 - Submit a [pull request](https://help.github.com/articles/using-pull-requests)
 
 ### Test & Linter
+
 Prior to submitting a [pull request](https://help.github.com/articles/using-pull-requests), please run:
+
 ```bash
 earthly +test
 ```
