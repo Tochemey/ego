@@ -11,9 +11,9 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tochemey/ego/entity"
 	"github.com/tochemey/ego/eventstore/memory"
 	samplepb "github.com/tochemey/ego/example/pbs/sample/pb/v1"
+	testpb "github.com/tochemey/ego/test/data/pb/v1"
 	"github.com/tochemey/goakt/discovery"
 	mockdisco "github.com/tochemey/goakt/testkit/discovery"
 	"github.com/travisjeffery/go-dynaport"
@@ -50,7 +50,7 @@ func TestEgo(t *testing.T) {
 		provider := new(mockdisco.Provider)
 		config := discovery.NewConfig()
 
-		provider.EXPECT().ID().Return("testDisco")
+		provider.EXPECT().ID().Return("disco")
 		provider.EXPECT().Initialize().Return(nil)
 		provider.EXPECT().Register().Return(nil)
 		provider.EXPECT().Deregister().Return(nil)
@@ -71,7 +71,9 @@ func TestEgo(t *testing.T) {
 		// create an entity behavior with a given id
 		behavior := NewAccountBehavior(entityID)
 		// create an entity
-		NewEntity[*samplepb.Account](ctx, e, behavior)
+		entity, err := e.NewEntity(ctx, behavior)
+		require.NoError(t, err)
+		require.NotNil(t, entity)
 		// send some commands to the pid
 		var command proto.Message
 		// create an account
@@ -84,7 +86,7 @@ func TestEgo(t *testing.T) {
 		time.Sleep(time.Second)
 
 		// send the command to the actor. Please don't ignore the error in production grid code
-		reply, err := e.SendCommand(ctx, command, entityID)
+		reply, err := entity.SendCommand(ctx, command)
 		require.NoError(t, err)
 
 		resultingState := reply.(*samplepb.Account)
@@ -96,7 +98,7 @@ func TestEgo(t *testing.T) {
 			AccountId: entityID,
 			Balance:   250,
 		}
-		reply, err = e.SendCommand(ctx, command, entityID)
+		reply, err = entity.SendCommand(ctx, command)
 		require.NoError(t, err)
 
 		newState := reply.(*samplepb.Account)
@@ -120,7 +122,10 @@ func TestEgo(t *testing.T) {
 		// create an entity behavior with a given id
 		behavior := NewAccountBehavior(entityID)
 		// create an entity
-		NewEntity[*samplepb.Account](ctx, e, behavior)
+		entity, err := e.NewEntity(ctx, behavior)
+		require.NoError(t, err)
+		require.NotNil(t, entity)
+		require.NoError(t, err)
 		// send some commands to the pid
 		var command proto.Message
 		// create an account
@@ -129,7 +134,7 @@ func TestEgo(t *testing.T) {
 			AccountBalance: 500.00,
 		}
 		// send the command to the actor. Please don't ignore the error in production grid code
-		reply, err := e.SendCommand(ctx, command, entityID)
+		reply, err := entity.SendCommand(ctx, command)
 		require.NoError(t, err)
 
 		resultingState := reply.(*samplepb.Account)
@@ -141,7 +146,7 @@ func TestEgo(t *testing.T) {
 			AccountId: entityID,
 			Balance:   250,
 		}
-		reply, err = e.SendCommand(ctx, command, entityID)
+		reply, err = entity.SendCommand(ctx, command)
 		require.NoError(t, err)
 
 		newState := reply.(*samplepb.Account)
@@ -159,7 +164,7 @@ type AccountBehavior struct {
 }
 
 // make sure that AccountBehavior is a true persistence behavior
-var _ entity.Behavior[*samplepb.Account] = &AccountBehavior{}
+var _ Behavior = &AccountBehavior{}
 
 // NewAccountBehavior creates an instance of AccountBehavior
 func NewAccountBehavior(id string) *AccountBehavior {
@@ -172,12 +177,12 @@ func (a *AccountBehavior) ID() string {
 }
 
 // InitialState returns the initial state
-func (a *AccountBehavior) InitialState() *samplepb.Account {
+func (a *AccountBehavior) InitialState() proto.Message {
 	return new(samplepb.Account)
 }
 
 // HandleCommand handles every command that is sent to the persistent behavior
-func (a *AccountBehavior) HandleCommand(_ context.Context, command entity.Command, _ *samplepb.Account) (event entity.Event, err error) {
+func (a *AccountBehavior) HandleCommand(_ context.Context, command proto.Message, _ proto.Message) (event proto.Message, err error) {
 	switch cmd := command.(type) {
 	case *samplepb.CreateAccount:
 		// TODO in production grid app validate the command using the prior state
@@ -199,7 +204,7 @@ func (a *AccountBehavior) HandleCommand(_ context.Context, command entity.Comman
 }
 
 // HandleEvent handles every event emitted
-func (a *AccountBehavior) HandleEvent(_ context.Context, event entity.Event, priorState *samplepb.Account) (state *samplepb.Account, err error) {
+func (a *AccountBehavior) HandleEvent(_ context.Context, event proto.Message, priorState proto.Message) (state proto.Message, err error) {
 	switch evt := event.(type) {
 	case *samplepb.AccountCreated:
 		return &samplepb.Account{
@@ -208,7 +213,8 @@ func (a *AccountBehavior) HandleEvent(_ context.Context, event entity.Event, pri
 		}, nil
 
 	case *samplepb.AccountCredited:
-		bal := priorState.GetAccountBalance() + evt.GetAccountBalance()
+		account := priorState.(*testpb.Account)
+		bal := account.GetAccountBalance() + evt.GetAccountBalance()
 		return &samplepb.Account{
 			AccountId:      evt.GetAccountId(),
 			AccountBalance: bal,

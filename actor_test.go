@@ -1,4 +1,4 @@
-package entity
+package ego
 
 import (
 	"context"
@@ -40,13 +40,14 @@ func TestAccountAggregate(t *testing.T) {
 		// create a persistence id
 		persistenceID := uuid.NewString()
 		// create the persistence behavior
-		behavior := NewAccountEntityBehavior(persistenceID)
+		behavior := NewAccountActor(persistenceID)
 
 		// create the persistence actor using the behavior previously created
-		actor := New[*testpb.Account](behavior, eventStore)
+		actor := newActor(behavior, eventStore)
 		// spawn the actor
-		pid := actorSystem.Spawn(ctx, behavior.ID(), actor)
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor)
 		require.NotNil(t, pid)
+		require.NoError(t, err)
 
 		var command proto.Message
 
@@ -126,13 +127,14 @@ func TestAccountAggregate(t *testing.T) {
 		// create a persistence id
 		persistenceID := uuid.NewString()
 		// create the persistence behavior
-		behavior := NewAccountEntityBehavior(persistenceID)
+		behavior := NewAccountActor(persistenceID)
 
 		// create the persistence actor using the behavior previously created
-		persistentActor := New[*testpb.Account](behavior, eventStore)
+		persistentActor := newActor(behavior, eventStore)
 		// spawn the actor
-		pid := actorSystem.Spawn(ctx, behavior.ID(), persistentActor)
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), persistentActor)
 		require.NotNil(t, pid)
+		require.NoError(t, err)
 
 		var command proto.Message
 
@@ -201,13 +203,14 @@ func TestAccountAggregate(t *testing.T) {
 		// create a persistence id
 		persistenceID := uuid.NewString()
 		// create the persistence behavior
-		behavior := NewAccountEntityBehavior(persistenceID)
+		behavior := NewAccountActor(persistenceID)
 
 		// create the persistence actor using the behavior previously created
-		persistentActor := New[*testpb.Account](behavior, eventStore)
+		persistentActor := newActor(behavior, eventStore)
 		// spawn the actor
-		pid := actorSystem.Spawn(ctx, behavior.ID(), persistentActor)
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), persistentActor)
 		require.NotNil(t, pid)
+		require.NoError(t, err)
 
 		command := &testpb.TestSend{}
 		// send the command to the actor
@@ -268,13 +271,14 @@ func TestAccountAggregate(t *testing.T) {
 		// create a persistence id
 		persistenceID := uuid.NewString()
 		// create the persistence behavior
-		behavior := NewAccountEntityBehavior(persistenceID)
+		behavior := NewAccountActor(persistenceID)
 
 		// create the persistence actor using the behavior previously created
-		persistentActor := New[*testpb.Account](behavior, eventStore)
+		persistentActor := newActor(behavior, eventStore)
 		// spawn the actor
-		pid := actorSystem.Spawn(ctx, behavior.ID(), persistentActor)
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), persistentActor)
 		require.NotNil(t, pid)
+		require.NoError(t, err)
 
 		var command proto.Message
 

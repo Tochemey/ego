@@ -181,16 +181,31 @@ func TestEventsStore(t *testing.T) {
 			"persistence-0",
 			"persistence-1",
 			"persistence-2",
+		}
+
+		pageSize := uint64(3)
+		pageToken := ""
+		actual, nextPageToken, err := store.PersistenceIDs(ctx, pageSize, pageToken)
+		assert.NoError(t, err)
+		assert.NotEmpty(t, nextPageToken)
+		assert.Equal(t, nextPageToken, "persistence-2")
+		assert.ElementsMatch(t, expected, actual)
+
+		actual2, nextPageToken2, err := store.PersistenceIDs(ctx, pageSize, nextPageToken)
+		expected = []string{
 			"persistence-3",
 			"persistence-4",
 		}
 
-		pageSize := uint64(5)
-		pageToken := ""
-		actual, nextPageToken, err := store.PersistenceIDs(ctx, pageSize, pageToken)
 		assert.NoError(t, err)
-		assert.Empty(t, nextPageToken)
-		assert.ElementsMatch(t, expected, actual)
+		assert.NotEmpty(t, nextPageToken2)
+		assert.Equal(t, nextPageToken2, "persistence-4")
+		assert.ElementsMatch(t, expected, actual2)
+
+		actual3, nextPageToken3, err := store.PersistenceIDs(ctx, pageSize, nextPageToken2)
+		assert.NoError(t, err)
+		assert.Empty(t, nextPageToken3)
+		assert.Empty(t, actual3)
 
 		err = store.Disconnect(ctx)
 		assert.NoError(t, err)

@@ -6,14 +6,44 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/tochemey/ego/egopb"
-	"github.com/tochemey/ego/entity"
 	"github.com/tochemey/ego/eventstore"
 	"github.com/tochemey/goakt/actors"
 	"github.com/tochemey/goakt/discovery"
 	"github.com/tochemey/goakt/log"
 	"github.com/tochemey/goakt/telemetry"
 	"go.uber.org/atomic"
+	"google.golang.org/protobuf/proto"
 )
+
+// Entity defines the event sourced entity
+// Commands sent to the entity are processed in order.
+type Entity struct {
+	// the entity behavior
+	behavior Behavior
+	// the underlying actor reference
+	actor actors.PID
+}
+
+// SendCommand is used to send command to this entity. This will return:
+// 1. the resulting state after the command has been handled and the emitted event persisted
+// 2. nil when there is no resulting state or no event persisted
+// 3. an error in case of error
+func (x Entity) SendCommand(ctx context.Context, command proto.Message) (state proto.Message, err error) {
+	// send the command to the actor
+	reply, err := actors.Ask(ctx, x.actor, command, time.Minute)
+	// handle the error
+	if err != nil {
+		return nil, err
+	}
+
+	// cast the reply to a command reply because that is the expected return type
+	if commandReply, ok := reply.(*egopb.CommandReply); ok {
+		// parse the command reply and return the appropriate responses
+		return parseCommandReply(commandReply)
+	}
+	// casting failed
+	return nil, errors.New("failed to parse command reply")
+}
 
 // Ego represents the engine that empowers the various entities
 type Ego struct {
@@ -81,73 +111,25 @@ func (x *Ego) Stop(ctx context.Context) error {
 	return x.actorSystem.Stop(ctx)
 }
 
-// SendCommand sends command to a given entity ref. This will return:
-// 1. the resulting state after the command has been handled and the emitted event persisted
-// 2. nil when there is no resulting state or no event persisted
-// 3. an error in case of error
-func (x *Ego) SendCommand(ctx context.Context, command entity.Command, entityID string) (entity.State, error) {
-	// first check whether we are running in cluster mode or not
-	if x.enableCluster.Load() {
-		// grab the remote address of the actor
-		addr, err := x.actorSystem.RemoteActor(ctx, entityID)
-		// handle the error
-		if err != nil {
-			x.logger.Error(errors.Wrap(err, "failed to remotely locate actor address"))
-			return nil, err
-		}
-		// send a remote message to the actor
-		reply, err := actors.RemoteAsk(ctx, addr, command)
-		// handle the error
-		if err != nil {
-			// create a custom error
-			e := errors.Wrapf(err, "failed to send command to entity=(%s)", entityID)
-			// log the error
-			x.logger.Error(e)
-			return nil, e
-		}
-		// let us unmarshall the reply
-		commandReply := new(egopb.CommandReply)
-		// parse the reply and return the error when there is one
-		if err = reply.UnmarshalTo(commandReply); err != nil {
-			return nil, err
-		}
-
-		// parse the command reply and return the appropriate responses
-		return parseCommandReply(commandReply)
-	}
-	// locate the given actor
-	pid, err := x.actorSystem.LocalActor(ctx, entityID)
-	// handle the error
+// NewEntity creates a new event sourced entity given the entity behavior
+func (x *Ego) NewEntity(ctx context.Context, behavior Behavior) (*Entity, error) {
+	// create the entity underlying actor
+	pid, err := x.actorSystem.Spawn(ctx, behavior.ID(), newActor(behavior, x.eventsStore))
+	// return the eventual error
 	if err != nil {
-		// create a custom error
-		e := errors.Wrap(err, "failed to locally locate actor address")
-		// log the error
-		x.logger.Error(e)
-		return nil, e
-	}
-	// send the command to the actor
-	reply, err := actors.Ask(ctx, pid, command, time.Second)
-	// handle the error
-	if err != nil {
-		x.logger.Error(err)
 		return nil, err
 	}
-
-	// cast the reply to a command reply because that is the expected return type
-	commandReply, ok := reply.(*egopb.CommandReply)
-	// when casting is successful
-	if ok {
-		// parse the command reply and return the appropriate responses
-		return parseCommandReply(commandReply)
-	}
-	// casting failed
-	return nil, errors.New("failed to parse command reply")
+	// create an instance of Entity
+	return &Entity{
+		behavior: behavior,
+		actor:    pid,
+	}, nil
 }
 
 // parseCommandReply parses the command reply
-func parseCommandReply(reply *egopb.CommandReply) (entity.State, error) {
+func parseCommandReply(reply *egopb.CommandReply) (proto.Message, error) {
 	var (
-		state entity.State
+		state proto.Message
 		err   error
 	)
 	// parse the command reply
@@ -160,10 +142,4 @@ func parseCommandReply(reply *egopb.CommandReply) (entity.State, error) {
 		err = errors.New(r.ErrorReply.GetMessage())
 	}
 	return state, err
-}
-
-// NewEntity creates an entity and return the entity reference
-func NewEntity[T entity.State](ctx context.Context, e *Ego, entityBehavior entity.Behavior[T]) actors.PID {
-	// create the entity
-	return e.actorSystem.Spawn(ctx, entityBehavior.ID(), entity.New(entityBehavior, e.eventsStore))
 }

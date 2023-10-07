@@ -112,8 +112,7 @@ func (s *EventsStore) Ping(ctx context.Context) error {
 }
 
 // PersistenceIDs returns the distinct list of all the persistence ids in the journal store
-// FIXME: the pagination
-// nolint
+// FIXME: enhance the implementation. As it stands it will be a bit slow when there are a lot of records
 func (s *EventsStore) PersistenceIDs(ctx context.Context, pageSize uint64, pageToken string) (persistenceIDs []string, nextPageToken string, err error) {
 	// add a span context
 	ctx, span := telemetry.SpanContext(ctx, "eventsStore.PersistenceIDs")
@@ -128,25 +127,62 @@ func (s *EventsStore) PersistenceIDs(ctx context.Context, pageSize uint64, pageT
 	txn := s.db.Txn(false)
 	defer txn.Abort()
 
-	// fetch all the records
-	it, err := txn.Get(journalTableName, persistenceIDIndex)
+	// define the records iterator and error variables
+	var (
+		it memdb.ResultIterator
+	)
+
+	// check whether the page token is set
+	if pageToken != "" {
+		// execute the query to fetch the records
+		it, err = txn.LowerBound(journalTableName, persistenceIDIndex, pageToken)
+	} else {
+		// fetch all the records. default behavior
+		it, err = txn.Get(journalTableName, persistenceIDIndex)
+	}
+
 	// handle the error
 	if err != nil {
 		return nil, "", errors.Wrap(err, "failed to get the persistence Ids")
 	}
 
 	var journals []*journal
+	// fetch the records
 	for row := it.Next(); row != nil; row = it.Next() {
+		// check whether we have reached the page size
+		if len(journals) == int(pageSize) {
+			break
+		}
 		// parse the next record
 		if journal, ok := row.(*journal); ok {
 			journals = append(journals, journal)
 		}
 	}
 
-	persistenceIDs = make([]string, len(journals))
-	for i, journal := range journals {
-		persistenceIDs[i] = journal.PersistenceID
+	// build the persistence ids fetched
+	// iterate the records that have been fetched earlier
+	for _, journal := range journals {
+		// TODO: refactor this cowboy code
+		// skip the page token record
+		if journal.PersistenceID == pageToken {
+			continue
+		}
+		// grab the id
+		persistenceIDs = append(persistenceIDs, journal.PersistenceID)
 	}
+
+	// short-circuit when there are no records
+	if len(persistenceIDs) == 0 {
+		return nil, "", nil
+	}
+
+	// let us sort the fetch ids
+	sort.SliceStable(persistenceIDs, func(i, j int) bool {
+		return persistenceIDs[i] <= persistenceIDs[j]
+	})
+
+	// set the next page token
+	nextPageToken = persistenceIDs[len(persistenceIDs)-1]
 
 	return
 }
@@ -203,7 +239,7 @@ func (s *EventsStore) WriteEvents(ctx context.Context, events []*egopb.Event) er
 }
 
 // DeleteEvents deletes events from the store upt to a given sequence number (inclusive)
-// FIXME: enhance the implementation. As it stands it may be a bit slow
+// FIXME: enhance the implementation. As it stands it may be a bit slow when there are a lot of records
 func (s *EventsStore) DeleteEvents(ctx context.Context, persistenceID string, toSequenceNumber uint64) error {
 	// add a span context
 	ctx, span := telemetry.SpanContext(ctx, "eventsStore.DeleteEvents")
