@@ -3,32 +3,31 @@ package ego
 import (
 	"context"
 
-	"google.golang.org/protobuf/proto"
-
 	"github.com/pkg/errors"
 	testpb "github.com/tochemey/ego/test/data/pb/v1"
 )
 
-// AccountActor implement Behavior
-type AccountActor struct {
+// AccountEntityBehavior implement EntityBehavior
+type AccountEntityBehavior struct {
 	id string
 }
 
-var _ Behavior = &AccountActor{}
+// make sure that testAccountBehavior is a true persistence behavior
+var _ EntityBehavior[*testpb.Account] = &AccountEntityBehavior{}
 
-// NewAccountActor creates an instance of AccountActor
-func NewAccountActor(id string) *AccountActor {
-	return &AccountActor{id: id}
+// NewAccountEntityBehavior creates an instance of AccountEntityBehavior
+func NewAccountEntityBehavior(id string) *AccountEntityBehavior {
+	return &AccountEntityBehavior{id: id}
 }
-func (t *AccountActor) ID() string {
+func (t *AccountEntityBehavior) ID() string {
 	return t.id
 }
 
-func (t *AccountActor) InitialState() proto.Message {
+func (t *AccountEntityBehavior) InitialState() *testpb.Account {
 	return new(testpb.Account)
 }
 
-func (t *AccountActor) HandleCommand(_ context.Context, command proto.Message, _ proto.Message) (event proto.Message, err error) {
+func (t *AccountEntityBehavior) HandleCommand(_ context.Context, command Command, _ *testpb.Account) (event Event, err error) {
 	switch cmd := command.(type) {
 	case *testpb.CreateAccount:
 		// TODO in production grid app validate the command using the prior state
@@ -52,7 +51,7 @@ func (t *AccountActor) HandleCommand(_ context.Context, command proto.Message, _
 	}
 }
 
-func (t *AccountActor) HandleEvent(_ context.Context, event proto.Message, priorState proto.Message) (state proto.Message, err error) {
+func (t *AccountEntityBehavior) HandleEvent(_ context.Context, event Event, priorState *testpb.Account) (state *testpb.Account, err error) {
 	switch evt := event.(type) {
 	case *testpb.AccountCreated:
 		return &testpb.Account{
@@ -61,9 +60,7 @@ func (t *AccountActor) HandleEvent(_ context.Context, event proto.Message, prior
 		}, nil
 
 	case *testpb.AccountCredited:
-		// cast the prior state to account
-		account := priorState.(*testpb.Account)
-		bal := account.GetAccountBalance() + evt.GetAccountBalance()
+		bal := priorState.GetAccountBalance() + evt.GetAccountBalance()
 		return &testpb.Account{
 			AccountId:      evt.GetAccountId(),
 			AccountBalance: bal,

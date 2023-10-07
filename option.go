@@ -10,22 +10,22 @@ import (
 // Option is the interface that applies a configuration option.
 type Option interface {
 	// Apply sets the Option value of a config.
-	Apply(e *Ego)
+	Apply(e *Engine)
 }
 
 var _ Option = OptionFunc(nil)
 
 // OptionFunc implements the Option interface.
-type OptionFunc func(e *Ego)
+type OptionFunc func(e *Engine)
 
-// Apply applies the options to Ego
-func (f OptionFunc) Apply(e *Ego) {
+// Apply applies the options to Engine
+func (f OptionFunc) Apply(e *Engine) {
 	f(e)
 }
 
 // WithCluster enables cluster mode
 func WithCluster(discoProvider discovery.Provider, config discovery.Config, partitionsCount uint64) Option {
-	return OptionFunc(func(e *Ego) {
+	return OptionFunc(func(e *Engine) {
 		e.enableCluster = atomic.NewBool(true)
 		e.discoveryProvider = discoProvider
 		e.discoveryConfig = config
@@ -35,14 +35,14 @@ func WithCluster(discoProvider discovery.Provider, config discovery.Config, part
 
 // WithLogger sets the logger
 func WithLogger(logger log.Logger) Option {
-	return OptionFunc(func(e *Ego) {
+	return OptionFunc(func(e *Engine) {
 		e.logger = logger
 	})
 }
 
 // WithTelemetry sets the telemetry engine
 func WithTelemetry(telemetry *telemetry.Telemetry) Option {
-	return OptionFunc(func(e *Ego) {
+	return OptionFunc(func(e *Engine) {
 		e.telemetry = telemetry
 	})
 }
