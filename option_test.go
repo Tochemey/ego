@@ -22,12 +22,12 @@ func TestOptions(t *testing.T) {
 	testCases := []struct {
 		name     string
 		option   Option
-		expected Ego
+		expected Engine
 	}{
 		{
 			name:   "WithCluster",
 			option: WithCluster(discoveryProvider, config, 30),
-			expected: Ego{
+			expected: Engine{
 				discoveryProvider: discoveryProvider,
 				discoveryConfig:   config,
 				partitionsCount:   30,
@@ -37,17 +37,17 @@ func TestOptions(t *testing.T) {
 		{
 			name:     "WithLogger",
 			option:   WithLogger(logger),
-			expected: Ego{logger: logger},
+			expected: Engine{logger: logger},
 		},
 		{
 			name:     "WithTelemetry",
 			option:   WithTelemetry(tel),
-			expected: Ego{telemetry: tel},
+			expected: Engine{telemetry: tel},
 		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			var e Ego
+			var e Engine
 			tc.option.Apply(&e)
 			assert.Equal(t, tc.expected, e)
 		})

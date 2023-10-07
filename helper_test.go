@@ -1,4 +1,4 @@
-package entity
+package ego
 
 import (
 	"context"
@@ -7,13 +7,13 @@ import (
 	testpb "github.com/tochemey/ego/test/data/pb/v1"
 )
 
-// AccountEntityBehavior implement Behavior
+// AccountEntityBehavior implement EntityBehavior
 type AccountEntityBehavior struct {
 	id string
 }
 
 // make sure that testAccountBehavior is a true persistence behavior
-var _ Behavior[*testpb.Account] = &AccountEntityBehavior{}
+var _ EntityBehavior[*testpb.Account] = &AccountEntityBehavior{}
 
 // NewAccountEntityBehavior creates an instance of AccountEntityBehavior
 func NewAccountEntityBehavior(id string) *AccountEntityBehavior {

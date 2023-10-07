@@ -1,4 +1,4 @@
-package entity
+package ego
 
 import (
 	"context"
@@ -19,7 +19,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func TestAccountAggregate(t *testing.T) {
+func TestActor(t *testing.T) {
 	t.Run("with state reply", func(t *testing.T) {
 		defer goleak.VerifyNone(t)
 		ctx := context.TODO()
@@ -43,9 +43,9 @@ func TestAccountAggregate(t *testing.T) {
 		behavior := NewAccountEntityBehavior(persistenceID)
 
 		// create the persistence actor using the behavior previously created
-		actor := New[*testpb.Account](behavior, eventStore)
+		actor := newActor[*testpb.Account](behavior, eventStore)
 		// spawn the actor
-		pid := actorSystem.Spawn(ctx, behavior.ID(), actor)
+		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), actor)
 		require.NotNil(t, pid)
 
 		var command proto.Message
@@ -129,9 +129,9 @@ func TestAccountAggregate(t *testing.T) {
 		behavior := NewAccountEntityBehavior(persistenceID)
 
 		// create the persistence actor using the behavior previously created
-		persistentActor := New[*testpb.Account](behavior, eventStore)
+		persistentActor := newActor[*testpb.Account](behavior, eventStore)
 		// spawn the actor
-		pid := actorSystem.Spawn(ctx, behavior.ID(), persistentActor)
+		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), persistentActor)
 		require.NotNil(t, pid)
 
 		var command proto.Message
@@ -204,9 +204,9 @@ func TestAccountAggregate(t *testing.T) {
 		behavior := NewAccountEntityBehavior(persistenceID)
 
 		// create the persistence actor using the behavior previously created
-		persistentActor := New[*testpb.Account](behavior, eventStore)
+		persistentActor := newActor[*testpb.Account](behavior, eventStore)
 		// spawn the actor
-		pid := actorSystem.Spawn(ctx, behavior.ID(), persistentActor)
+		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), persistentActor)
 		require.NotNil(t, pid)
 
 		command := &testpb.TestSend{}
@@ -271,9 +271,9 @@ func TestAccountAggregate(t *testing.T) {
 		behavior := NewAccountEntityBehavior(persistenceID)
 
 		// create the persistence actor using the behavior previously created
-		persistentActor := New[*testpb.Account](behavior, eventStore)
+		persistentActor := newActor[*testpb.Account](behavior, eventStore)
 		// spawn the actor
-		pid := actorSystem.Spawn(ctx, behavior.ID(), persistentActor)
+		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), persistentActor)
 		require.NotNil(t, pid)
 
 		var command proto.Message
