@@ -24,6 +24,7 @@ type Engine struct {
 	discoveryConfig   discovery.Config       // discoveryConfig is the discovery provider config for clustering
 	telemetry         *telemetry.Telemetry   // telemetry is the observability engine
 	partitionsCount   uint64                 // partitionsCount specifies the number of partitions
+	started           atomic.Bool
 }
 
 // NewEngine creates an instance of Engine
@@ -40,6 +41,7 @@ func NewEngine(name string, eventsStore eventstore.EventsStore, opts ...Option) 
 	for _, opt := range opts {
 		opt.Apply(e)
 	}
+	e.started.Store(false)
 	return e
 }
 
@@ -71,10 +73,17 @@ func (x *Engine) Start(ctx context.Context) error {
 		return err
 	}
 	// start the actor system
-	return x.actorSystem.Start(ctx)
+	if err := x.actorSystem.Start(ctx); err != nil {
+		return err
+	}
+	// set the started to true
+	x.started.Store(true)
+	return nil
 }
 
 // Stop stops the ego engine
 func (x *Engine) Stop(ctx context.Context) error {
+	// set the started to false
+	x.started.Store(false)
 	return x.actorSystem.Stop(ctx)
 }

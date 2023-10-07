@@ -10,6 +10,15 @@ import (
 	"github.com/tochemey/goakt/actors"
 )
 
+var (
+	// ErrEngineRequired is returned when the eGo engine is not set
+	ErrEngineRequired = errors.New("eGo engine is not defined")
+	// ErrEngineNotStarted is returned when the eGo engine has not started
+	ErrEngineNotStarted = errors.New("eGo engine has not started")
+	// ErrUndefinedEntity is returned when sending a command to an undefined entity
+	ErrUndefinedEntity = errors.New("eGo entity is not defined")
+)
+
 // Entity defines the event sourced persistent entity
 // This handles commands in order
 type Entity[T State] struct {
@@ -18,6 +27,15 @@ type Entity[T State] struct {
 
 // NewEntity creates an instance of Entity
 func NewEntity[T State](ctx context.Context, behavior EntityBehavior[T], engine *Engine) (*Entity[T], error) {
+	// check whether the ego engine is defined
+	if engine == nil {
+		return nil, ErrEngineRequired
+	}
+	// check whether the eGo engine has started or not
+	if !engine.started.Load() {
+		return nil, ErrEngineNotStarted
+	}
+
 	// create the instance of the actor
 	pid, err := engine.actorSystem.Spawn(ctx, behavior.ID(), newActor(behavior, engine.eventsStore))
 	// return the error in case there is one
@@ -34,7 +52,14 @@ func NewEntity[T State](ctx context.Context, behavior EntityBehavior[T], engine 
 // 2. nil when there is no resulting state or no event persisted
 // 3. an error in case of error
 func (x Entity[T]) SendCommand(ctx context.Context, command Command) (resultingState T, revision uint64, err error) {
+	// define a nil state
 	var nilT T
+
+	// check whether the underlying actor is set and running
+	if x.actor == nil || !x.actor.IsRunning() {
+		return nilT, 0, ErrUndefinedEntity
+	}
+
 	// send the command to the actor
 	reply, err := actors.Ask(ctx, x.actor, command, time.Second)
 	// handle the error
