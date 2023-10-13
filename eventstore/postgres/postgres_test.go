@@ -313,4 +313,42 @@ func TestPostgresEventsStore(t *testing.T) {
 		err = store.Disconnect(ctx)
 		assert.NoError(t, err)
 	})
+	t.Run("testNumShards", func(t *testing.T) {
+		ctx := context.TODO()
+		config := &postgres.Config{
+			DBHost:     testContainer.Host(),
+			DBPort:     testContainer.Port(),
+			DBName:     testDatabase,
+			DBUser:     testUser,
+			DBPassword: testDatabasePassword,
+			DBSchema:   testContainer.Schema(),
+		}
+
+		store := NewEventsStore(config)
+		assert.NotNil(t, store)
+		err := store.Connect(ctx)
+		require.NoError(t, err)
+
+		db, err := dbHandle(ctx)
+		require.NoError(t, err)
+
+		schemaUtil := NewSchemaUtils(db)
+
+		err = schemaUtil.CreateTable(ctx)
+		require.NoError(t, err)
+
+		numShards, err := store.NumShards(ctx)
+		require.NoError(t, err)
+		assert.Zero(t, numShards)
+
+		shardNumbers, err := store.ShardNumbers(ctx)
+		require.NoError(t, err)
+		require.Empty(t, shardNumbers)
+
+		err = schemaUtil.DropTable(ctx)
+		assert.NoError(t, err)
+
+		err = store.Disconnect(ctx)
+		assert.NoError(t, err)
+	})
 }

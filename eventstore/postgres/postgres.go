@@ -29,6 +29,7 @@ import (
 	sq "github.com/Masterminds/squirrel"
 	"github.com/pkg/errors"
 	"github.com/tochemey/ego/egopb"
+	"github.com/tochemey/ego/eventstore"
 	"github.com/tochemey/ego/internal/telemetry"
 	"github.com/tochemey/gopack/postgres"
 	"go.uber.org/atomic"
@@ -66,6 +67,9 @@ type EventsStore struct {
 	// hold the connection state to avoid multiple connection of the same instance
 	connected *atomic.Bool
 }
+
+// enforce interface implementation
+var _ eventstore.EventsStore = (*EventsStore)(nil)
 
 // NewEventsStore creates a new instance of PostgresEventStore
 func NewEventsStore(config *postgres.Config) *EventsStore {
@@ -422,4 +426,56 @@ func (s *EventsStore) GetShardEvents(ctx context.Context, shardNumber uint64, of
 
 	// return the derivative events
 	return rows.ToEvents()
+}
+
+// NumShards returns the total number of shards in the events store
+func (s *EventsStore) NumShards(ctx context.Context) (int, error) {
+	// add a span context
+	ctx, span := telemetry.SpanContext(ctx, "eventsStore.NumShards")
+	defer span.End()
+
+	// check whether this instance of the journal is connected or not
+	if !s.connected.Load() {
+		return 0, errors.New("journal store is not connected")
+	}
+
+	// create the database select statement
+	statement := `SELECT COUNT(*) AS count FROM (SELECT DISTINCT shard_number FROM events_store) AS temp;`
+	var count int
+	// execute the query against the database to retrieve the count
+	if err := s.db.Select(ctx, &count, statement); err != nil {
+		return -1, err
+	}
+	return count, nil
+}
+
+// ShardNumbers returns the distinct list of all the shards in the journal store
+func (s *EventsStore) ShardNumbers(ctx context.Context) ([]uint64, error) {
+	// add a span context
+	ctx, span := telemetry.SpanContext(ctx, "eventsStore.NumShards")
+	defer span.End()
+
+	// check whether this instance of the journal is connected or not
+	if !s.connected.Load() {
+		return nil, errors.New("journal store is not connected")
+	}
+
+	// create the statement
+	statement := s.sb.
+		Select(" DISTINCT shard_number").
+		From(tableName)
+
+	// get the sql statement and the arguments
+	query, args, err := statement.ToSql()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to build the select sql statement")
+	}
+
+	var shardNumbers []uint64
+	err = s.db.SelectAll(ctx, &shardNumbers, query, args...)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to fetch the events from the database")
+	}
+
+	return shardNumbers, nil
 }

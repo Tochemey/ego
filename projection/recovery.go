@@ -54,7 +54,7 @@ const (
 
 // Recovery specifies the various recovery settings of a projection
 // The option helps defines what happens when the projection handler fails to process
-// the consumed event for a given persistence ID
+// the consumed event for a given persistence id
 type Recovery struct {
 	// retries specifies the number of times to retry handler function.
 	// This is only applicable to `RetryAndFail` and `RetryAndSkip` recovery strategies

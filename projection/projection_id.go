@@ -24,7 +24,7 @@
 
 package projection
 
-type ID struct {
+type id struct {
 	// the projection projectionName. This must be unique within an actor system
 	// the same name is used in all projection IDs for a given a projection
 	projectionName string
@@ -32,20 +32,20 @@ type ID struct {
 	shardNumber uint64
 }
 
-// NewID creates a new instance of Projection
-func NewID(projectionName string, shardNumber uint64) *ID {
-	return &ID{
+// newID creates a new instance of Projection
+func newID(projectionName string, shardNumber uint64) *id {
+	return &id{
 		projectionName: projectionName,
 		shardNumber:    shardNumber,
 	}
 }
 
 // ProjectionName returns the projection name
-func (x ID) ProjectionName() string {
+func (x id) ProjectionName() string {
 	return x.projectionName
 }
 
 // ShardNumber returns the shard number
-func (x ID) ShardNumber() uint64 {
+func (x id) ShardNumber() uint64 {
 	return x.shardNumber
 }

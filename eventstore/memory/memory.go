@@ -31,6 +31,7 @@ import (
 	"github.com/hashicorp/go-memdb"
 	"github.com/pkg/errors"
 	"github.com/tochemey/ego/egopb"
+	"github.com/tochemey/ego/eventstore"
 	"github.com/tochemey/ego/internal/telemetry"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
@@ -50,6 +51,9 @@ type EventsStore struct {
 	// hold the connection state to avoid multiple connection of the same instance
 	connected *atomic.Bool
 }
+
+// enforce interface implementation
+var _ eventstore.EventsStore = (*EventsStore)(nil)
 
 // NewEventsStore creates a new instance of EventsStore
 func NewEventsStore() *EventsStore {
@@ -441,6 +445,20 @@ func (s *EventsStore) GetLatestEvent(ctx context.Context, persistenceID string) 
 // GetShardEvents returns the next (max) events after the offset in the journal for a given shard
 // nolint
 func (s *EventsStore) GetShardEvents(ctx context.Context, shardNumber uint64, offset uint64, max uint64) (events []*egopb.Event, err error) {
+	panic("implement me")
+}
+
+// NumShards returns the total number of shards in the events store
+// nolint
+func (s *EventsStore) NumShards(ctx context.Context) (int, error) {
+	//TODO implement me
+	panic("implement me")
+}
+
+// ShardNumbers returns the distinct list of all the shards in the journal store
+// nolint
+func (s *EventsStore) ShardNumbers(ctx context.Context) ([]uint64, error) {
+	//TODO implement me
 	panic("implement me")
 }
 

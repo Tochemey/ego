@@ -4,6 +4,7 @@ go 1.20
 
 require (
 	github.com/Masterminds/squirrel v1.5.4
+	github.com/flowchartsman/retry v1.2.0
 	github.com/google/uuid v1.3.1
 	github.com/hashicorp/go-memdb v1.3.4
 	github.com/pkg/errors v0.9.1
@@ -15,6 +16,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.19.0
 	go.uber.org/atomic v1.11.0
 	go.uber.org/goleak v1.2.1
+	golang.org/x/sync v0.3.0
 	google.golang.org/protobuf v1.31.0
 )
 
@@ -92,7 +94,6 @@ require (
 	golang.org/x/mod v0.12.0 // indirect
 	golang.org/x/net v0.15.0 // indirect
 	golang.org/x/oauth2 v0.11.0 // indirect
-	golang.org/x/sync v0.3.0 // indirect
 	golang.org/x/sys v0.12.0 // indirect
 	golang.org/x/term v0.12.0 // indirect
 	golang.org/x/text v0.13.0 // indirect
