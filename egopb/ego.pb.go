@@ -432,6 +432,82 @@ func (*GetStateCommand) Descriptor() ([]byte, []int) {
 	return file_ego_v1_ego_proto_rawDescGZIP(), []int{5}
 }
 
+// Offset defines the projection offset
+type Offset struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// Specifies the persistence unique identifier
+	PersistenceId string `protobuf:"bytes,1,opt,name=persistence_id,json=persistenceId,proto3" json:"persistence_id,omitempty"`
+	// Specifies the projection name.
+	ProjectionName string `protobuf:"bytes,2,opt,name=projection_name,json=projectionName,proto3" json:"projection_name,omitempty"`
+	// Specifies the current_offset
+	CurrentOffset uint64 `protobuf:"varint,3,opt,name=current_offset,json=currentOffset,proto3" json:"current_offset,omitempty"`
+	// Specifies the timestamp
+	Timestamp int64 `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+}
+
+func (x *Offset) Reset() {
+	*x = Offset{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_ego_v1_ego_proto_msgTypes[6]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *Offset) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Offset) ProtoMessage() {}
+
+func (x *Offset) ProtoReflect() protoreflect.Message {
+	mi := &file_ego_v1_ego_proto_msgTypes[6]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Offset.ProtoReflect.Descriptor instead.
+func (*Offset) Descriptor() ([]byte, []int) {
+	return file_ego_v1_ego_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *Offset) GetPersistenceId() string {
+	if x != nil {
+		return x.PersistenceId
+	}
+	return ""
+}
+
+func (x *Offset) GetProjectionName() string {
+	if x != nil {
+		return x.ProjectionName
+	}
+	return ""
+}
+
+func (x *Offset) GetCurrentOffset() uint64 {
+	if x != nil {
+		return x.CurrentOffset
+	}
+	return 0
+}
+
+func (x *Offset) GetTimestamp() int64 {
+	if x != nil {
+		return x.Timestamp
+	}
+	return 0
+}
+
 var File_ego_v1_ego_proto protoreflect.FileDescriptor
 
 var file_ego_v1_ego_proto_rawDesc = []byte{
@@ -482,7 +558,17 @@ var file_ego_v1_ego_proto_rawDesc = []byte{
 	0x73, 0x73, 0x61, 0x67, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x07, 0x6d, 0x65, 0x73,
 	0x73, 0x61, 0x67, 0x65, 0x22, 0x09, 0x0a, 0x07, 0x4e, 0x6f, 0x52, 0x65, 0x70, 0x6c, 0x79, 0x22,
 	0x11, 0x0a, 0x0f, 0x47, 0x65, 0x74, 0x53, 0x74, 0x61, 0x74, 0x65, 0x43, 0x6f, 0x6d, 0x6d, 0x61,
-	0x6e, 0x64, 0x42, 0x73, 0x0a, 0x0a, 0x63, 0x6f, 0x6d, 0x2e, 0x65, 0x67, 0x6f, 0x2e, 0x76, 0x31,
+	0x6e, 0x64, 0x22, 0x9d, 0x01, 0x0a, 0x06, 0x4f, 0x66, 0x66, 0x73, 0x65, 0x74, 0x12, 0x25, 0x0a,
+	0x0e, 0x70, 0x65, 0x72, 0x73, 0x69, 0x73, 0x74, 0x65, 0x6e, 0x63, 0x65, 0x5f, 0x69, 0x64, 0x18,
+	0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0d, 0x70, 0x65, 0x72, 0x73, 0x69, 0x73, 0x74, 0x65, 0x6e,
+	0x63, 0x65, 0x49, 0x64, 0x12, 0x27, 0x0a, 0x0f, 0x70, 0x72, 0x6f, 0x6a, 0x65, 0x63, 0x74, 0x69,
+	0x6f, 0x6e, 0x5f, 0x6e, 0x61, 0x6d, 0x65, 0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x0e, 0x70,
+	0x72, 0x6f, 0x6a, 0x65, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x4e, 0x61, 0x6d, 0x65, 0x12, 0x25, 0x0a,
+	0x0e, 0x63, 0x75, 0x72, 0x72, 0x65, 0x6e, 0x74, 0x5f, 0x6f, 0x66, 0x66, 0x73, 0x65, 0x74, 0x18,
+	0x03, 0x20, 0x01, 0x28, 0x04, 0x52, 0x0d, 0x63, 0x75, 0x72, 0x72, 0x65, 0x6e, 0x74, 0x4f, 0x66,
+	0x66, 0x73, 0x65, 0x74, 0x12, 0x1c, 0x0a, 0x09, 0x74, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61, 0x6d,
+	0x70, 0x18, 0x04, 0x20, 0x01, 0x28, 0x03, 0x52, 0x09, 0x74, 0x69, 0x6d, 0x65, 0x73, 0x74, 0x61,
+	0x6d, 0x70, 0x42, 0x73, 0x0a, 0x0a, 0x63, 0x6f, 0x6d, 0x2e, 0x65, 0x67, 0x6f, 0x2e, 0x76, 0x31,
 	0x42, 0x08, 0x45, 0x67, 0x6f, 0x50, 0x72, 0x6f, 0x74, 0x6f, 0x48, 0x02, 0x50, 0x01, 0x5a, 0x20,
 	0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x74, 0x6f, 0x63, 0x68, 0x65,
 	0x6d, 0x65, 0x79, 0x2f, 0x65, 0x67, 0x6f, 0x2f, 0x76, 0x31, 0x3b, 0x65, 0x67, 0x6f, 0x70, 0x62,
@@ -504,7 +590,7 @@ func file_ego_v1_ego_proto_rawDescGZIP() []byte {
 	return file_ego_v1_ego_proto_rawDescData
 }
 
-var file_ego_v1_ego_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_ego_v1_ego_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_ego_v1_ego_proto_goTypes = []interface{}{
 	(*Event)(nil),           // 0: ego.v1.Event
 	(*CommandReply)(nil),    // 1: ego.v1.CommandReply
@@ -512,15 +598,16 @@ var file_ego_v1_ego_proto_goTypes = []interface{}{
 	(*ErrorReply)(nil),      // 3: ego.v1.ErrorReply
 	(*NoReply)(nil),         // 4: ego.v1.NoReply
 	(*GetStateCommand)(nil), // 5: ego.v1.GetStateCommand
-	(*anypb.Any)(nil),       // 6: google.protobuf.Any
+	(*Offset)(nil),          // 6: ego.v1.Offset
+	(*anypb.Any)(nil),       // 7: google.protobuf.Any
 }
 var file_ego_v1_ego_proto_depIdxs = []int32{
-	6, // 0: ego.v1.Event.event:type_name -> google.protobuf.Any
-	6, // 1: ego.v1.Event.resulting_state:type_name -> google.protobuf.Any
+	7, // 0: ego.v1.Event.event:type_name -> google.protobuf.Any
+	7, // 1: ego.v1.Event.resulting_state:type_name -> google.protobuf.Any
 	2, // 2: ego.v1.CommandReply.state_reply:type_name -> ego.v1.StateReply
 	3, // 3: ego.v1.CommandReply.error_reply:type_name -> ego.v1.ErrorReply
 	4, // 4: ego.v1.CommandReply.no_reply:type_name -> ego.v1.NoReply
-	6, // 5: ego.v1.StateReply.state:type_name -> google.protobuf.Any
+	7, // 5: ego.v1.StateReply.state:type_name -> google.protobuf.Any
 	6, // [6:6] is the sub-list for method output_type
 	6, // [6:6] is the sub-list for method input_type
 	6, // [6:6] is the sub-list for extension type_name
@@ -606,6 +693,18 @@ func file_ego_v1_ego_proto_init() {
 				return nil
 			}
 		}
+		file_ego_v1_ego_proto_msgTypes[6].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*Offset); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
 	}
 	file_ego_v1_ego_proto_msgTypes[1].OneofWrappers = []interface{}{
 		(*CommandReply_StateReply)(nil),
@@ -618,7 +717,7 @@ func file_ego_v1_ego_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_ego_v1_ego_proto_rawDesc,
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

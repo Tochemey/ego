@@ -22,21 +22,26 @@
  * SOFTWARE.
  */
 
-CREATE TABLE IF NOT EXISTS events_store
-(
-    persistence_id  VARCHAR(255)          NOT NULL,
-    sequence_number BIGINT                NOT NULL,
-    is_deleted      BOOLEAN DEFAULT FALSE NOT NULL,
-    event_payload   BYTEA                 NOT NULL,
-    event_manifest  VARCHAR(255)          NOT NULL,
-    state_payload   BYTEA                 NOT NULL,
-    state_manifest  VARCHAR(255)          NOT NULL,
-    timestamp       BIGINT                NOT NULL,
-    shard_number    BIGINT                NOT NULL,
+package offsetstore
 
-    PRIMARY KEY (persistence_id, sequence_number)
-);
+import (
+	"context"
 
---- create an index on the is_deleted column
-CREATE INDEX IF NOT EXISTS idx_event_journal_deleted ON events_store (is_deleted);
-CREATE INDEX IF NOT EXISTS idx_event_journal_shard ON events_store (shard_number);
+	"github.com/tochemey/ego/egopb"
+)
+
+// OffsetStore defines the contract needed to persist offsets
+type OffsetStore interface {
+	// Connect connects to the offset store
+	Connect(ctx context.Context) error
+	// Disconnect disconnects the offset store
+	Disconnect(ctx context.Context) error
+	// WriteOffset writes the current offset of the event consumed for a given projection ID
+	// Note: persistence id and the projection name make a record in the journal store unique. Failure to ensure that
+	// can lead to some un-wanted behaviors and data inconsistency
+	WriteOffset(ctx context.Context, offset *egopb.Offset) error
+	// GetCurrentOffset returns the current offset of a given projection ID
+	GetCurrentOffset(ctx context.Context, projectionID *ProjectionID) (currentOffset *egopb.Offset, err error)
+	// Ping verifies a connection to the database is still alive, establishing a connection if necessary.
+	Ping(ctx context.Context) error
+}

@@ -22,21 +22,30 @@
  * SOFTWARE.
  */
 
-CREATE TABLE IF NOT EXISTS events_store
-(
-    persistence_id  VARCHAR(255)          NOT NULL,
-    sequence_number BIGINT                NOT NULL,
-    is_deleted      BOOLEAN DEFAULT FALSE NOT NULL,
-    event_payload   BYTEA                 NOT NULL,
-    event_manifest  VARCHAR(255)          NOT NULL,
-    state_payload   BYTEA                 NOT NULL,
-    state_manifest  VARCHAR(255)          NOT NULL,
-    timestamp       BIGINT                NOT NULL,
-    shard_number    BIGINT                NOT NULL,
+package offsetstore
 
-    PRIMARY KEY (persistence_id, sequence_number)
-);
+type ProjectionID struct {
+	// the projection projectionName. This must be unique within an actor system
+	// the same name is used in all projection IDs for a given a projection
+	projectionName string
+	// specifies the shard number.
+	shardNumber uint64
+}
 
---- create an index on the is_deleted column
-CREATE INDEX IF NOT EXISTS idx_event_journal_deleted ON events_store (is_deleted);
-CREATE INDEX IF NOT EXISTS idx_event_journal_shard ON events_store (shard_number);
+// NewProjectionID creates a new instance of Projection
+func NewProjectionID(projectionName string, shardNumber uint64) *ProjectionID {
+	return &ProjectionID{
+		projectionName: projectionName,
+		shardNumber:    shardNumber,
+	}
+}
+
+// ProjectionName returns the projection name
+func (x ProjectionID) ProjectionName() string {
+	return x.projectionName
+}
+
+// ShardNumber returns the shard number
+func (x ProjectionID) ShardNumber() uint64 {
+	return x.shardNumber
+}
