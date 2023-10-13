@@ -439,6 +439,7 @@ func (s *EventsStore) GetLatestEvent(ctx context.Context, persistenceID string) 
 }
 
 // GetShardEvents returns the next (max) events after the offset in the journal for a given shard
+// nolint
 func (s *EventsStore) GetShardEvents(ctx context.Context, shardNumber uint64, offset uint64, max uint64) (events []*egopb.Event, err error) {
 	panic("implement me")
 }
