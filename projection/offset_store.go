@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-package offsetstore
+package projection
 
 import (
 	"context"
@@ -41,7 +41,10 @@ type OffsetStore interface {
 	// can lead to some un-wanted behaviors and data inconsistency
 	WriteOffset(ctx context.Context, offset *egopb.Offset) error
 	// GetCurrentOffset returns the current offset of a given projection ID
-	GetCurrentOffset(ctx context.Context, projectionID *ProjectionID) (currentOffset *egopb.Offset, err error)
+	GetCurrentOffset(ctx context.Context, projectionID *ID) (currentOffset *egopb.Offset, err error)
 	// Ping verifies a connection to the database is still alive, establishing a connection if necessary.
 	Ping(ctx context.Context) error
+}
+
+type name interface {
 }

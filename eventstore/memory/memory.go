@@ -31,7 +31,6 @@ import (
 	"github.com/hashicorp/go-memdb"
 	"github.com/pkg/errors"
 	"github.com/tochemey/ego/egopb"
-	"github.com/tochemey/ego/eventstore"
 	"github.com/tochemey/ego/internal/telemetry"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
@@ -51,9 +50,6 @@ type EventsStore struct {
 	// hold the connection state to avoid multiple connection of the same instance
 	connected *atomic.Bool
 }
-
-// make sure the EventsStore implements the EventsStore interface
-var _ eventstore.EventsStore = &EventsStore{}
 
 // NewEventsStore creates a new instance of EventsStore
 func NewEventsStore() *EventsStore {
@@ -440,6 +436,11 @@ func (s *EventsStore) GetLatestEvent(ctx context.Context, persistenceID string) 
 	}
 
 	return nil, fmt.Errorf("failed to fetch the latest event from the database for persistenceId=%s", persistenceID)
+}
+
+// GetShardEvents returns the next (max) events after the offset in the journal for a given shard
+func (s *EventsStore) GetShardEvents(ctx context.Context, shardNumber uint64, offset uint64, max uint64) (events []*egopb.Event, err error) {
+	panic("implement me")
 }
 
 // toProto converts a byte array given its manifest into a valid proto message

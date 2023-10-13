@@ -30,7 +30,6 @@ import (
 	sq "github.com/Masterminds/squirrel"
 	"github.com/pkg/errors"
 	"github.com/tochemey/ego/egopb"
-	"github.com/tochemey/ego/eventstore"
 	"github.com/tochemey/ego/internal/telemetry"
 	"github.com/tochemey/gopack/postgres"
 	"go.uber.org/atomic"
@@ -71,9 +70,6 @@ type EventsStore struct {
 	// hold the connection state to avoid multiple connection of the same instance
 	connected *atomic.Bool
 }
-
-// make sure the PostgresEventStore implements the EventsStore interface
-var _ eventstore.EventsStore = &EventsStore{}
 
 // NewEventsStore creates a new instance of PostgresEventStore
 func NewEventsStore(config *postgres.Config) *EventsStore {
@@ -458,6 +454,11 @@ func (s *EventsStore) GetLatestEvent(ctx context.Context, persistenceID string) 
 		Timestamp:      data.Timestamp,
 		Shard:          data.ShardNumber,
 	}, nil
+}
+
+// GetShardEvents returns the next (max) events after the offset in the journal for a given shard
+func (s *EventsStore) GetShardEvents(ctx context.Context, shardNumber uint64, offset uint64, max uint64) (events []*egopb.Event, err error) {
+	panic("implement me")
 }
 
 // toProto converts a byte array given its manifest into a valid proto message

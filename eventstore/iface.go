@@ -28,8 +28,7 @@ import (
 	"github.com/tochemey/ego/egopb"
 )
 
-// EventsStore defines the store contract
-// This helps implement any persistence store whether it is an RDBMS or No-SQL database
+// EventsStore defines the API to write to the events store
 type EventsStore interface {
 	// Connect connects to the journal store
 	Connect(ctx context.Context) error
@@ -39,6 +38,8 @@ type EventsStore interface {
 	// Note: persistence id and the sequence number make a record in the journal store unique. Failure to ensure that
 	// can lead to some un-wanted behaviors and data inconsistency
 	WriteEvents(ctx context.Context, events []*egopb.Event) error
+	// Ping verifies a connection to the database is still alive, establishing a connection if necessary.
+	Ping(ctx context.Context) error
 	// DeleteEvents deletes store from the store upt to a given sequence number (inclusive)
 	DeleteEvents(ctx context.Context, persistenceID string, toSequenceNumber uint64) error
 	// ReplayEvents fetches store for a given persistence ID from a given sequence number(inclusive) to a given sequence number(inclusive) with a maximum of journals to be replayed.
@@ -47,6 +48,6 @@ type EventsStore interface {
 	GetLatestEvent(ctx context.Context, persistenceID string) (*egopb.Event, error)
 	// PersistenceIDs returns the distinct list of all the persistence ids in the journal store
 	PersistenceIDs(ctx context.Context, pageSize uint64, pageToken string) (persistenceIDs []string, nextPageToken string, err error)
-	// Ping verifies a connection to the database is still alive, establishing a connection if necessary.
-	Ping(ctx context.Context) error
+	// GetShardEvents returns the next (max) events after the offset in the journal for a given shard
+	GetShardEvents(ctx context.Context, shardNumber uint64, offset uint64, max uint64) (events []*egopb.Event, err error)
 }

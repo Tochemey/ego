@@ -22,9 +22,9 @@
  * SOFTWARE.
  */
 
-package offsetstore
+package projection
 
-type ProjectionID struct {
+type ID struct {
 	// the projection projectionName. This must be unique within an actor system
 	// the same name is used in all projection IDs for a given a projection
 	projectionName string
@@ -32,20 +32,20 @@ type ProjectionID struct {
 	shardNumber uint64
 }
 
-// NewProjectionID creates a new instance of Projection
-func NewProjectionID(projectionName string, shardNumber uint64) *ProjectionID {
-	return &ProjectionID{
+// NewID creates a new instance of Projection
+func NewID(projectionName string, shardNumber uint64) *ID {
+	return &ID{
 		projectionName: projectionName,
 		shardNumber:    shardNumber,
 	}
 }
 
 // ProjectionName returns the projection name
-func (x ProjectionID) ProjectionName() string {
+func (x ID) ProjectionName() string {
 	return x.projectionName
 }
 
 // ShardNumber returns the shard number
-func (x ProjectionID) ShardNumber() uint64 {
+func (x ID) ShardNumber() uint64 {
 	return x.shardNumber
 }
