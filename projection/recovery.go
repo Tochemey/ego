@@ -33,23 +33,23 @@ import (
 type RecoveryPolicy int
 
 const (
-	// FAIL states that if the first attempt to invoke the handler fails
+	// Fail states that if the first attempt to invoke the handler fails
 	// it will immediately give up and fail the projection
-	FAIL RecoveryPolicy = iota
-	// RETRY_AND_FAIL states that if the first attempt to invoke the handler fails it will retry invoking the handler with the
+	Fail RecoveryPolicy = iota
+	// RetryAndFail states that if the first attempt to invoke the handler fails it will retry invoking the handler with the
 	// same envelope this number of `retries` with the `delay` between each attempt. It will give up
 	// and fail the projection if all attempts fail. For this to work as expected one need to define the `retries` and `delay`
 	// settings in the projection configuration.
-	RETRY_AND_FAIL
-	// SKIP states that if the first attempt to invoke the handler fails it will immediately give up, discard the envelope and
+	RetryAndFail
+	// Skip states that if the first attempt to invoke the handler fails it will immediately give up, discard the envelope and
 	// continue with next. This will commit the offset assuming the event has been successfully processed.
 	// Use this strategy with care.
-	SKIP
-	// RETRY_AND_SKIP states that if the first attempt to invoke the handler fails it will retry invoking the handler with the
+	Skip
+	// RetryAndSkip states that if the first attempt to invoke the handler fails it will retry invoking the handler with the
 	// same envelope this number of `retries` with the `delay` between each attempt. It will give up,
 	// discard the element and continue with next if all attempts fail.
 	// For this to work as expected one need to define the `retries` and `delay` settings in the projection configuration
-	RETRY_AND_SKIP
+	RetryAndSkip
 )
 
 // Recovery specifies the various recovery settings of a projection
@@ -57,11 +57,11 @@ const (
 // the consumed event for a given persistence ID
 type Recovery struct {
 	// retries specifies the number of times to retry handler function.
-	// This is only applicable to `RETRY_AND_FAIL` and `RETRY_AND_SKIP` recovery strategies
+	// This is only applicable to `RetryAndFail` and `RetryAndSkip` recovery strategies
 	// The default value is 5
 	retries uint64
 	// retryDelay specifies the delay between retry attempts
-	// This is only applicable to `RETRY_AND_FAIL` and `RETRY_AND_SKIP` recovery strategies
+	// This is only applicable to `RetryAndFail` and `RetryAndSkip` recovery strategies
 	// The default value is 1 second
 	retryDelay time.Duration
 	// strategy specifies strategy to use to recover from unhandled exceptions without causing the projection to fail
@@ -74,7 +74,7 @@ func NewRecovery(options ...Option) *Recovery {
 	recovery := &Recovery{
 		retries:    5,
 		retryDelay: time.Second,
-		policy:     FAIL,
+		policy:     Fail,
 	}
 	// apply the various options
 	for _, opt := range options {
