@@ -1,7 +1,5 @@
 /*
- * MIT License
- *
- * Copyright (c) 2002-2023 Tochemey
+ * Copyright (c) 2022-2023 Tochemey
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,15 +20,47 @@
  * SOFTWARE.
  */
 
-CREATE TABLE IF NOT EXISTS offsets_store
-(
-    projection_name VARCHAR(255) NOT NULL,
-    shard_number    BIGINT       NOT NULL,
-    current_offset  BIGINT       NOT NULL,
-    timestamp       BIGINT       NOT NULL,
-    PRIMARY KEY (projection_name, shard_number)
-);
+package postgres
+
+import (
+	"context"
+
+	"github.com/tochemey/gopack/postgres"
+)
+
+// SchemaUtils help create the various test tables in unit/integration tests
+type SchemaUtils struct {
+	db *postgres.TestDB
+}
+
+// NewSchemaUtils creates an instance of SchemaUtils
+func NewSchemaUtils(db *postgres.TestDB) *SchemaUtils {
+	return &SchemaUtils{db: db}
+}
+
+// CreateTable creates the event store table used for unit tests
+func (d SchemaUtils) CreateTable(ctx context.Context) error {
+	schemaDDL := `
+	DROP TABLE IF EXISTS offsets_store;
+	CREATE TABLE IF NOT EXISTS offsets_store
+	(
+	    projection_name VARCHAR(255) NOT NULL,
+	    shard_number    BIGINT       NOT NULL,
+	    current_offset  BIGINT       NOT NULL,
+	    timestamp    	  BIGINT       NOT NULL,
+	    PRIMARY KEY (projection_name, shard_number)
+	);
 
 --- create an index on the projection_name column
 CREATE INDEX IF NOT EXISTS idx_offsets_store_name ON offsets_store (projection_name);
 CREATE INDEX IF NOT EXISTS idx_offsets_store_shard ON offsets_store (shard_number);
+	`
+	_, err := d.db.Exec(ctx, schemaDDL)
+	return err
+}
+
+// DropTable drop the table used in unit test
+// This is useful for resource cleanup after a unit test
+func (d SchemaUtils) DropTable(ctx context.Context) error {
+	return d.db.DropTable(ctx, "offsets_store")
+}

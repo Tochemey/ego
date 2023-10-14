@@ -20,12 +20,16 @@ Under the hood, ego leverages [goakt](https://github.com/Tochemey/goakt) to scal
     - Events handler: The event handlers are used to mutate the state of the Aggregate by applying the events to it.
       Event handlers must be pure functions as they will be used when instantiating the Aggregate and replaying the event store.
     - Extensible events store
-    - Built-in events store
-        - Postgres
-        - Memory (only for testing purpose)
+    - Built-in events store:
+        - Postgres: Schema can be found [here](./resources/eventstore_postgres.sql)
+        - Memory (for testing purpose only)
     - [Cluster Mode](https://github.com/Tochemey/goakt#clustering)
 - Read Model:
-    - Projection (WIP) 
+    - Projection
+    - Extensible Offset store
+    - Built-in offset stores:
+        - Postgres: Schema can be found [here](./resources/offsetstore_postgres.sql)
+        - Memory (for testing purpose only)
 - Examples (check the [examples](./example))
 
 ### Installation

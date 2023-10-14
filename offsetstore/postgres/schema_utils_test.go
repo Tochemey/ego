@@ -1,7 +1,5 @@
 /*
- * MIT License
- *
- * Copyright (c) 2002-2023 Tochemey
+ * Copyright (c) 2022-2023 Tochemey
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,15 +20,30 @@
  * SOFTWARE.
  */
 
-CREATE TABLE IF NOT EXISTS offsets_store
-(
-    projection_name VARCHAR(255) NOT NULL,
-    shard_number    BIGINT       NOT NULL,
-    current_offset  BIGINT       NOT NULL,
-    timestamp       BIGINT       NOT NULL,
-    PRIMARY KEY (projection_name, shard_number)
-);
+package postgres
 
---- create an index on the projection_name column
-CREATE INDEX IF NOT EXISTS idx_offsets_store_name ON offsets_store (projection_name);
-CREATE INDEX IF NOT EXISTS idx_offsets_store_shard ON offsets_store (shard_number);
+import (
+	"context"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func TestSchemaUtils(t *testing.T) {
+	ctx := context.TODO()
+	db, err := dbHandle(ctx)
+	assert.NoError(t, err)
+
+	// create the tables
+	schemaUtils := NewSchemaUtils(db)
+	err = schemaUtils.CreateTable(ctx)
+	assert.NoError(t, err)
+
+	// assert existence of the table
+	err = db.TableExists(ctx, "offsets_store")
+	assert.NoError(t, err)
+
+	// clean up
+	assert.NoError(t, schemaUtils.DropTable(ctx))
+	assert.NoError(t, db.Disconnect(ctx))
+}
