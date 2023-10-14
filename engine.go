@@ -26,6 +26,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/tochemey/ego/offsetstore"
+
 	"github.com/pkg/errors"
 	"github.com/tochemey/ego/eventstore"
 	"github.com/tochemey/goakt/actors"
@@ -47,6 +49,7 @@ type Engine struct {
 	telemetry         *telemetry.Telemetry   // telemetry is the observability engine
 	partitionsCount   uint64                 // partitionsCount specifies the number of partitions
 	started           atomic.Bool
+	offsetStore       offsetstore.OffsetStore
 }
 
 // NewEngine creates an instance of Engine

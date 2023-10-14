@@ -38,12 +38,8 @@ import (
 	"github.com/tochemey/goakt/log"
 	"go.uber.org/atomic"
 	"golang.org/x/sync/errgroup"
-	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
-
-// Handler is used to handle event and state consumed from the event store
-type Handler func(ctx context.Context, persistenceID string, event *anypb.Any, state *anypb.Any, revision uint64) error
 
 // Projection defines the projection
 type Projection struct {
@@ -227,7 +223,7 @@ func (p *Projection) processingLoop(ctx context.Context) {
 			})
 
 			// Start a fixed number of goroutines process the shards.
-			for i := 0; i < 20; i++ {
+			for i := 0; i < 5; i++ {
 				for shard := range shardsChan {
 					g.Go(func() error {
 						return p.doProcess(ctx, shard)
@@ -309,8 +305,8 @@ func (p *Projection) doProcess(ctx context.Context, shard uint64) error {
 		switch p.recovery.RecoveryPolicy() {
 		case Fail:
 			// send the data to the handler. In case of error we log the error and fail the projection
-			if err := p.handler(ctx, persistenceID, event, state, seqNr); err != nil {
-				p.logger.Error(errors.Wrapf(err, "failed to process event for persistence id=%s, sequence=%d", persistenceID, seqNr))
+			if err := p.handler.Handle(ctx, persistenceID, event, state, seqNr); err != nil {
+				p.logger.Error(errors.Wrapf(err, "failed to process event for persistence id=%s, revision=%d", persistenceID, seqNr))
 				return err
 			}
 
@@ -324,8 +320,8 @@ func (p *Projection) doProcess(ctx context.Context, shard uint64) error {
 			// pass the data to the projection handler
 			if err := backoff.Run(func() error {
 				// handle the projection handler error
-				if err := p.handler(ctx, persistenceID, event, state, seqNr); err != nil {
-					p.logger.Error(errors.Wrapf(err, "failed to process event for persistence id=%s, sequence=%d", persistenceID, seqNr))
+				if err := p.handler.Handle(ctx, persistenceID, event, state, seqNr); err != nil {
+					p.logger.Error(errors.Wrapf(err, "failed to process event for persistence id=%s, revision=%d", persistenceID, seqNr))
 					return err
 				}
 				return nil
@@ -343,16 +339,16 @@ func (p *Projection) doProcess(ctx context.Context, shard uint64) error {
 			backoff := retry.NewRetrier(int(retries), 100*time.Millisecond, delay)
 			// pass the data to the projection handler
 			if err := backoff.Run(func() error {
-				return p.handler(ctx, persistenceID, event, state, seqNr)
+				return p.handler.Handle(ctx, persistenceID, event, state, seqNr)
 			}); err != nil {
 				// here we just log the error, but we skip the event and commit the offset
-				p.logger.Error(errors.Wrapf(err, "failed to process event for persistence id=%s, sequence=%d", persistenceID, seqNr))
+				p.logger.Error(errors.Wrapf(err, "failed to process event for persistence id=%s, revision=%d", persistenceID, seqNr))
 			}
 
 		case Skip:
 			// send the data to the handler. In case of error we just log the error and skip the event by committing the offset
-			if err := p.handler(ctx, persistenceID, event, state, seqNr); err != nil {
-				p.logger.Error(errors.Wrapf(err, "failed to process event for persistence id=%s, sequence=%d", persistenceID, seqNr))
+			if err := p.handler.Handle(ctx, persistenceID, event, state, seqNr); err != nil {
+				p.logger.Error(errors.Wrapf(err, "failed to process event for persistence id=%s, revision=%d", persistenceID, seqNr))
 			}
 		}
 		// the envelope has been successfully processed
