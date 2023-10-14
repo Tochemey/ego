@@ -392,14 +392,14 @@ func (s *EventsStore) GetLatestEvent(ctx context.Context, persistenceID string) 
 }
 
 // GetShardEvents returns the next (max) events after the offset in the journal for a given shard
-func (s *EventsStore) GetShardEvents(ctx context.Context, shardNumber uint64, offset uint64, max uint64) (events []*egopb.Event, err error) {
+func (s *EventsStore) GetShardEvents(ctx context.Context, shardNumber uint64, offset int64, max uint64) ([]*egopb.Event, int64, error) {
 	// add a span context
 	ctx, span := telemetry.SpanContext(ctx, "eventsStore.GetShardEvents")
 	defer span.End()
 
 	// check whether this instance of the journal is connected or not
 	if !s.connected.Load() {
-		return nil, errors.New("journal store is not connected")
+		return nil, 0, errors.New("journal store is not connected")
 	}
 
 	// create the database select statement
@@ -414,39 +414,31 @@ func (s *EventsStore) GetShardEvents(ctx context.Context, shardNumber uint64, of
 	// get the sql statement and the arguments
 	query, args, err := statement.ToSql()
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to build the select sql statement")
+		return nil, 0, errors.Wrap(err, "failed to build the select sql statement")
 	}
 
 	// execute the query against the database
 	var rows rows
 	err = s.db.SelectAll(ctx, &rows, query, args...)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to fetch the events from the database")
+		return nil, 0, errors.Wrap(err, "failed to fetch the events from the database")
 	}
 
-	// return the derivative events
-	return rows.ToEvents()
-}
-
-// NumShards returns the total number of shards in the events store
-func (s *EventsStore) NumShards(ctx context.Context) (int, error) {
-	// add a span context
-	ctx, span := telemetry.SpanContext(ctx, "eventsStore.NumShards")
-	defer span.End()
-
-	// check whether this instance of the journal is connected or not
-	if !s.connected.Load() {
-		return 0, errors.New("journal store is not connected")
+	// short-circuit the request
+	if len(rows) == 0 {
+		return nil, 0, nil
 	}
 
-	// create the database select statement
-	statement := `SELECT COUNT(*) AS count FROM (SELECT DISTINCT shard_number FROM events_store) AS temp;`
-	var count int
-	// execute the query against the database to retrieve the count
-	if err := s.db.Select(ctx, &count, statement); err != nil {
-		return -1, err
+	// grab the events
+	events, err := rows.ToEvents()
+	// handle the error when parsing
+	if err != nil {
+		return nil, 0, err
 	}
-	return count, nil
+	// get the next offset
+	nextOffset := events[len(events)-1].GetTimestamp()
+	// return the data
+	return events, nextOffset, nil
 }
 
 // ShardNumbers returns the distinct list of all the shards in the journal store
@@ -462,7 +454,7 @@ func (s *EventsStore) ShardNumbers(ctx context.Context) ([]uint64, error) {
 
 	// create the statement
 	statement := s.sb.
-		Select(" DISTINCT shard_number").
+		Select("DISTINCT shard_number").
 		From(tableName)
 
 	// get the sql statement and the arguments

@@ -337,10 +337,6 @@ func TestPostgresEventsStore(t *testing.T) {
 		err = schemaUtil.CreateTable(ctx)
 		require.NoError(t, err)
 
-		numShards, err := store.NumShards(ctx)
-		require.NoError(t, err)
-		assert.Zero(t, numShards)
-
 		shardNumbers, err := store.ShardNumbers(ctx)
 		require.NoError(t, err)
 		require.Empty(t, shardNumbers)

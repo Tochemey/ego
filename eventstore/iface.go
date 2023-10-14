@@ -49,9 +49,7 @@ type EventsStore interface {
 	// PersistenceIDs returns the distinct list of all the persistence ids in the journal store
 	PersistenceIDs(ctx context.Context, pageSize uint64, pageToken string) (persistenceIDs []string, nextPageToken string, err error)
 	// GetShardEvents returns the next (max) events after the offset in the journal for a given shard
-	GetShardEvents(ctx context.Context, shardNumber uint64, offset uint64, max uint64) (events []*egopb.Event, err error)
-	// NumShards returns the total number of shards in the events store
-	NumShards(ctx context.Context) (int, error)
+	GetShardEvents(ctx context.Context, shardNumber uint64, offset int64, max uint64) ([]*egopb.Event, int64, error)
 	// ShardNumbers returns the distinct list of all the shards in the journal store
 	ShardNumbers(ctx context.Context) ([]uint64, error)
 }

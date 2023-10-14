@@ -33,3 +33,4 @@ CREATE TABLE IF NOT EXISTS offsets_store
 
 --- create an index on the projection_name column
 CREATE INDEX IF NOT EXISTS idx_offsets_store_name ON offsets_store (projection_name);
+CREATE INDEX IF NOT EXISTS idx_offsets_store_shard ON offsets_store (shard_number);

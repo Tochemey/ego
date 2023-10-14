@@ -1,7 +1,5 @@
 /*
- * MIT License
- *
- * Copyright (c) 2002-2023 Tochemey
+ * Copyright (c) 2022-2023 Tochemey
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,30 +20,26 @@
  * SOFTWARE.
  */
 
-package projection
+package offsetstore
 
-type id struct {
-	// the projection projectionName. This must be unique within an actor system
-	// the same name is used in all projection IDs for a given a projection
-	projectionName string
-	// specifies the shard number.
-	shardNumber uint64
-}
+import (
+	"context"
 
-// newID creates a new instance of Projection
-func newID(projectionName string, shardNumber uint64) *id {
-	return &id{
-		projectionName: projectionName,
-		shardNumber:    shardNumber,
-	}
-}
+	"github.com/tochemey/ego/egopb"
+)
 
-// ProjectionName returns the projection name
-func (x id) ProjectionName() string {
-	return x.projectionName
-}
-
-// ShardNumber returns the shard number
-func (x id) ShardNumber() uint64 {
-	return x.shardNumber
+// OffsetStore defines the contract needed to persist offsets
+type OffsetStore interface {
+	// Connect connects to the offset store
+	Connect(ctx context.Context) error
+	// Disconnect disconnects the offset store
+	Disconnect(ctx context.Context) error
+	// WriteOffset writes the current offset of the event consumed for a given projection id
+	// Note: persistence id and the projection name make a record in the journal store unique. Failure to ensure that
+	// can lead to some un-wanted behaviors and data inconsistency
+	WriteOffset(ctx context.Context, offset *egopb.Offset) error
+	// GetCurrentOffset returns the current offset of a given projection id
+	GetCurrentOffset(ctx context.Context, projectionID *egopb.ProjectionId) (currentOffset *egopb.Offset, err error)
+	// Ping verifies a connection to the database is still alive, establishing a connection if necessary.
+	Ping(ctx context.Context) error
 }

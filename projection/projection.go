@@ -27,7 +27,6 @@ package projection
 import (
 	"context"
 	"fmt"
-	"math"
 	"time"
 
 	"github.com/flowchartsman/retry"
@@ -35,6 +34,7 @@ import (
 	"github.com/tochemey/ego/egopb"
 	"github.com/tochemey/ego/eventstore"
 	"github.com/tochemey/ego/internal/telemetry"
+	"github.com/tochemey/ego/offsetstore"
 	"github.com/tochemey/goakt/log"
 	"go.uber.org/atomic"
 	"golang.org/x/sync/errgroup"
@@ -56,7 +56,7 @@ type Projection struct {
 	// JournalStore specifies the journal store for reading events
 	eventsStore eventstore.EventsStore
 	// OffsetStore specifies the offset store to commit offsets
-	offsetsStore OffsetStore
+	offsetsStore offsetstore.OffsetStore
 	// Specifies the recovery setting
 	recovery *Recovery
 	// stop signal
@@ -69,7 +69,7 @@ type Projection struct {
 func New(name string,
 	handler Handler,
 	eventsStore eventstore.EventsStore,
-	offsetStore OffsetStore,
+	offsetStore offsetstore.OffsetStore,
 	recovery *Recovery,
 	logger log.Logger) *Projection {
 	return &Projection{
@@ -213,6 +213,7 @@ func (p *Projection) processingLoop(ctx context.Context) {
 
 			// let us push the id into the channel
 			g.Go(func() error {
+				// close the channel once done
 				defer close(shardsChan)
 				// let us push the shard into the channel
 				for _, shard := range shards {
@@ -225,7 +226,7 @@ func (p *Projection) processingLoop(ctx context.Context) {
 				return nil
 			})
 
-			// Start a fixed number of goroutines process the persistenceIDs.
+			// Start a fixed number of goroutines process the shards.
 			for i := 0; i < 20; i++ {
 				for shard := range shardsChan {
 					g.Go(func() error {
@@ -239,8 +240,7 @@ func (p *Projection) processingLoop(ctx context.Context) {
 				// log the error
 				p.logger.Error(err)
 				switch p.recovery.RecoveryPolicy() {
-				case Fail,
-					RetryAndFail:
+				case Fail, RetryAndFail:
 					// here we stop the projection
 					err := p.Stop(ctx)
 					// handle the error
@@ -268,14 +268,20 @@ func (p *Projection) doProcess(ctx context.Context, shard uint64) error {
 		return nil
 	}
 
-	// get the latest offset persisted for the persistence id
-	offset, err := p.offsetsStore.GetCurrentOffset(ctx, newID(p.name, shard))
+	// create the projection id
+	projectionID := &egopb.ProjectionId{
+		ProjectionName: p.name,
+		ShardNumber:    shard,
+	}
+
+	// get the latest offset persisted for the shard
+	offset, err := p.offsetsStore.GetCurrentOffset(ctx, projectionID)
 	if err != nil {
 		return err
 	}
 
 	// fetch events
-	events, err := p.eventsStore.GetShardEvents(ctx, shard, offset.GetCurrentOffset(), math.MaxUint64)
+	events, nextOffset, err := p.eventsStore.GetShardEvents(ctx, shard, offset.GetCurrentOffset(), 1_000)
 	if err != nil {
 		return err
 	}
@@ -352,9 +358,9 @@ func (p *Projection) doProcess(ctx context.Context, shard uint64) error {
 		// the envelope has been successfully processed
 		// here we commit the offset to the offset store and continue the next event
 		offset = &egopb.Offset{
-			PersistenceId:  persistenceID,
+			ShardNumber:    shard,
 			ProjectionName: p.name,
-			CurrentOffset:  seqNr,
+			CurrentOffset:  nextOffset,
 			Timestamp:      timestamppb.Now().AsTime().UnixMilli(),
 		}
 		// write the given offset and return any possible error

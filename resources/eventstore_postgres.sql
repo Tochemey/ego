@@ -38,5 +38,7 @@ CREATE TABLE IF NOT EXISTS events_store
 );
 
 --- create an index on the is_deleted column
-CREATE INDEX IF NOT EXISTS idx_event_journal_deleted ON events_store (is_deleted);
-CREATE INDEX IF NOT EXISTS idx_event_journal_shard ON events_store (shard_number);
+CREATE INDEX IF NOT EXISTS idx_events_store_persistence_id ON events_store(persistence_id);
+CREATE INDEX IF NOT EXISTS idx_events_store_seqnumber ON events_store(sequence_number);
+CREATE INDEX IF NOT EXISTS idx_events_store_timestamp ON events_store (timestamp);
+CREATE INDEX IF NOT EXISTS idx_events_store_shard ON events_store (shard_number);
