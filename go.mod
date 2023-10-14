@@ -11,7 +11,7 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.8.4
 	github.com/tochemey/goakt v1.0.0
-	github.com/tochemey/gopack v0.0.0-20230929225503-4618c2f87d6b
+	github.com/tochemey/gopack v0.0.0-20231014145002-5ff0727dd1d2
 	github.com/travisjeffery/go-dynaport v1.0.0
 	go.opentelemetry.io/otel v1.19.0
 	go.opentelemetry.io/otel/trace v1.19.0
@@ -28,7 +28,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.1 // indirect
 	github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 // indirect
 	github.com/RoaringBitmap/roaring v1.5.0 // indirect
-	github.com/XSAM/otelsql v0.25.0 // indirect
+	github.com/XSAM/otelsql v0.26.0 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/bits-and-blooms/bitset v1.8.0 // indirect
 	github.com/buraksezer/consistent v0.10.0 // indirect
