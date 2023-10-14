@@ -68,3 +68,19 @@ func WithTelemetry(telemetry *telemetry.Telemetry) Option {
 		e.telemetry = telemetry
 	})
 }
+
+// WithProjection defines a projection
+func WithProjection(projection *Projection) Option {
+	return OptionFunc(func(e *Engine) {
+		// discard the projection when the name is already added
+		for _, p := range e.projections {
+			// already exist discard this setup
+			if p.Name == projection.Name {
+				return
+			}
+		}
+
+		// add the created projection to the list of projections
+		e.projections = append(e.projections, projection)
+	})
+}

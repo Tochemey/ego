@@ -59,16 +59,12 @@ func TestProjection(t *testing.T) {
 		offsetStore := memoffsetstore.NewOffsetStore()
 		assert.NotNil(t, offsetStore)
 
-		var counter atomic.Int32
 		// set up the projection
 		// create a handler that return successfully
-		handler := func(ctx context.Context, persistenceID string, event *anypb.Any, state *anypb.Any, sequenceNumber uint64) error {
-			counter.Inc()
-			return nil
-		}
+		handler := NewDiscardHandler(logger)
 
 		// create an instance of the projection
-		projection := New(projectionName, handler, journalStore, offsetStore, NewRecovery(), logger)
+		projection := NewRunner(projectionName, handler, journalStore, offsetStore, NewRecovery(), logger)
 		// start the projection
 		err := projection.Start(ctx)
 		require.NoError(t, err)
@@ -113,7 +109,7 @@ func TestProjection(t *testing.T) {
 		assert.NotNil(t, actual)
 		assert.EqualValues(t, journals[9].GetTimestamp(), actual.GetCurrentOffset())
 
-		assert.EqualValues(t, 10, counter.Load())
+		assert.EqualValues(t, 10, handler.EventsCount())
 
 		// free resources
 		assert.NoError(t, projection.Stop(ctx))
@@ -135,11 +131,9 @@ func TestProjection(t *testing.T) {
 
 		// set up the projection
 		// create a handler that return successfully
-		handler := func(ctx context.Context, persistenceID string, event *anypb.Any, state *anypb.Any, sequenceNumber uint64) error {
-			return errors.New("damn")
-		}
+		handler := &testHandler1{}
 
-		projection := New(projectionName, handler, journalStore, offsetStore, NewRecovery(), logger)
+		projection := NewRunner(projectionName, handler, journalStore, offsetStore, NewRecovery(), logger)
 		// start the projection
 		err := projection.Start(ctx)
 		require.NoError(t, err)
@@ -193,11 +187,9 @@ func TestProjection(t *testing.T) {
 
 		// set up the projection
 		// create a handler that return successfully
-		handler := func(ctx context.Context, persistenceID string, event *anypb.Any, state *anypb.Any, sequenceNumber uint64) error {
-			return errors.New("damn")
-		}
+		handler := &testHandler1{}
 
-		projection := New(projectionName, handler, journalStore, offsetStore, NewRecovery(
+		projection := NewRunner(projectionName, handler, journalStore, offsetStore, NewRecovery(
 			WithRecoveryPolicy(RetryAndFail),
 			WithRetries(2),
 			WithRetryDelay(100*time.Millisecond)), logger)
@@ -256,17 +248,10 @@ func TestProjection(t *testing.T) {
 		assert.NotNil(t, offsetStore)
 
 		// set up the projection
-		var counter atomic.Int32
 		// create a handler that return successfully
-		handler := func(ctx context.Context, persistenceID string, event *anypb.Any, state *anypb.Any, sequenceNumber uint64) error {
-			if (int(sequenceNumber) % 2) == 0 {
-				return errors.New("failed handler")
-			}
-			counter.Inc()
-			return nil
-		}
+		handler := &testHandler2{counter: atomic.NewInt32(0)}
 
-		projection := New(projectionName, handler, journalStore, offsetStore, NewRecovery(
+		projection := NewRunner(projectionName, handler, journalStore, offsetStore, NewRecovery(
 			WithRecoveryPolicy(Skip),
 			WithRetries(2),
 			WithRetryDelay(100*time.Millisecond)), logger)
@@ -311,7 +296,7 @@ func TestProjection(t *testing.T) {
 		actual, err := offsetStore.GetCurrentOffset(ctx, projectionID)
 		assert.NoError(t, err)
 		assert.NotNil(t, actual)
-		assert.EqualValues(t, 5, counter.Load())
+		assert.EqualValues(t, 5, handler.counter.Load())
 
 		// free resource
 		assert.NoError(t, projection.Stop(ctx))
@@ -333,17 +318,10 @@ func TestProjection(t *testing.T) {
 		assert.NotNil(t, offsetStore)
 
 		// set up the projection
-		var counter atomic.Int32
 		// create a handler that return successfully
-		handler := func(ctx context.Context, persistenceID string, event *anypb.Any, state *anypb.Any, sequenceNumber uint64) error {
-			if (int(sequenceNumber) % 2) == 0 {
-				return errors.New("failed handler")
-			}
-			counter.Inc()
-			return nil
-		}
+		handler := &testHandler2{counter: atomic.NewInt32(0)}
 
-		projection := New(projectionName, handler, journalStore, offsetStore, NewRecovery(
+		projection := NewRunner(projectionName, handler, journalStore, offsetStore, NewRecovery(
 			WithRecoveryPolicy(RetryAndSkip),
 			WithRetries(2),
 			WithRetryDelay(100*time.Millisecond)), logger)
@@ -388,9 +366,29 @@ func TestProjection(t *testing.T) {
 		actual, err := offsetStore.GetCurrentOffset(ctx, projectionID)
 		assert.NoError(t, err)
 		assert.NotNil(t, actual)
-		assert.EqualValues(t, 5, counter.Load())
+		assert.EqualValues(t, 5, handler.counter.Load())
 
 		// free resource
 		assert.NoError(t, projection.Stop(ctx))
 	})
+}
+
+type testHandler1 struct{}
+
+var _ Handler = &testHandler1{}
+
+func (x testHandler1) Handle(_ context.Context, _ string, _ *anypb.Any, _ *anypb.Any, _ uint64) error {
+	return errors.New("damn")
+}
+
+type testHandler2 struct {
+	counter *atomic.Int32
+}
+
+func (x testHandler2) Handle(_ context.Context, _ string, _ *anypb.Any, _ *anypb.Any, revision uint64) error {
+	if (int(revision) % 2) == 0 {
+		return errors.New("failed handler")
+	}
+	x.counter.Inc()
+	return nil
 }

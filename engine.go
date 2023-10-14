@@ -28,6 +28,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/tochemey/ego/eventstore"
+	"github.com/tochemey/ego/projection"
 	"github.com/tochemey/goakt/actors"
 	"github.com/tochemey/goakt/discovery"
 	"github.com/tochemey/goakt/log"
@@ -47,6 +48,10 @@ type Engine struct {
 	telemetry         *telemetry.Telemetry   // telemetry is the observability engine
 	partitionsCount   uint64                 // partitionsCount specifies the number of partitions
 	started           atomic.Bool
+
+	// define the list of projections
+	projections       []*Projection
+	projectionRunners []*projection.Runner
 }
 
 // NewEngine creates an instance of Engine
@@ -58,11 +63,19 @@ func NewEngine(name string, eventsStore eventstore.EventsStore, opts ...Option) 
 		enableCluster: atomic.NewBool(false),
 		logger:        log.DefaultLogger,
 		telemetry:     telemetry.New(),
+		projections:   make([]*Projection, 0),
 	}
 	// apply the various options
 	for _, opt := range opts {
 		opt.Apply(e)
 	}
+
+	// set the projection runners
+	for i, p := range e.projections {
+		// create the projection instance and add it to the list of runners
+		e.projectionRunners[i] = projection.NewRunner(p.Name, p.Handler, e.eventsStore, p.OffsetStore, p.Recovery, e.logger)
+	}
+
 	e.started.Store(false)
 	return e
 }
@@ -100,6 +113,20 @@ func (x *Engine) Start(ctx context.Context) error {
 	}
 	// set the started to true
 	x.started.Store(true)
+
+	// start the projections if is set
+	if len(x.projectionRunners) > 0 {
+		// simply iterate the list of projections and start them
+		// fail start when a single projection fail to start
+		for _, runner := range x.projectionRunners {
+			// start the runner
+			if err := runner.Start(ctx); err != nil {
+				x.logger.Error(errors.Wrapf(err, "failed to start projection=(%s)", runner.Name()))
+				return err
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -107,5 +134,17 @@ func (x *Engine) Start(ctx context.Context) error {
 func (x *Engine) Stop(ctx context.Context) error {
 	// set the started to false
 	x.started.Store(false)
+	// stop the projections
+	if len(x.projectionRunners) > 0 {
+		// simply iterate the list of projections and start them
+		// fail stop when a single projection fail to stop
+		for _, runner := range x.projectionRunners {
+			// stop the runner
+			if err := runner.Stop(ctx); err != nil {
+				x.logger.Error(errors.Wrapf(err, "failed to stop projection=(%s)", runner.Name()))
+				return err
+			}
+		}
+	}
 	return x.actorSystem.Stop(ctx)
 }
