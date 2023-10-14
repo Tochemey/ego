@@ -14,8 +14,6 @@ github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5/go.mod h1:lmUJ/7eu/Q8
 github.com/RoaringBitmap/roaring v1.2.1/go.mod h1:icnadbWcNyfEHlYdr+tDlOTih1Bf/h+rzPpv4sbomAA=
 github.com/RoaringBitmap/roaring v1.5.0 h1:V0VCSiHjroItEYCM3guC8T83ehi5QMt3oM9EefTTOms=
 github.com/RoaringBitmap/roaring v1.5.0/go.mod h1:plvDsJQpxOC5bw8LRteu/MLWHsHez/3y6cubLI4/1yE=
-github.com/XSAM/otelsql v0.25.0 h1:ji1G+O45lrmZV9pXv2jQNRzYVFIwEB0jlY0XXdgpuNk=
-github.com/XSAM/otelsql v0.25.0/go.mod h1:VfWJ7nRF1t74mSL36s0ksIohT4nmFH5/opajHcmXPFc=
 github.com/XSAM/otelsql v0.26.0 h1:UhAGVBD34Ctbh2aYcm/JAdL+6T6ybrP+YMWYkHqCdmo=
 github.com/XSAM/otelsql v0.26.0/go.mod h1:5ciw61eMSh+RtTPN8spvPEPLJpAErZw8mFFPNfYiaxA=
 github.com/alecthomas/template v0.0.0-20160405071501-a0175ee3bccc/go.mod h1:LOuyumcjzFXgccqObfd/Ljyb9UuFJ6TxHnclSeseNhc=
@@ -300,8 +298,6 @@ github.com/tidwall/redcon v1.6.2 h1:5qfvrrybgtO85jnhSravmkZyC0D+7WstbfCs3MmPhow=
 github.com/tidwall/redcon v1.6.2/go.mod h1:p5Wbsgeyi2VSTBWOcA5vRXrOb9arFTcU2+ZzFjqV75Y=
 github.com/tochemey/goakt v1.0.0 h1:yvbEtKXGlHMBytDa3BpTLm9OjItM0tDUJfN8+Yg15d4=
 github.com/tochemey/goakt v1.0.0/go.mod h1:wkWArcaOE5dI/Q8NgeZbrS38QNrHl8sf9pM3rKHPO7A=
-github.com/tochemey/gopack v0.0.0-20230929225503-4618c2f87d6b h1:T8eXqAgqTFYoOVkFiI5EesGgVjiQPo1R451ipkVJHKk=
-github.com/tochemey/gopack v0.0.0-20230929225503-4618c2f87d6b/go.mod h1:SaU2hyOF8P/WNO+cnZI4RxFe8qqbK2KcnmLjmj2rvDU=
 github.com/tochemey/gopack v0.0.0-20231014145002-5ff0727dd1d2 h1:sc39iFUXznMul4drps2I7QFaaGqHgJmNSlFJQ1jzc0c=
 github.com/tochemey/gopack v0.0.0-20231014145002-5ff0727dd1d2/go.mod h1:fgMcyrclhHISKyBZzQX0o8HXAnoIPlDGDY9eX3r+Wxg=
 github.com/travisjeffery/go-dynaport v1.0.0 h1:m/qqf5AHgB96CMMSworIPyo1i7NZueRsnwdzdCJ8Ajw=
