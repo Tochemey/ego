@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"sort"
 
+	goset "github.com/deckarep/golang-set/v2"
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-memdb"
 	"github.com/pkg/errors"
@@ -52,8 +53,8 @@ type EventsStore struct {
 	connected *atomic.Bool
 }
 
-// make sure the EventsStore implements the EventsStore interface
-var _ eventstore.EventsStore = &EventsStore{}
+// enforce interface implementation
+var _ eventstore.EventsStore = (*EventsStore)(nil)
 
 // NewEventsStore creates a new instance of EventsStore
 func NewEventsStore() *EventsStore {
@@ -440,6 +441,140 @@ func (s *EventsStore) GetLatestEvent(ctx context.Context, persistenceID string) 
 	}
 
 	return nil, fmt.Errorf("failed to fetch the latest event from the database for persistenceId=%s", persistenceID)
+}
+
+// GetShardEvents returns the next (max) events after the offset in the journal for a given shard
+func (s *EventsStore) GetShardEvents(ctx context.Context, shardNumber uint64, offset int64, max uint64) ([]*egopb.Event, int64, error) {
+	// add a span context
+	ctx, span := telemetry.SpanContext(ctx, "eventsStore.GetShardEvents")
+	defer span.End()
+
+	// check whether this instance of the journal is connected or not
+	if !s.connected.Load() {
+		return nil, 0, errors.New("journal store is not connected")
+	}
+
+	// spawn a db transaction for read-only
+	txn := s.db.Txn(false)
+	// fetch all the records for the given shard
+	it, err := txn.Get(journalTableName, persistenceIDIndex)
+	// handle the error
+	if err != nil {
+		// abort the transaction
+		txn.Abort()
+		return nil, 0, errors.Wrapf(err, "failed to get events of shard=(%d)", shardNumber)
+	}
+
+	// loop over the records and delete them
+	var journals []*journal
+	for row := it.Next(); row != nil; row = it.Next() {
+		// cast the elt into the journal
+		if journal, ok := row.(*journal); ok {
+			// filter out the journal of the given shard number
+			if journal.ShardNumber == shardNumber {
+				journals = append(journals, journal)
+			}
+		}
+	}
+	//  let us abort the transaction after fetching the matching records
+	txn.Abort()
+
+	// short circuit the operation when there are no records
+	if len(journals) == 0 {
+		return nil, 0, nil
+	}
+
+	var events []*egopb.Event
+	for _, journal := range journals {
+		// only fetch record which timestamp is greater than the offset
+		if journal.Timestamp > offset {
+			// unmarshal the event and the state
+			evt, err := toProto(journal.EventManifest, journal.EventPayload)
+			if err != nil {
+				return nil, 0, errors.Wrap(err, "failed to unmarshal the journal event")
+			}
+			state, err := toProto(journal.StateManifest, journal.StatePayload)
+			if err != nil {
+				return nil, 0, errors.Wrap(err, "failed to unmarshal the journal state")
+			}
+
+			if uint64(len(events)) <= max {
+				// create the event and add it to the list of events
+				events = append(events, &egopb.Event{
+					PersistenceId:  journal.PersistenceID,
+					SequenceNumber: journal.SequenceNumber,
+					IsDeleted:      journal.IsDeleted,
+					Event:          evt,
+					ResultingState: state,
+					Timestamp:      journal.Timestamp,
+					Shard:          journal.ShardNumber,
+				})
+			}
+		}
+	}
+
+	// short circuit the operation when there are no records
+	if len(events) == 0 {
+		return nil, 0, nil
+	}
+
+	// sort the subset by timestamp
+	sort.SliceStable(events, func(i, j int) bool {
+		return events[i].GetTimestamp() <= events[j].GetTimestamp()
+	})
+
+	// grab the next offset
+	nextOffset := events[len(events)-1].GetTimestamp()
+
+	return events, nextOffset, nil
+}
+
+// ShardNumbers returns the distinct list of all the shards in the journal store
+func (s *EventsStore) ShardNumbers(ctx context.Context) ([]uint64, error) {
+	// add a span context
+	ctx, span := telemetry.SpanContext(ctx, "eventsStore.NumShards")
+	defer span.End()
+
+	// check whether this instance of the journal is connected or not
+	if !s.connected.Load() {
+		return nil, errors.New("journal store is not connected")
+	}
+
+	// spawn a db transaction for read-only
+	txn := s.db.Txn(false)
+	// fetch all the records
+	it, err := txn.Get(journalTableName, persistenceIDIndex)
+	// handle the error
+	if err != nil {
+		// abort the transaction
+		txn.Abort()
+		return nil, errors.Wrap(err, "failed to fetch the list of shard number")
+	}
+
+	// loop over the records and delete them
+	var journals []*journal
+	for row := it.Next(); row != nil; row = it.Next() {
+		if journal, ok := row.(*journal); ok {
+			journals = append(journals, journal)
+		}
+	}
+	//  let us abort the transaction after fetching the matching records
+	txn.Abort()
+
+	// short circuit the operation when there are no records
+	if len(journals) == 0 {
+		return nil, nil
+	}
+
+	// create a set to hold the unique list of shard numbers
+	shards := goset.NewSet[uint64]()
+	// iterate the list of journals and extract the shard numbers
+	for _, journal := range journals {
+		shards.Add(journal.ShardNumber)
+	}
+
+	// return the list
+	return shards.ToSlice(), nil
 }
 
 // toProto converts a byte array given its manifest into a valid proto message

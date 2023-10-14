@@ -22,23 +22,15 @@
  * SOFTWARE.
  */
 
-CREATE TABLE IF NOT EXISTS events_store
+CREATE TABLE IF NOT EXISTS offsets_store
 (
-    persistence_id  VARCHAR(255)          NOT NULL,
-    sequence_number BIGINT                NOT NULL,
-    is_deleted      BOOLEAN DEFAULT FALSE NOT NULL,
-    event_payload   BYTEA                 NOT NULL,
-    event_manifest  VARCHAR(255)          NOT NULL,
-    state_payload   BYTEA                 NOT NULL,
-    state_manifest  VARCHAR(255)          NOT NULL,
-    timestamp       BIGINT                NOT NULL,
-    shard_number    BIGINT                NOT NULL,
-
-    PRIMARY KEY (persistence_id, sequence_number)
+    projection_name VARCHAR(255) NOT NULL,
+    shard_number    BIGINT       NOT NULL,
+    current_offset  BIGINT       NOT NULL,
+    last_updated    BIGINT       NOT NULL,
+    PRIMARY KEY (projection_name, shard_number)
 );
 
---- create an index on the is_deleted column
-CREATE INDEX IF NOT EXISTS idx_events_store_persistence_id ON events_store(persistence_id);
-CREATE INDEX IF NOT EXISTS idx_events_store_seqnumber ON events_store(sequence_number);
-CREATE INDEX IF NOT EXISTS idx_events_store_timestamp ON events_store (timestamp);
-CREATE INDEX IF NOT EXISTS idx_events_store_shard ON events_store (shard_number);
+--- create an index on the projection_name column
+CREATE INDEX IF NOT EXISTS idx_offsets_store_name ON offsets_store (projection_name);
+CREATE INDEX IF NOT EXISTS idx_offsets_store_shard ON offsets_store (shard_number);

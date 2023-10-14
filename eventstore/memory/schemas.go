@@ -58,6 +58,7 @@ const (
 	persistenceIDIndex  = "persistenceId"
 	sequenceNumberIndex = "sequenceNumber"
 	shardNumberIndex    = "shardNumber"
+	timestampIndex      = "timestamp"
 )
 
 var (
@@ -108,6 +109,14 @@ var (
 						Unique:       false,
 						Indexer: &memdb.UintFieldIndex{
 							Field: "ShardNumber",
+						},
+					},
+					timestampIndex: {
+						Name:         timestampIndex,
+						AllowMissing: false,
+						Unique:       false,
+						Indexer: &memdb.IntFieldIndex{
+							Field: "Timestamp",
 						},
 					},
 				},

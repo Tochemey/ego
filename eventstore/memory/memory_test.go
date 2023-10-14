@@ -39,9 +39,9 @@ import (
 
 func TestEventsStore(t *testing.T) {
 	t.Run("testNew", func(t *testing.T) {
-		estore := NewEventsStore()
-		assert.NotNil(t, estore)
-		var p interface{} = estore
+		eventsStore := NewEventsStore()
+		assert.NotNil(t, eventsStore)
+		var p interface{} = eventsStore
 		_, ok := p.(eventstore.EventsStore)
 		assert.True(t, ok)
 	})
@@ -60,6 +60,7 @@ func TestEventsStore(t *testing.T) {
 		assert.NoError(t, err)
 
 		timestamp := timestamppb.Now()
+		shardNumber := uint64(9)
 
 		journal := &egopb.Event{
 			PersistenceId:  "persistence-1",
@@ -68,6 +69,7 @@ func TestEventsStore(t *testing.T) {
 			Event:          event,
 			ResultingState: state,
 			Timestamp:      timestamp.AsTime().Unix(),
+			Shard:          shardNumber,
 		}
 
 		store := NewEventsStore()
@@ -82,6 +84,11 @@ func TestEventsStore(t *testing.T) {
 		assert.NoError(t, err)
 		assert.NotNil(t, actual)
 		assert.True(t, proto.Equal(journal, actual))
+
+		// assert the number of shards
+		shards, err := store.ShardNumbers(ctx)
+		assert.NoError(t, err)
+		assert.Len(t, shards, 1)
 
 		err = store.Disconnect(ctx)
 		assert.NoError(t, err)

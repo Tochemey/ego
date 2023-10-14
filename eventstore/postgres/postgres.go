@@ -25,7 +25,6 @@ package postgres
 import (
 	"context"
 	"database/sql"
-	"fmt"
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/pkg/errors"
@@ -35,9 +34,6 @@ import (
 	"github.com/tochemey/gopack/postgres"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/reflect/protoreflect"
-	"google.golang.org/protobuf/reflect/protoregistry"
-	"google.golang.org/protobuf/types/known/anypb"
 )
 
 var (
@@ -72,8 +68,8 @@ type EventsStore struct {
 	connected *atomic.Bool
 }
 
-// make sure the PostgresEventStore implements the EventsStore interface
-var _ eventstore.EventsStore = &EventsStore{}
+// enforce interface implementation
+var _ eventstore.EventsStore = (*EventsStore)(nil)
 
 // NewEventsStore creates a new instance of PostgresEventStore
 func NewEventsStore(config *postgres.Config) *EventsStore {
@@ -343,50 +339,15 @@ func (s *EventsStore) ReplayEvents(ctx context.Context, persistenceID string, fr
 		return nil, errors.Wrap(err, "failed to build the select sql statement")
 	}
 
-	// create the ds to hold the database record
-	type row struct {
-		PersistenceID  string
-		SequenceNumber uint64
-		IsDeleted      bool
-		EventPayload   []byte
-		EventManifest  string
-		StatePayload   []byte
-		StateManifest  string
-		Timestamp      int64
-		ShardNumber    uint64
-	}
-
 	// execute the query against the database
-	var rows []*row
+	var rows rows
 	err = s.db.SelectAll(ctx, &rows, query, args...)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to fetch the events from the database")
 	}
 
-	events := make([]*egopb.Event, 0, max)
-	for _, row := range rows {
-		// unmarshal the event and the state
-		evt, err := s.toProto(row.EventManifest, row.EventPayload)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to unmarshal the journal event")
-		}
-		state, err := s.toProto(row.StateManifest, row.StatePayload)
-		if err != nil {
-			return nil, errors.Wrap(err, "failed to unmarshal the journal state")
-		}
-		// create the event and add it to the list of events
-		events = append(events, &egopb.Event{
-			PersistenceId:  row.PersistenceID,
-			SequenceNumber: row.SequenceNumber,
-			IsDeleted:      row.IsDeleted,
-			Event:          evt,
-			ResultingState: state,
-			Timestamp:      row.Timestamp,
-			Shard:          row.ShardNumber,
-		})
-	}
-
-	return events, nil
+	// return the derivative events
+	return rows.ToEvents()
 }
 
 // GetLatestEvent fetches the latest event
@@ -414,67 +375,99 @@ func (s *EventsStore) GetLatestEvent(ctx context.Context, persistenceID string) 
 		return nil, errors.Wrap(err, "failed to build the select sql statement")
 	}
 
-	// create the ds to hold the database record
-	type row struct {
-		PersistenceID  string
-		SequenceNumber uint64
-		IsDeleted      bool
-		EventPayload   []byte
-		EventManifest  string
-		StatePayload   []byte
-		StateManifest  string
-		Timestamp      int64
-		ShardNumber    uint64
-	}
-
 	// execute the query against the database
-	data := new(row)
-	err = s.db.Select(ctx, data, query, args...)
+	row := new(row)
+	err = s.db.Select(ctx, row, query, args...)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to fetch the latest event from the database")
 	}
 
 	// check whether we do have data
-	if data.PersistenceID == "" {
+	if row.PersistenceID == "" {
 		return nil, nil
 	}
 
-	// unmarshal the event and the state
-	evt, err := s.toProto(data.EventManifest, data.EventPayload)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to unmarshal the journal event")
-	}
-	state, err := s.toProto(data.StateManifest, data.StatePayload)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to unmarshal the journal state")
-	}
-
-	return &egopb.Event{
-		PersistenceId:  data.PersistenceID,
-		SequenceNumber: data.SequenceNumber,
-		IsDeleted:      data.IsDeleted,
-		Event:          evt,
-		ResultingState: state,
-		Timestamp:      data.Timestamp,
-		Shard:          data.ShardNumber,
-	}, nil
+	// return the derivative event
+	return row.ToEvent()
 }
 
-// toProto converts a byte array given its manifest into a valid proto message
-func (s *EventsStore) toProto(manifest string, bytea []byte) (*anypb.Any, error) {
-	mt, err := protoregistry.GlobalTypes.FindMessageByName(protoreflect.FullName(manifest))
-	if err != nil {
-		return nil, err
+// GetShardEvents returns the next (max) events after the offset in the journal for a given shard
+func (s *EventsStore) GetShardEvents(ctx context.Context, shardNumber uint64, offset int64, max uint64) ([]*egopb.Event, int64, error) {
+	// add a span context
+	ctx, span := telemetry.SpanContext(ctx, "eventsStore.GetShardEvents")
+	defer span.End()
+
+	// check whether this instance of the journal is connected or not
+	if !s.connected.Load() {
+		return nil, 0, errors.New("journal store is not connected")
 	}
 
-	pm := mt.New().Interface()
-	err = proto.Unmarshal(bytea, pm)
+	// create the database select statement
+	statement := s.sb.
+		Select(columns...).
+		From(tableName).
+		Where(sq.Eq{"shard_number": shardNumber}).
+		Where(sq.Gt{"timestamp": offset}).
+		OrderBy("timestamp ASC").
+		Limit(max)
+
+	// get the sql statement and the arguments
+	query, args, err := statement.ToSql()
 	if err != nil {
-		return nil, err
+		return nil, 0, errors.Wrap(err, "failed to build the select sql statement")
 	}
 
-	if cast, ok := pm.(*anypb.Any); ok {
-		return cast, nil
+	// execute the query against the database
+	var rows rows
+	err = s.db.SelectAll(ctx, &rows, query, args...)
+	if err != nil {
+		return nil, 0, errors.Wrap(err, "failed to fetch the events from the database")
 	}
-	return nil, fmt.Errorf("failed to unpack message=%s", manifest)
+
+	// short-circuit the request
+	if len(rows) == 0 {
+		return nil, 0, nil
+	}
+
+	// grab the events
+	events, err := rows.ToEvents()
+	// handle the error when parsing
+	if err != nil {
+		return nil, 0, err
+	}
+	// get the next offset
+	nextOffset := events[len(events)-1].GetTimestamp()
+	// return the data
+	return events, nextOffset, nil
+}
+
+// ShardNumbers returns the distinct list of all the shards in the journal store
+func (s *EventsStore) ShardNumbers(ctx context.Context) ([]uint64, error) {
+	// add a span context
+	ctx, span := telemetry.SpanContext(ctx, "eventsStore.NumShards")
+	defer span.End()
+
+	// check whether this instance of the journal is connected or not
+	if !s.connected.Load() {
+		return nil, errors.New("journal store is not connected")
+	}
+
+	// create the statement
+	statement := s.sb.
+		Select("DISTINCT shard_number").
+		From(tableName)
+
+	// get the sql statement and the arguments
+	query, args, err := statement.ToSql()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to build the select sql statement")
+	}
+
+	var shardNumbers []uint64
+	err = s.db.SelectAll(ctx, &shardNumbers, query, args...)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to fetch the events from the database")
+	}
+
+	return shardNumbers, nil
 }
