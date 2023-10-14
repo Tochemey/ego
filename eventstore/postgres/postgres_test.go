@@ -121,6 +121,8 @@ func TestPostgresEventsStore(t *testing.T) {
 
 		ts1 := timestamppb.Now()
 		ts2 := timestamppb.Now()
+		shard1 := uint64(5)
+		shard2 := uint64(4)
 
 		e1 := &egopb.Event{
 			PersistenceId:  "persistence-1",
@@ -129,6 +131,7 @@ func TestPostgresEventsStore(t *testing.T) {
 			Event:          event,
 			ResultingState: state,
 			Timestamp:      ts1.AsTime().Unix(),
+			Shard:          shard1,
 		}
 
 		event, err = anypb.New(&testpb.AccountCredited{})
@@ -141,6 +144,7 @@ func TestPostgresEventsStore(t *testing.T) {
 			Event:          event,
 			ResultingState: state,
 			Timestamp:      ts2.AsTime().Unix(),
+			Shard:          shard2,
 		}
 
 		events := []*egopb.Event{e1, e2}
@@ -157,6 +161,16 @@ func TestPostgresEventsStore(t *testing.T) {
 		assert.Len(t, replayed, 2)
 		assert.Equal(t, prototext.Format(events[0]), prototext.Format(replayed[0]))
 		assert.Equal(t, prototext.Format(events[1]), prototext.Format(replayed[1]))
+
+		shardNumbers, err := store.ShardNumbers(ctx)
+		require.NoError(t, err)
+		require.Len(t, shardNumbers, 2)
+
+		offset := int64(0)
+		events, nextOffset, err := store.GetShardEvents(ctx, shard1, offset, max)
+		assert.NoError(t, err)
+		assert.EqualValues(t, e1.GetTimestamp(), nextOffset)
+		assert.Len(t, events, 1)
 
 		err = schemaUtil.DropTable(ctx)
 		assert.NoError(t, err)
@@ -195,6 +209,8 @@ func TestPostgresEventsStore(t *testing.T) {
 
 		ts1 := timestamppb.New(time.Now().UTC())
 		ts2 := timestamppb.New(time.Now().UTC())
+		shard1 := uint64(7)
+		shard2 := uint64(4)
 
 		e1 := &egopb.Event{
 			PersistenceId:  "persistence-1",
@@ -203,6 +219,7 @@ func TestPostgresEventsStore(t *testing.T) {
 			Event:          event,
 			ResultingState: state,
 			Timestamp:      ts1.AsTime().Unix(),
+			Shard:          shard1,
 		}
 
 		event, err = anypb.New(&testpb.AccountCredited{})
@@ -215,6 +232,7 @@ func TestPostgresEventsStore(t *testing.T) {
 			Event:          event,
 			ResultingState: state,
 			Timestamp:      ts2.AsTime().Unix(),
+			Shard:          shard2,
 		}
 
 		events := []*egopb.Event{e1, e2}
@@ -266,6 +284,8 @@ func TestPostgresEventsStore(t *testing.T) {
 
 		ts1 := timestamppb.New(time.Now().UTC())
 		ts2 := timestamppb.New(time.Now().UTC())
+		shard1 := uint64(9)
+		shard2 := uint64(8)
 
 		e1 := &egopb.Event{
 			PersistenceId:  "persistence-1",
@@ -274,6 +294,7 @@ func TestPostgresEventsStore(t *testing.T) {
 			Event:          event,
 			ResultingState: state,
 			Timestamp:      ts1.AsTime().Unix(),
+			Shard:          shard1,
 		}
 
 		event, err = anypb.New(&testpb.AccountCredited{})
@@ -286,6 +307,7 @@ func TestPostgresEventsStore(t *testing.T) {
 			Event:          event,
 			ResultingState: state,
 			Timestamp:      ts2.AsTime().Unix(),
+			Shard:          shard2,
 		}
 
 		events := []*egopb.Event{e1, e2}
