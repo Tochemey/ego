@@ -24,6 +24,8 @@ Under the hood, ego leverages [goakt](https://github.com/Tochemey/goakt) to scal
         - Postgres
         - Memory (only for testing purpose)
     - [Cluster Mode](https://github.com/Tochemey/goakt#clustering)
+- Read Model:
+    - Projection (WIP) 
 - Examples (check the [examples](./example))
 
 ### Installation
