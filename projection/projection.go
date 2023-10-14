@@ -43,7 +43,7 @@ import (
 )
 
 // Handler is used to handle event and state consumed from the event store
-type Handler func(ctx context.Context, persistenceID string, event *anypb.Any, state *anypb.Any, offset uint64) error
+type Handler func(ctx context.Context, persistenceID string, event *anypb.Any, state *anypb.Any, revision uint64) error
 
 // Projection defines the projection
 type Projection struct {
