@@ -64,7 +64,7 @@ func TestProjection(t *testing.T) {
 		handler := NewDiscardHandler(logger)
 
 		// create an instance of the projection
-		projection := New(projectionName, handler, journalStore, offsetStore, NewRecovery(), logger)
+		projection := NewRunner(projectionName, handler, journalStore, offsetStore, NewRecovery(), logger)
 		// start the projection
 		err := projection.Start(ctx)
 		require.NoError(t, err)
@@ -133,7 +133,7 @@ func TestProjection(t *testing.T) {
 		// create a handler that return successfully
 		handler := &testHandler1{}
 
-		projection := New(projectionName, handler, journalStore, offsetStore, NewRecovery(), logger)
+		projection := NewRunner(projectionName, handler, journalStore, offsetStore, NewRecovery(), logger)
 		// start the projection
 		err := projection.Start(ctx)
 		require.NoError(t, err)
@@ -189,7 +189,7 @@ func TestProjection(t *testing.T) {
 		// create a handler that return successfully
 		handler := &testHandler1{}
 
-		projection := New(projectionName, handler, journalStore, offsetStore, NewRecovery(
+		projection := NewRunner(projectionName, handler, journalStore, offsetStore, NewRecovery(
 			WithRecoveryPolicy(RetryAndFail),
 			WithRetries(2),
 			WithRetryDelay(100*time.Millisecond)), logger)
@@ -251,7 +251,7 @@ func TestProjection(t *testing.T) {
 		// create a handler that return successfully
 		handler := &testHandler2{counter: atomic.NewInt32(0)}
 
-		projection := New(projectionName, handler, journalStore, offsetStore, NewRecovery(
+		projection := NewRunner(projectionName, handler, journalStore, offsetStore, NewRecovery(
 			WithRecoveryPolicy(Skip),
 			WithRetries(2),
 			WithRetryDelay(100*time.Millisecond)), logger)
@@ -321,7 +321,7 @@ func TestProjection(t *testing.T) {
 		// create a handler that return successfully
 		handler := &testHandler2{counter: atomic.NewInt32(0)}
 
-		projection := New(projectionName, handler, journalStore, offsetStore, NewRecovery(
+		projection := NewRunner(projectionName, handler, journalStore, offsetStore, NewRecovery(
 			WithRecoveryPolicy(RetryAndSkip),
 			WithRetries(2),
 			WithRetryDelay(100*time.Millisecond)), logger)

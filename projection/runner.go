@@ -41,9 +41,9 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// Projection defines the projection
-type Projection struct {
-	// Name specifies the projection Name
+// Runner defines the projection runner
+type Runner struct {
+	// Name specifies the runner Name
 	name string
 	// Logger specifies the logger
 	logger log.Logger
@@ -61,14 +61,15 @@ type Projection struct {
 	isStarted *atomic.Bool
 }
 
-// New create an instance of Projection given the name of the projection, the handler and the offsets store
-func New(name string,
+// NewRunner create an instance of Runner given the name of the projection, the handler and the offsets store
+// The name of the projection should be unique
+func NewRunner(name string,
 	handler Handler,
 	eventsStore eventstore.EventsStore,
 	offsetStore offsetstore.OffsetStore,
 	recovery *Recovery,
-	logger log.Logger) *Projection {
-	return &Projection{
+	logger log.Logger) *Runner {
+	return &Runner{
 		handler:      handler,
 		offsetsStore: offsetStore,
 		name:         name,
@@ -80,8 +81,8 @@ func New(name string,
 	}
 }
 
-// Start starts the projection
-func (p *Projection) Start(ctx context.Context) error {
+// Start starts the projection runner
+func (p *Runner) Start(ctx context.Context) error {
 	// add a span context
 	ctx, span := telemetry.SpanContext(ctx, "PreStart")
 	defer span.End()
@@ -149,8 +150,8 @@ func (p *Projection) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the projection
-func (p *Projection) Stop(ctx context.Context) error {
+// Stop stops the projection runner
+func (p *Runner) Stop(ctx context.Context) error {
 	// add a span context
 	ctx, span := telemetry.SpanContext(ctx, "PostStop")
 	defer span.End()
@@ -178,8 +179,13 @@ func (p *Projection) Stop(ctx context.Context) error {
 	return nil
 }
 
+// Name returns the projection runner Name
+func (p *Runner) Name() string {
+	return p.name
+}
+
 // processingLoop is a loop that continuously runs to process events persisted onto the journal store until the projection is stopped
-func (p *Projection) processingLoop(ctx context.Context) {
+func (p *Runner) processingLoop(ctx context.Context) {
 	for {
 		select {
 		case <-p.stopSignal:
@@ -255,7 +261,7 @@ func (p *Projection) processingLoop(ctx context.Context) {
 }
 
 // doProcess processes all events of a given persistent entity and hand them over to the handler
-func (p *Projection) doProcess(ctx context.Context, shard uint64) error {
+func (p *Runner) doProcess(ctx context.Context, shard uint64) error {
 	// add a span context
 	ctx, span := telemetry.SpanContext(ctx, "HandleShard")
 	defer span.End()
