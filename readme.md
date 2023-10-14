@@ -25,8 +25,8 @@ Under the hood, ego leverages [goakt](https://github.com/Tochemey/goakt) to scal
         - Memory (for testing purpose only)
     - [Cluster Mode](https://github.com/Tochemey/goakt#clustering)
 - Read Model:
-    - Projection
-    - Extensible Offset store
+    - Projection: The engine that help build a read model
+    - Extensible Offset store: Helps store offsets of events consumed and processed by projections
     - Built-in offset stores:
         - Postgres: Schema can be found [here](./resources/offsetstore_postgres.sql)
         - Memory (for testing purpose only)
