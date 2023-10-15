@@ -335,7 +335,7 @@ func TestPostgresEventsStore(t *testing.T) {
 		err = store.Disconnect(ctx)
 		assert.NoError(t, err)
 	})
-	t.Run("testNumShards", func(t *testing.T) {
+	t.Run("testShardNumbers", func(t *testing.T) {
 		ctx := context.TODO()
 		config := &postgres.Config{
 			DBHost:     testContainer.Host(),
