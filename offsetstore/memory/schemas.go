@@ -32,10 +32,10 @@ type offsetRow struct {
 	ProjectionName string
 	// Shard Number
 	ShardNumber uint64
-	// CurrentOffset is the current offset
-	CurrentOffset int64
+	// Value is the current offset
+	Value int64
 	// Specifies the last update time
-	LastUpdated int64
+	Timestamp int64
 }
 
 const (
@@ -76,7 +76,7 @@ var (
 						AllowMissing: false,
 						Unique:       false,
 						Indexer: &memdb.IntFieldIndex{
-							Field: "CurrentOffset",
+							Field: "Value",
 						},
 					},
 					projectionNameIndex: {

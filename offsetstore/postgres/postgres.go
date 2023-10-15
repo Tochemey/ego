@@ -25,6 +25,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/pkg/errors"
@@ -46,6 +47,18 @@ var (
 
 	tableName = "offsets_store"
 )
+
+// offsetRow represent the offset entry in the offset store
+type offsetRow struct {
+	// ProjectionName is the projection name
+	ProjectionName string
+	// Shard Number
+	ShardNumber uint64
+	// Value is the current offset
+	CurrentOffset int64
+	// Specifies the last update time
+	Timestamp int64
+}
 
 // OffsetStore implements the OffsetStore interface
 // and helps persist events in a Postgres database
@@ -143,15 +156,137 @@ func (x *OffsetStore) WriteOffset(ctx context.Context, offset *egopb.Offset) err
 		return errors.Wrap(err, "failed to obtain a database transaction")
 	}
 
+	var (
+		query string
+		args  []any
+	)
+
+	// remove existing offset
+	deleteBuilder := x.sb.
+		Delete(tableName).
+		Where(sq.Eq{"projection_name": offset.GetProjectionName()}).
+		Where(sq.Eq{"shard_number": offset.GetShardNumber()})
+
+	// get the SQL statement to run
+	query, args, err = deleteBuilder.ToSql()
+	// handle the error while generating the SQL
+	if err != nil {
+		return errors.Wrap(err, "unable to build sql delete statement")
+	}
+
+	// execute the query
+	_, execErr := tx.ExecContext(ctx, query, args...)
+	if execErr != nil {
+		// attempt to roll back the transaction and log the error in case there is an error
+		if err = tx.Rollback(); err != nil {
+			return errors.Wrap(err, "unable to rollback db transaction")
+		}
+		// return the main error
+		return errors.Wrap(execErr, "failed to record events")
+	}
+
 	// create the insert statement
-	statement := x.sb.
+	insertBuilder := x.sb.
 		Insert(tableName).
 		Columns(columns...).
 		Values(
 			offset.GetProjectionName(),
 			offset.GetShardNumber(),
-			offset.GetCurrentOffset(),
+			offset.GetValue(),
 			offset.GetTimestamp())
+
+	// get the SQL statement to run
+	query, args, err = insertBuilder.ToSql()
+	// handle the error while generating the SQL
+	if err != nil {
+		return errors.Wrap(err, "unable to build sql insert statement")
+	}
+
+	// insert into the table
+	_, execErr = tx.ExecContext(ctx, query, args...)
+	if execErr != nil {
+		// attempt to roll back the transaction and log the error in case there is an error
+		if err = tx.Rollback(); err != nil {
+			return errors.Wrap(err, "unable to rollback db transaction")
+		}
+		// return the main error
+		return errors.Wrap(execErr, "failed to record events")
+	}
+
+	// commit the transaction
+	if commitErr := tx.Commit(); commitErr != nil {
+		// return the commit error in case there is one
+		return errors.Wrap(commitErr, "failed to record events")
+	}
+	// every looks good
+	return nil
+}
+
+// GetCurrentOffset returns the current offset of a given projection id
+func (x *OffsetStore) GetCurrentOffset(ctx context.Context, projectionID *egopb.ProjectionId) (currentOffset *egopb.Offset, err error) {
+	// add a span context
+	ctx, span := telemetry.SpanContext(ctx, "offsetStore.GetCurrentOffset")
+	defer span.End()
+
+	// check whether this instance of the offset store is connected or not
+	if !x.connected.Load() {
+		return nil, errors.New("offset store is not connected")
+	}
+
+	// create the SQL statement
+	statement := x.sb.
+		Select(columns...).
+		From(tableName).
+		Where(sq.Eq{"projection_name": projectionID.GetProjectionName()}).
+		Where(sq.Eq{"shard_number": projectionID.GetShardNumber()})
+
+	// get the sql statement and the arguments
+	query, args, err := statement.ToSql()
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to build the select sql statement")
+	}
+
+	row := new(offsetRow)
+	err = x.db.Select(ctx, row, query, args...)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to fetch the current offset from the database")
+	}
+
+	return &egopb.Offset{
+		ShardNumber:    row.ShardNumber,
+		ProjectionName: row.ProjectionName,
+		Value:          row.CurrentOffset,
+		Timestamp:      row.Timestamp,
+	}, nil
+}
+
+// ResetOffset resets the offset of given projection to a given value across all shards
+func (x *OffsetStore) ResetOffset(ctx context.Context, projectionName string, value int64) error {
+	// add a span context
+	ctx, span := telemetry.SpanContext(ctx, "offsetStore.ResetOffset")
+	defer span.End()
+
+	// check whether this instance of the offset store is connected or not
+	if !x.connected.Load() {
+		return errors.New("offset store is not connected")
+	}
+
+	// let us begin a database transaction to make sure we atomically write those events into the database
+	tx, err := x.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	// return the error in case we are unable to get a database transaction
+	if err != nil {
+		return errors.Wrap(err, "failed to obtain a database transaction")
+	}
+
+	// define the current timestamp
+	timestamp := time.Now().UnixMilli()
+
+	// create the sql statement
+	statement := x.sb.
+		Update(tableName).
+		Set("current_offset", value).
+		Set("timestamp", timestamp).
+		Where(sq.Eq{"projection_name": projectionName})
 
 	// get the SQL statement to run
 	query, args, err := statement.ToSql()
@@ -178,39 +313,6 @@ func (x *OffsetStore) WriteOffset(ctx context.Context, offset *egopb.Offset) err
 	}
 	// every looks good
 	return nil
-}
-
-// GetCurrentOffset returns the current offset of a given projection Id
-func (x *OffsetStore) GetCurrentOffset(ctx context.Context, projectionID *egopb.ProjectionId) (currentOffset *egopb.Offset, err error) {
-	// add a span context
-	ctx, span := telemetry.SpanContext(ctx, "offsetStore.GetCurrentOffset")
-	defer span.End()
-
-	// check whether this instance of the offset store is connected or not
-	if !x.connected.Load() {
-		return nil, errors.New("offset store is not connected")
-	}
-
-	// create the SQL statement
-	statement := x.sb.
-		Select(columns...).
-		From(tableName).
-		Where(sq.Eq{"projection_name": projectionID.GetProjectionName()}).
-		Where(sq.Eq{"shard_number": projectionID.GetShardNumber()})
-
-	// get the sql statement and the arguments
-	query, args, err := statement.ToSql()
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to build the select sql statement")
-	}
-
-	offset := new(egopb.Offset)
-	err = x.db.Select(ctx, offset, query, args...)
-	if err != nil {
-		return nil, errors.Wrap(err, "failed to fetch the current offset from the database")
-	}
-
-	return offset, nil
 }
 
 // Ping verifies a connection to the database is still alive, establishing a connection if necessary.

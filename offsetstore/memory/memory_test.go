@@ -63,7 +63,7 @@ func TestOffsetStore(t *testing.T) {
 		offset := &egopb.Offset{
 			ShardNumber:    shardNumber,
 			ProjectionName: projectionName,
-			CurrentOffset:  15,
+			Value:          15,
 			Timestamp:      timestamp,
 		}
 
@@ -72,7 +72,6 @@ func TestOffsetStore(t *testing.T) {
 		err := store.Disconnect(ctx)
 		assert.NoError(t, err)
 	})
-
 	t.Run("testGetCurrentOffset: happy path", func(t *testing.T) {
 		ctx := context.TODO()
 
@@ -87,7 +86,7 @@ func TestOffsetStore(t *testing.T) {
 		offset := &egopb.Offset{
 			ShardNumber:    shardNumber,
 			ProjectionName: projectionName,
-			CurrentOffset:  15,
+			Value:          15,
 			Timestamp:      timestamp,
 		}
 
@@ -96,7 +95,7 @@ func TestOffsetStore(t *testing.T) {
 		offset = &egopb.Offset{
 			ShardNumber:    shardNumber,
 			ProjectionName: projectionName,
-			CurrentOffset:  24,
+			Value:          24,
 			Timestamp:      timestamp,
 		}
 
@@ -130,6 +129,60 @@ func TestOffsetStore(t *testing.T) {
 		actual, err := store.GetCurrentOffset(ctx, projectionID)
 		assert.NoError(t, err)
 		assert.Nil(t, actual)
+
+		assert.NoError(t, store.Disconnect(ctx))
+	})
+	t.Run("testResetOffset: happy path", func(t *testing.T) {
+		ctx := context.TODO()
+
+		store := NewOffsetStore()
+		assert.NotNil(t, store)
+		require.NoError(t, store.Connect(ctx))
+
+		projectionName := "DB_WRITER"
+		timestamp := time.Now().UnixMilli()
+
+		offset := &egopb.Offset{
+			ShardNumber:    9,
+			ProjectionName: projectionName,
+			Value:          15,
+			Timestamp:      timestamp,
+		}
+
+		require.NoError(t, store.WriteOffset(ctx, offset))
+
+		offset = &egopb.Offset{
+			ShardNumber:    8,
+			ProjectionName: projectionName,
+			Value:          24,
+			Timestamp:      timestamp,
+		}
+
+		require.NoError(t, store.WriteOffset(ctx, offset))
+
+		shardNumber := uint64(9)
+		projectionID := &egopb.ProjectionId{
+			ProjectionName: projectionName,
+			ShardNumber:    shardNumber,
+		}
+
+		actual, err := store.GetCurrentOffset(ctx, projectionID)
+		assert.NoError(t, err)
+		assert.NotNil(t, actual)
+		expected := &egopb.Offset{
+			ShardNumber:    9,
+			ProjectionName: projectionName,
+			Value:          15,
+			Timestamp:      timestamp,
+		}
+		assert.True(t, proto.Equal(expected, actual))
+
+		// reset the offset
+		require.NoError(t, store.ResetOffset(ctx, projectionName, 100))
+		actual, err = store.GetCurrentOffset(ctx, projectionID)
+		assert.NoError(t, err)
+		assert.NotNil(t, actual)
+		assert.EqualValues(t, 100, actual.GetValue())
 
 		assert.NoError(t, store.Disconnect(ctx))
 	})
