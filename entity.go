@@ -123,9 +123,6 @@ func parseCommandReply[T State](reply *egopb.CommandReply) (T, uint64, error) {
 		default:
 			return state, 0, fmt.Errorf("got %s", r.StateReply.GetState().GetTypeUrl())
 		}
-
-	case *egopb.CommandReply_NoReply:
-		// nothing to be done here
 	case *egopb.CommandReply_ErrorReply:
 		err = errors.New(r.ErrorReply.GetMessage())
 		return state, 0, err

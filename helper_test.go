@@ -68,6 +68,9 @@ func (t *AccountEntityBehavior) HandleCommand(_ context.Context, command Command
 
 		return nil, errors.New("command sent to the wrong entity")
 
+	case *testpb.TestNoEvent:
+		return nil, nil
+
 	default:
 		return nil, errors.New("unhandled command")
 	}
