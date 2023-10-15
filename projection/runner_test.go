@@ -64,7 +64,7 @@ func TestProjection(t *testing.T) {
 		handler := NewDiscardHandler(logger)
 
 		// create an instance of the projection
-		projection := NewRunner(projectionName, handler, journalStore, offsetStore, NewRecovery(), logger)
+		projection := NewRunner(projectionName, handler, journalStore, offsetStore, WithRefreshInterval(time.Millisecond))
 		// start the projection
 		err := projection.Start(ctx)
 		require.NoError(t, err)
@@ -107,7 +107,7 @@ func TestProjection(t *testing.T) {
 		actual, err := offsetStore.GetCurrentOffset(ctx, projectionID)
 		assert.NoError(t, err)
 		assert.NotNil(t, actual)
-		assert.EqualValues(t, journals[9].GetTimestamp(), actual.GetCurrentOffset())
+		assert.EqualValues(t, journals[9].GetTimestamp(), actual.GetValue())
 
 		assert.EqualValues(t, 10, handler.EventsCount())
 
@@ -119,7 +119,6 @@ func TestProjection(t *testing.T) {
 		ctx := context.TODO()
 		projectionName := "db-writer"
 		persistenceID := uuid.NewString()
-		logger := log.DefaultLogger
 
 		// set up the event store
 		journalStore := memory.NewEventsStore()
@@ -133,7 +132,7 @@ func TestProjection(t *testing.T) {
 		// create a handler that return successfully
 		handler := &testHandler1{}
 
-		projection := NewRunner(projectionName, handler, journalStore, offsetStore, NewRecovery(), logger)
+		projection := NewRunner(projectionName, handler, journalStore, offsetStore, WithRefreshInterval(time.Millisecond))
 		// start the projection
 		err := projection.Start(ctx)
 		require.NoError(t, err)
@@ -175,7 +174,6 @@ func TestProjection(t *testing.T) {
 		ctx := context.TODO()
 		projectionName := "db-writer"
 		persistenceID := uuid.NewString()
-		logger := log.DefaultLogger
 
 		// set up the event store
 		journalStore := memory.NewEventsStore()
@@ -189,10 +187,12 @@ func TestProjection(t *testing.T) {
 		// create a handler that return successfully
 		handler := &testHandler1{}
 
-		projection := NewRunner(projectionName, handler, journalStore, offsetStore, NewRecovery(
-			WithRecoveryPolicy(RetryAndFail),
-			WithRetries(2),
-			WithRetryDelay(100*time.Millisecond)), logger)
+		projection := NewRunner(projectionName, handler, journalStore, offsetStore,
+			WithRefreshInterval(time.Millisecond),
+			WithRecoveryStrategy(NewRecovery(
+				WithRecoveryPolicy(RetryAndFail),
+				WithRetries(2),
+				WithRetryDelay(100*time.Millisecond))))
 
 		// start the projection
 		err := projection.Start(ctx)
@@ -237,7 +237,6 @@ func TestProjection(t *testing.T) {
 		projectionName := "db-writer"
 		persistenceID := uuid.NewString()
 		shard := uint64(8)
-		logger := log.DefaultLogger
 
 		// set up the event store
 		journalStore := memory.NewEventsStore()
@@ -251,10 +250,12 @@ func TestProjection(t *testing.T) {
 		// create a handler that return successfully
 		handler := &testHandler2{counter: atomic.NewInt32(0)}
 
-		projection := NewRunner(projectionName, handler, journalStore, offsetStore, NewRecovery(
-			WithRecoveryPolicy(Skip),
-			WithRetries(2),
-			WithRetryDelay(100*time.Millisecond)), logger)
+		projection := NewRunner(projectionName, handler, journalStore, offsetStore,
+			WithRefreshInterval(time.Millisecond),
+			WithRecoveryStrategy(NewRecovery(
+				WithRecoveryPolicy(Skip),
+				WithRetries(2),
+				WithRetryDelay(100*time.Millisecond))))
 		// start the projection
 		err := projection.Start(ctx)
 		require.NoError(t, err)
@@ -307,7 +308,6 @@ func TestProjection(t *testing.T) {
 		projectionName := "db-writer"
 		persistenceID := uuid.NewString()
 		shard := uint64(7)
-		logger := log.DefaultLogger
 
 		// set up the event store
 		journalStore := memory.NewEventsStore()
@@ -321,10 +321,12 @@ func TestProjection(t *testing.T) {
 		// create a handler that return successfully
 		handler := &testHandler2{counter: atomic.NewInt32(0)}
 
-		projection := NewRunner(projectionName, handler, journalStore, offsetStore, NewRecovery(
-			WithRecoveryPolicy(RetryAndSkip),
-			WithRetries(2),
-			WithRetryDelay(100*time.Millisecond)), logger)
+		projection := NewRunner(projectionName, handler, journalStore, offsetStore,
+			WithRefreshInterval(time.Millisecond),
+			WithRecoveryStrategy(NewRecovery(
+				WithRecoveryPolicy(RetryAndSkip),
+				WithRetries(2),
+				WithRetryDelay(100*time.Millisecond))))
 		// start the projection
 		err := projection.Start(ctx)
 		require.NoError(t, err)

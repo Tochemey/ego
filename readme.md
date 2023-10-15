@@ -24,7 +24,7 @@ Under the hood, ego leverages [goakt](https://github.com/Tochemey/goakt) to scal
         - [Postgres](./eventstore/postgres/postgres.go): Schema can be found [here](./resources/eventstore_postgres.sql)
         - [Memory](./eventstore/memory/memory.go) (for testing purpose only)
     - [Cluster Mode](https://github.com/Tochemey/goakt#clustering)
-- Projection:
+- Projection: Helps build read model with a timestamp-based offset.
     - Runner: Helps consume and handle events persisted by entity. It depends on the [Offset Store](./offsetstore/iface.go) to track consumers' offset.
     - Extensible Offset store: Helps store offsets of events consumed and processed by projections
     - Built-in offset stores:

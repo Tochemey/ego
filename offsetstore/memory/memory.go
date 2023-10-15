@@ -25,6 +25,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-memdb"
@@ -58,13 +59,13 @@ func NewOffsetStore() *OffsetStore {
 }
 
 // Connect connects to the offset store
-func (s *OffsetStore) Connect(ctx context.Context) error {
+func (x *OffsetStore) Connect(ctx context.Context) error {
 	// add a span context
 	ctx, span := telemetry.SpanContext(ctx, "OffsetStore.Connect")
 	defer span.End()
 
 	// check whether this instance of the journal is connected or not
-	if s.connected.Load() {
+	if x.connected.Load() {
 		return nil
 	}
 
@@ -75,29 +76,29 @@ func (s *OffsetStore) Connect(ctx context.Context) error {
 		return err
 	}
 	// set the journal store underlying database
-	s.db = db
+	x.db = db
 
 	// set the connection status
-	s.connected.Store(true)
+	x.connected.Store(true)
 
 	return nil
 }
 
 // Disconnect disconnects the offset store
-func (s *OffsetStore) Disconnect(ctx context.Context) error {
+func (x *OffsetStore) Disconnect(ctx context.Context) error {
 	// add a span context
 	ctx, span := telemetry.SpanContext(ctx, "OffsetStore.Disconnect")
 	defer span.End()
 
 	// check whether this instance of the journal is connected or not
-	if !s.connected.Load() {
+	if !x.connected.Load() {
 		return nil
 	}
 
 	// clear all records
-	if !s.KeepRecordsAfterDisconnect {
+	if !x.KeepRecordsAfterDisconnect {
 		// spawn a db transaction for read-only
-		txn := s.db.Txn(true)
+		txn := x.db.Txn(true)
 
 		// free memory resource
 		if _, err := txn.DeleteAll(offsetTableName, offsetPK); err != nil {
@@ -107,45 +108,46 @@ func (s *OffsetStore) Disconnect(ctx context.Context) error {
 		txn.Commit()
 	}
 	// set the connection status
-	s.connected.Store(false)
+	x.connected.Store(false)
 
 	return nil
 }
 
 // Ping verifies a connection to the database is still alive, establishing a connection if necessary.
-func (s *OffsetStore) Ping(ctx context.Context) error {
+func (x *OffsetStore) Ping(ctx context.Context) error {
 	// add a span context
 	ctx, span := telemetry.SpanContext(ctx, "OffsetStore.Ping")
 	defer span.End()
 
 	// check whether we are connected or not
-	if !s.connected.Load() {
-		return s.Connect(ctx)
+	if !x.connected.Load() {
+		return x.Connect(ctx)
 	}
 
 	return nil
 }
 
 // WriteOffset writes an offset to the offset store
-func (s *OffsetStore) WriteOffset(ctx context.Context, offset *egopb.Offset) error {
+func (x *OffsetStore) WriteOffset(ctx context.Context, offset *egopb.Offset) error {
 	// add a span context
 	ctx, span := telemetry.SpanContext(ctx, "OffsetStore.WriteOffset")
 	defer span.End()
 
 	// check whether this instance of the journal is connected or not
-	if !s.connected.Load() {
+	if !x.connected.Load() {
 		return errors.New("offset store is not connected")
 	}
 
 	// spawn a db transaction
-	txn := s.db.Txn(true)
+	txn := x.db.Txn(true)
+
 	// create an offset row
 	record := &offsetRow{
 		Ordering:       uuid.NewString(),
 		ProjectionName: offset.GetProjectionName(),
 		ShardNumber:    offset.GetShardNumber(),
-		CurrentOffset:  offset.GetCurrentOffset(),
-		LastUpdated:    offset.GetTimestamp(),
+		Value:          offset.GetValue(),
+		Timestamp:      offset.GetTimestamp(),
 	}
 
 	// persist the record
@@ -162,18 +164,18 @@ func (s *OffsetStore) WriteOffset(ctx context.Context, offset *egopb.Offset) err
 }
 
 // GetCurrentOffset return the offset of a projection
-func (s *OffsetStore) GetCurrentOffset(ctx context.Context, projectionID *egopb.ProjectionId) (current *egopb.Offset, err error) {
+func (x *OffsetStore) GetCurrentOffset(ctx context.Context, projectionID *egopb.ProjectionId) (current *egopb.Offset, err error) {
 	// add a span context
 	ctx, span := telemetry.SpanContext(ctx, "OffsetStore.GetCurrentOffset")
 	defer span.End()
 
 	// check whether this instance of the journal is connected or not
-	if !s.connected.Load() {
+	if !x.connected.Load() {
 		return nil, errors.New("offset store is not connected")
 	}
 
 	// spawn a db transaction for read-only
-	txn := s.db.Txn(false)
+	txn := x.db.Txn(false)
 	defer txn.Abort()
 	// let us fetch the last record
 	raw, err := txn.Last(offsetTableName, rowIndex, projectionID.GetProjectionName(), projectionID.GetShardNumber())
@@ -196,12 +198,70 @@ func (s *OffsetStore) GetCurrentOffset(ctx context.Context, projectionID *egopb.
 		current = &egopb.Offset{
 			ShardNumber:    offsetRow.ShardNumber,
 			ProjectionName: offsetRow.ProjectionName,
-			CurrentOffset:  offsetRow.CurrentOffset,
-			Timestamp:      offsetRow.LastUpdated,
+			Value:          offsetRow.Value,
+			Timestamp:      offsetRow.Timestamp,
 		}
 		return
 	}
 
 	return nil, fmt.Errorf("failed to get the current offset for shard=%d given projection=%s",
 		projectionID.GetShardNumber(), projectionID.GetProjectionName())
+}
+
+// ResetOffset resets the offset of given projection to a given value across all shards
+func (x *OffsetStore) ResetOffset(ctx context.Context, projectionName string, value int64) error {
+	// add a span context
+	ctx, span := telemetry.SpanContext(ctx, "offsetStore.ResetOffset")
+	defer span.End()
+
+	// check whether this instance of the offset store is connected or not
+	if !x.connected.Load() {
+		return errors.New("offset store is not connected")
+	}
+
+	// spawn a db transaction for read-only
+	txn := x.db.Txn(false)
+	// fetch all the records for the given projection
+	it, err := txn.Get(offsetTableName, projectionNameIndex, projectionName)
+	// handle the error
+	if err != nil {
+		// abort the transaction
+		txn.Abort()
+		return errors.Wrap(err, "failed to fetch the list of shard number")
+	}
+
+	// loop over the records
+	var offsetRows []*offsetRow
+	for row := it.Next(); row != nil; row = it.Next() {
+		if journal, ok := row.(*offsetRow); ok {
+			offsetRows = append(offsetRows, journal)
+		}
+	}
+	//  let us abort the transaction after fetching the matching records
+	txn.Abort()
+
+	// update the records
+	ts := time.Now().UnixMilli()
+	for _, row := range offsetRows {
+		row.Value = value
+		row.Timestamp = ts
+	}
+
+	// spawn a db write transaction
+	txn = x.db.Txn(true)
+	// iterate the list of offset rows and update the values
+	for _, row := range offsetRows {
+		// persist the record
+		if err := txn.Insert(offsetTableName, row); err != nil {
+			// abort the transaction
+			txn.Abort()
+			// return the error
+			return errors.Wrap(err, "failed to persist offset record on to the offset store")
+		}
+	}
+
+	// commit the transaction
+	txn.Commit()
+
+	return nil
 }

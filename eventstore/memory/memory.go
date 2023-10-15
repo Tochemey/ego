@@ -551,7 +551,7 @@ func (s *EventsStore) ShardNumbers(ctx context.Context) ([]uint64, error) {
 		return nil, errors.Wrap(err, "failed to fetch the list of shard number")
 	}
 
-	// loop over the records and delete them
+	// loop over the records
 	var journals []*journal
 	for row := it.Next(); row != nil; row = it.Next() {
 		if journal, ok := row.(*journal); ok {

@@ -20,36 +20,43 @@
  * SOFTWARE.
  */
 
-package ego
+package projection
 
 import (
+	"testing"
 	"time"
 
-	"github.com/tochemey/ego/offsetstore"
-	"github.com/tochemey/ego/projection"
+	"github.com/stretchr/testify/assert"
 )
 
-// Projection is a wrapper for the main projection
-// Help pass in projection as an option to the engine
-type Projection struct {
-	// Name defines the name of the projection
-	// The name of the projection should be unique and meaningful
-	// Example: kafka means consume persisted events and push them to kafka
-	Name string
-	// Handler defines the projection handler
-	Handler projection.Handler
-	// OffsetStore defines the offset store
-	OffsetStore offsetstore.OffsetStore
-	// Recovery policy
-	Recovery *projection.Recovery
-	// RefreshInterval. Events are fetched with this interval
-	// the default value is 1s
-	RefreshInterval time.Duration
-	// MaxBufferSize defines how many events are fetched
-	// the default value is 500
-	MaxBufferSize int
-	// ResetOffset resets the projection offset to a given timestamp
-	ResetOffset time.Time
-	// StartOffset defines the timestamp where to start reading events
-	StartOffset time.Time
+func TestRecoveryOption(t *testing.T) {
+	ts := time.Second
+	testCases := []struct {
+		name     string
+		option   RecoveryOption
+		expected Recovery
+	}{
+		{
+			name:     "WithRetries",
+			option:   WithRetries(5),
+			expected: Recovery{retries: 5},
+		},
+		{
+			name:     "WithRetryDelay",
+			option:   WithRetryDelay(ts),
+			expected: Recovery{retryDelay: ts},
+		},
+		{
+			name:     "WithRecoveryPolicy",
+			option:   WithRecoveryPolicy(Fail),
+			expected: Recovery{policy: Fail},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var e Recovery
+			tc.option.Apply(&e)
+			assert.Equal(t, tc.expected, e)
+		})
+	}
 }

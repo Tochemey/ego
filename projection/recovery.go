@@ -69,7 +69,7 @@ type Recovery struct {
 }
 
 // NewRecovery creates an instance of Recovery
-func NewRecovery(options ...Option) *Recovery {
+func NewRecovery(options ...RecoveryOption) *Recovery {
 	// create the recovery object with the default values
 	recovery := &Recovery{
 		retries:    5,
@@ -99,38 +99,38 @@ func (c Recovery) RecoveryPolicy() RecoveryPolicy {
 	return c.policy
 }
 
-// Option is the interface that applies a recovery option.
-type Option interface {
-	// Apply sets the Option value of a recovery.
+// RecoveryOption is the interface that applies a recovery option.
+type RecoveryOption interface {
+	// Apply sets the RecoveryOption value of a recovery.
 	Apply(recovery *Recovery)
 }
 
-var _ Option = OptionFunc(nil)
+var _ RecoveryOption = RecoveryOptionFunc(nil)
 
-// OptionFunc implements the Option interface.
-type OptionFunc func(recovery *Recovery)
+// RecoveryOptionFunc implements the RecoveryOption interface.
+type RecoveryOptionFunc func(recovery *Recovery)
 
-func (f OptionFunc) Apply(c *Recovery) {
+func (f RecoveryOptionFunc) Apply(c *Recovery) {
 	f(c)
 }
 
 // WithRetries sets the number of retries
-func WithRetries(retries uint64) Option {
-	return OptionFunc(func(recovery *Recovery) {
+func WithRetries(retries uint64) RecoveryOption {
+	return RecoveryOptionFunc(func(recovery *Recovery) {
 		recovery.retries = retries
 	})
 }
 
 // WithRetryDelay sets the retry delay
-func WithRetryDelay(delay time.Duration) Option {
-	return OptionFunc(func(recovery *Recovery) {
+func WithRetryDelay(delay time.Duration) RecoveryOption {
+	return RecoveryOptionFunc(func(recovery *Recovery) {
 		recovery.retryDelay = delay
 	})
 }
 
 // WithRecoveryPolicy sets the recovery policy
-func WithRecoveryPolicy(policy RecoveryPolicy) Option {
-	return OptionFunc(func(recovery *Recovery) {
+func WithRecoveryPolicy(policy RecoveryPolicy) RecoveryOption {
+	return RecoveryOptionFunc(func(recovery *Recovery) {
 		recovery.policy = policy
 	})
 }
