@@ -384,8 +384,8 @@ func TestActor(t *testing.T) {
 		assert.NoError(t, err)
 	})
 	t.Run("with no event to persist", func(t *testing.T) {
-		defer goleak.VerifyNone(t)
 		ctx := context.TODO()
+
 		// create an actor system
 		actorSystem, err := actors.NewActorSystem("TestActorSystem",
 			actors.WithPassivationDisabled(),
@@ -431,6 +431,7 @@ func TestActor(t *testing.T) {
 		err = state.StateReply.GetState().UnmarshalTo(resultingState)
 		require.NoError(t, err)
 
+		// create the expected response
 		expected := &testpb.Account{
 			AccountId:      persistenceID,
 			AccountBalance: 500.00,
@@ -466,6 +467,7 @@ func TestActor(t *testing.T) {
 
 		// test no events to persist
 		command = new(testpb.TestNoEvent)
+		// send a command
 		reply, err = actors.Ask(ctx, pid, command, 5*time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, reply)

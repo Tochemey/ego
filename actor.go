@@ -220,6 +220,7 @@ func (entity *actor[T]) processCommandAndReply(ctx actors.ReceiveContext, comman
 	if event == nil {
 		// get the current state and marshal it
 		resultingState, _ := anypb.New(entity.currentState)
+		// create the command reply to send out
 		reply := &egopb.CommandReply{
 			Reply: &egopb.CommandReply_StateReply{
 				StateReply: &egopb.StateReply{

@@ -156,5 +156,6 @@ func (x *Engine) Stop(ctx context.Context) error {
 			}
 		}
 	}
+	// stop the actor system and return the possible error
 	return x.actorSystem.Stop(ctx)
 }
