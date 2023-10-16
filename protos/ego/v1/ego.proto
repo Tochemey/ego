@@ -33,8 +33,6 @@ message CommandReply {
     StateReply state_reply = 1;
     // gRPC failure
     ErrorReply error_reply = 2;
-    // NoReply
-    NoReply no_reply = 3;
   }
 }
 

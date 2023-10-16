@@ -218,10 +218,17 @@ func (entity *actor[T]) processCommandAndReply(ctx actors.ReceiveContext, comman
 
 	// if the event is nil nothing is persisted, and we return no reply
 	if event == nil {
-		// create a new error reply
+		// get the current state and marshal it
+		resultingState, _ := anypb.New(entity.currentState)
+		// create the command reply to send out
 		reply := &egopb.CommandReply{
-			Reply: &egopb.CommandReply_NoReply{
-				NoReply: &egopb.NoReply{},
+			Reply: &egopb.CommandReply_StateReply{
+				StateReply: &egopb.StateReply{
+					PersistenceId:  entity.ID(),
+					State:          resultingState,
+					SequenceNumber: entity.eventsCounter.Load(),
+					Timestamp:      entity.lastCommandTime.Unix(),
+				},
 			},
 		}
 		// send the response
