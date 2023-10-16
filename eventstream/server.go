@@ -40,11 +40,16 @@ var (
 	ErrStreamServerStartFailure = errors.New("events stream server failed to start")
 	// ErrStreamServerAlreadyStarted is returned when the stream server is already started
 	ErrStreamServerAlreadyStarted = errors.New("events stream server already started")
+	// ErrStreamPublisherNotConnected is returned when the stream client is not connected
+	ErrStreamPublisherNotConnected = errors.New("events stream publisher is not connected")
 )
 
 // EventsStream defines the events stream engine
 type EventsStream struct {
+	// underlying NATS JetStream server
 	server *natsserver.Server
+	// underlying NATS client connection
+	client *natsclient.Conn
 	logger log.Logger
 
 	started      *atomic.Bool
@@ -130,4 +135,21 @@ func (x *EventsStream) Stop() error {
 	// set the started to false
 	x.started.Store(false)
 	return nil
+}
+
+// Publisher returns a publisher instance
+func (x *EventsStream) Publisher() (*Publisher, error) {
+	// create a client connection
+	conn, err := natsclient.Connect("", natsclient.InProcessServer(x.server))
+	// handle the error
+	if err != nil {
+		x.logger.Error(errors.Wrap(err, "failed to create an events stream client connection"))
+		return nil, err
+	}
+	// create the client instance
+	return &Publisher{
+		connection: conn,
+		logger:     x.logger,
+		connected:  atomic.NewBool(true),
+	}, nil
 }
