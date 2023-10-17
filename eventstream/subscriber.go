@@ -51,6 +51,7 @@ func NewSubscriber(connection *natsclient.Conn, logger log.Logger) *Subscriber {
 
 // Consume receives messages from the topic and pass it to
 // the message handler and the buffered channel to keep track of errors
+// nolint
 func (x *Subscriber) Consume(ctx context.Context, topic string, handler MessageHandler, errChan chan error) {
 	// add logging information
 	x.logger.Infof("consuming messages from topic=(%s)", topic)
