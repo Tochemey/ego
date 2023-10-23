@@ -255,11 +255,17 @@ func (x *Runner) processingLoop(ctx context.Context) {
 
 				// Start a fixed number of goroutines process the shards.
 				for i := 0; i < 5; i++ {
-					for shard := range shardsChan {
-						g.Go(func() error {
-							return x.doProcess(ctx, shard)
-						})
-					}
+					g.Go(func() error {
+						for shard := range shardsChan {
+							select {
+							case <-ctx.Done():
+								return ctx.Err()
+							default:
+								return x.doProcess(ctx, shard)
+							}
+						}
+						return nil
+					})
 				}
 
 				// wait for all the processing to be done

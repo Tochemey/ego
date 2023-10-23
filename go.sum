@@ -298,8 +298,6 @@ github.com/tidwall/redcon v1.6.2 h1:5qfvrrybgtO85jnhSravmkZyC0D+7WstbfCs3MmPhow=
 github.com/tidwall/redcon v1.6.2/go.mod h1:p5Wbsgeyi2VSTBWOcA5vRXrOb9arFTcU2+ZzFjqV75Y=
 github.com/tochemey/goakt v1.0.0 h1:yvbEtKXGlHMBytDa3BpTLm9OjItM0tDUJfN8+Yg15d4=
 github.com/tochemey/goakt v1.0.0/go.mod h1:wkWArcaOE5dI/Q8NgeZbrS38QNrHl8sf9pM3rKHPO7A=
-github.com/tochemey/gopack v0.0.0-20231014145002-5ff0727dd1d2 h1:sc39iFUXznMul4drps2I7QFaaGqHgJmNSlFJQ1jzc0c=
-github.com/tochemey/gopack v0.0.0-20231014145002-5ff0727dd1d2/go.mod h1:fgMcyrclhHISKyBZzQX0o8HXAnoIPlDGDY9eX3r+Wxg=
 github.com/tochemey/gopack v0.0.0-20231019012242-829c971eb3ae h1:r+Gqgi7sEQnISkw66AFKz/uDCNUoc+OC7GODWJD0Udc=
 github.com/tochemey/gopack v0.0.0-20231019012242-829c971eb3ae/go.mod h1:mCrvdY5bUA9OyGV+RoT+XhJjSEJ1gOBN17VN5nohS3Q=
 github.com/travisjeffery/go-dynaport v1.0.0 h1:m/qqf5AHgB96CMMSworIPyo1i7NZueRsnwdzdCJ8Ajw=
@@ -354,8 +352,6 @@ golang.org/x/net v0.0.0-20210428140749-89ef3d95e781/go.mod h1:OJAsFXCWl8Ukc7SiCT
 golang.org/x/net v0.0.0-20210726213435-c6fcb2dbf985/go.mod h1:9nx3DQGgdP8bBQD5qxJ1jj9UTztislL4KSBs9R2vV5Y=
 golang.org/x/net v0.15.0 h1:ugBLEUaxABaB5AJqW9enI0ACdci2RUd4eP51NTBvuJ8=
 golang.org/x/net v0.15.0/go.mod h1:idbUs1IY1+zTqbi8yxTbhexhEEk5ur9LInksu6HrEpk=
-golang.org/x/oauth2 v0.11.0 h1:vPL4xzxBM4niKCW6g9whtaWVXTJf1U5e4aZxxFx/gbU=
-golang.org/x/oauth2 v0.11.0/go.mod h1:LdF7O/8bLR/qWK9DrpXmbHLTouvRHK0SgJl0GmDBchk=
 golang.org/x/oauth2 v0.12.0 h1:smVPGxink+n1ZI5pkQa8y6fZT0RW0MgCO5bFpepy4B4=
 golang.org/x/oauth2 v0.12.0/go.mod h1:A74bZ3aGXgCY0qaIC9Ahg6Lglin4AMAco8cIv9baba4=
 golang.org/x/sync v0.0.0-20180314180146-1d60e4601c6f/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
