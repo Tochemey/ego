@@ -77,6 +77,7 @@ func TestEgo(t *testing.T) {
 		provider.EXPECT().Deregister().Return(nil)
 		provider.EXPECT().SetConfig(config).Return(nil)
 		provider.EXPECT().DiscoverPeers().Return(addrs, nil)
+		provider.EXPECT().Close().Return(nil)
 
 		// create the ego engine
 		e := NewEngine("Sample", eventStore, WithCluster(provider, config, 4))
