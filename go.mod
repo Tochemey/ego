@@ -6,7 +6,7 @@ require (
 	github.com/Masterminds/squirrel v1.5.4
 	github.com/deckarep/golang-set/v2 v2.3.1
 	github.com/flowchartsman/retry v1.2.0
-	github.com/google/uuid v1.3.1
+	github.com/google/uuid v1.4.0
 	github.com/hashicorp/go-memdb v1.3.4
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.8.4
