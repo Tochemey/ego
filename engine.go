@@ -76,9 +76,9 @@ func NewEngine(name string, eventsStore eventstore.EventsStore, opts ...Option) 
 	}
 
 	// set the projection runners
-	for i, p := range e.projections {
+	for _, p := range e.projections {
 		// create the projection instance and add it to the list of runners
-		e.projectionRunners[i] = projection.NewRunner(
+		e.projectionRunners = append(e.projectionRunners, projection.NewRunner(
 			p.Name,
 			p.Handler,
 			e.eventsStore,
@@ -88,7 +88,7 @@ func NewEngine(name string, eventsStore eventstore.EventsStore, opts ...Option) 
 			projection.WithRecoveryStrategy(p.Recovery),
 			projection.WithStartOffset(p.StartOffset),
 			projection.WithResetOffset(p.ResetOffset),
-			projection.WithLogger(e.logger))
+			projection.WithLogger(e.logger)))
 	}
 
 	e.started.Store(false)

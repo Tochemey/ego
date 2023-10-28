@@ -29,6 +29,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tochemey/goakt/log"
+
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -36,6 +38,8 @@ import (
 	"github.com/tochemey/ego/egopb"
 	"github.com/tochemey/ego/eventstore/memory"
 	samplepb "github.com/tochemey/ego/example/pbs/sample/pb/v1"
+	offsetstore "github.com/tochemey/ego/offsetstore/memory"
+	"github.com/tochemey/ego/projection"
 	"github.com/tochemey/goakt/discovery"
 	mockdisco "github.com/tochemey/goakt/testkit/discovery"
 	"github.com/travisjeffery/go-dynaport"
@@ -48,6 +52,8 @@ func TestEgo(t *testing.T) {
 		// create the event store
 		eventStore := memory.NewEventsStore()
 		require.NoError(t, eventStore.Connect(ctx))
+		offsetStore := offsetstore.NewOffsetStore()
+		require.NoError(t, offsetStore.Connect(ctx))
 
 		nodePorts := dynaport.Get(3)
 		gossipPort := nodePorts[0]
@@ -81,8 +87,22 @@ func TestEgo(t *testing.T) {
 		provider.EXPECT().DiscoverPeers().Return(addrs, nil)
 		provider.EXPECT().Close().Return(nil)
 
+		handler := projection.NewDiscardHandler(log.DefaultLogger)
+		projection := &Projection{
+			Name:            "discard",
+			Handler:         handler,
+			OffsetStore:     offsetStore,
+			Recovery:        projection.NewRecovery(),
+			RefreshInterval: time.Second,
+			MaxBufferSize:   10,
+			ResetOffset:     time.Time{},
+			StartOffset:     time.Time{},
+		}
+
 		// create the ego engine
-		e := NewEngine("Sample", eventStore, WithCluster(provider, config, 4))
+		e := NewEngine("Sample", eventStore,
+			WithCluster(provider, config, 4),
+			WithProjection(projection))
 		// start ego engine
 		err := e.Start(ctx)
 
@@ -148,6 +168,7 @@ func TestEgo(t *testing.T) {
 
 		// free resources
 		assert.NoError(t, eventStore.Disconnect(ctx))
+		assert.NoError(t, offsetStore.Disconnect(ctx))
 		assert.NoError(t, e.Stop(ctx))
 	})
 	t.Run("With no cluster enabled", func(t *testing.T) {
