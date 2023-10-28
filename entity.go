@@ -59,7 +59,7 @@ func NewEntity[T State](ctx context.Context, behavior EntityBehavior[T], engine 
 	}
 
 	// create the instance of the actor
-	pid, err := engine.actorSystem.Spawn(ctx, behavior.ID(), newActor(behavior, engine.eventsStore))
+	pid, err := engine.actorSystem.Spawn(ctx, behavior.ID(), newActor(behavior, engine.eventsStore, engine.eventStream))
 	// return the error in case there is one
 	if err != nil {
 		return nil, err

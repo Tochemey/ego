@@ -67,7 +67,7 @@ func TestStream(t *testing.T) {
 		require.EqualValues(t, 1, broker.SubscribersCount("t1"))
 		require.EqualValues(t, 1, broker.SubscribersCount("t2"))
 
-		// unsubscribe the consumer
+		// Unsubscribe the consumer
 		broker.Unsubscribe(cons, "t1")
 		assert.Zero(t, broker.SubscribersCount("t1"))
 		require.EqualValues(t, 1, broker.SubscribersCount("t2"))

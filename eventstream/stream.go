@@ -42,6 +42,8 @@ type Stream interface {
 	Unsubscribe(sub Subscriber, topic string)
 	// Publish publishes a message to a topic
 	Publish(topic string, msg any)
+	// Broadcast notifies all subscribers of a given topic of a new message
+	Broadcast(msg any, topics []string)
 	// Close closes the stream
 	Close()
 }
@@ -57,7 +59,7 @@ type EventsStream struct {
 var _ Stream = (*EventsStream)(nil)
 
 // New creates an instance of EventsStream
-func New() *EventsStream {
+func New() Stream {
 	return &EventsStream{
 		subs:   Subscribers{},
 		topics: map[string]Subscribers{},

@@ -42,6 +42,8 @@ func main() {
 	ctx := context.Background()
 	// create the event store
 	eventStore := memory.NewEventsStore()
+	// connect the event store
+	_ = eventStore.Connect(ctx)
 	// create the ego engine
 	e := ego.NewEngine("Sample", eventStore)
 	// start ego engine
@@ -78,6 +80,8 @@ func main() {
 	signal.Notify(interruptSignal, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	<-interruptSignal
 
+	// disconnect the event store
+	_ = eventStore.Disconnect(ctx)
 	// stop the actor system
 	_ = e.Stop(ctx)
 	os.Exit(0)

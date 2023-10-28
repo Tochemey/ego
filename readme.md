@@ -30,6 +30,7 @@ Under the hood, ego leverages [goakt](https://github.com/Tochemey/goakt) to scal
     - Built-in offset stores:
         - [Postgres](./offsetstore/postgres/postgres.go): Schema can be found [here](./resources/offsetstore_postgres.sql)
         - [Memory](./offsetstore/memory/memory.go) (for testing purpose only)
+- Events Subscription: One can subscribe to events that are emitted on the Write Model instead of using the projection
 - Examples (check the [examples](./example))
 
 ### Installation
