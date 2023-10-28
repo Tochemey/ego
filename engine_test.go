@@ -33,6 +33,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tochemey/ego/egopb"
 	"github.com/tochemey/ego/eventstore/memory"
 	samplepb "github.com/tochemey/ego/example/pbs/sample/pb/v1"
 	"github.com/tochemey/goakt/discovery"
@@ -46,6 +47,7 @@ func TestEgo(t *testing.T) {
 		ctx := context.TODO()
 		// create the event store
 		eventStore := memory.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
 
 		nodePorts := dynaport.Get(3)
 		gossipPort := nodePorts[0]
@@ -87,6 +89,11 @@ func TestEgo(t *testing.T) {
 		// wait for the cluster to fully start
 		time.Sleep(time.Second)
 
+		// subscribe to events
+		subscriber, err := e.Subscribe(ctx)
+		require.NoError(t, err)
+		require.NotNil(t, subscriber)
+
 		require.NoError(t, err)
 		// create a persistence id
 		entityID := uuid.NewString()
@@ -126,13 +133,29 @@ func TestEgo(t *testing.T) {
 		assert.Equal(t, entityID, newState.GetAccountId())
 		assert.EqualValues(t, 2, revision)
 
+		for message := range subscriber.Iterator() {
+			payload := message.Payload()
+			envelope, ok := payload.(*egopb.Event)
+			event := envelope.GetEvent()
+			require.True(t, ok)
+			switch envelope.GetSequenceNumber() {
+			case 1:
+				assert.True(t, event.MessageIs(new(samplepb.AccountCreated)))
+			case 2:
+				assert.True(t, event.MessageIs(new(samplepb.AccountCredited)))
+			}
+		}
+
 		// free resources
+		assert.NoError(t, eventStore.Disconnect(ctx))
 		assert.NoError(t, e.Stop(ctx))
 	})
 	t.Run("With no cluster enabled", func(t *testing.T) {
 		ctx := context.TODO()
 		// create the event store
 		eventStore := memory.NewEventsStore()
+		// connect to the event store
+		require.NoError(t, eventStore.Connect(ctx))
 		// create the ego engine
 		e := NewEngine("Sample", eventStore)
 		// start ego engine
@@ -173,6 +196,7 @@ func TestEgo(t *testing.T) {
 		assert.EqualValues(t, 2, revision)
 
 		// free resources
+		assert.NoError(t, eventStore.Disconnect(ctx))
 		assert.NoError(t, e.Stop(ctx))
 	})
 }

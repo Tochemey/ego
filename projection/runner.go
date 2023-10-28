@@ -58,7 +58,7 @@ type Runner struct {
 	// stop signal
 	stopSignal chan struct{}
 	// started status
-	isStarted *atomic.Bool
+	started *atomic.Bool
 	// refresh interval. Events are fetched with this interval
 	// the default value is 1s
 	refreshInterval time.Duration
@@ -87,7 +87,7 @@ func NewRunner(name string,
 		offsetsStore:    offsetStore,
 		recovery:        NewRecovery(),
 		stopSignal:      make(chan struct{}, 1),
-		isStarted:       atomic.NewBool(false),
+		started:         atomic.NewBool(false),
 		refreshInterval: time.Second,
 		maxBufferSize:   500,
 		startingOffset:  time.Time{},
@@ -108,7 +108,7 @@ func (x *Runner) Start(ctx context.Context) error {
 	ctx, span := telemetry.SpanContext(ctx, "PreStart")
 	defer span.End()
 
-	if x.isStarted.Load() {
+	if x.started.Load() {
 		return nil
 	}
 
@@ -118,7 +118,7 @@ func (x *Runner) Start(ctx context.Context) error {
 	}
 
 	// call the connect method of the journal store
-	if err := x.offsetsStore.Connect(ctx); err != nil {
+	if err := x.offsetsStore.Ping(ctx); err != nil {
 		return fmt.Errorf("failed to connect to the offsets store: %v", err)
 	}
 
@@ -128,7 +128,7 @@ func (x *Runner) Start(ctx context.Context) error {
 	}
 
 	// call the connect method of the journal store
-	if err := x.eventsStore.Connect(ctx); err != nil {
+	if err := x.eventsStore.Ping(ctx); err != nil {
 		return fmt.Errorf("failed to connect to the events store: %v", err)
 	}
 
@@ -168,7 +168,7 @@ func (x *Runner) Start(ctx context.Context) error {
 	}
 
 	// set the started status
-	x.isStarted.Store(true)
+	x.started.Store(true)
 
 	// start processing
 	go x.processingLoop(ctx)
@@ -183,25 +183,15 @@ func (x *Runner) Stop(ctx context.Context) error {
 	defer span.End()
 
 	// check whether it is stopped or not
-	if !x.isStarted.Load() {
+	if !x.started.Load() {
 		return nil
 	}
 
 	// send the stop
 	x.stopSignal <- struct{}{}
 
-	// disconnect the events store
-	if err := x.eventsStore.Disconnect(ctx); err != nil {
-		return fmt.Errorf("failed to disconnect the events store: %v", err)
-	}
-
-	// disconnect the offset store
-	if err := x.offsetsStore.Disconnect(ctx); err != nil {
-		return fmt.Errorf("failed to disconnect the offsets store: %v", err)
-	}
-
 	// set the started status to false
-	x.isStarted.Store(false)
+	x.started.Store(false)
 	return nil
 }
 
@@ -296,7 +286,7 @@ func (x *Runner) doProcess(ctx context.Context, shard uint64) error {
 	ctx, span := telemetry.SpanContext(ctx, "HandleShard")
 	defer span.End()
 
-	if !x.isStarted.Load() {
+	if !x.started.Load() {
 		return nil
 	}
 

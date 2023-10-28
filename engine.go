@@ -24,10 +24,13 @@ package ego
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/tochemey/ego/eventstore"
+	"github.com/tochemey/ego/eventstream"
+	egotel "github.com/tochemey/ego/internal/telemetry"
 	"github.com/tochemey/ego/projection"
 	"github.com/tochemey/goakt/actors"
 	"github.com/tochemey/goakt/discovery"
@@ -49,6 +52,7 @@ type Engine struct {
 	partitionsCount   uint64                 // partitionsCount specifies the number of partitions
 	started           atomic.Bool
 
+	eventStream eventstream.Stream
 	// define the list of projections
 	projections       []*Projection
 	projectionRunners []*projection.Runner
@@ -64,6 +68,7 @@ func NewEngine(name string, eventsStore eventstore.EventsStore, opts ...Option) 
 		logger:        log.DefaultLogger,
 		telemetry:     telemetry.New(),
 		projections:   make([]*Projection, 0),
+		eventStream:   eventstream.New(),
 	}
 	// apply the various options
 	for _, opt := range opts {
@@ -144,6 +149,8 @@ func (x *Engine) Start(ctx context.Context) error {
 func (x *Engine) Stop(ctx context.Context) error {
 	// set the started to false
 	x.started.Store(false)
+	// close the event stream
+	x.eventStream.Close()
 	// stop the projections
 	if len(x.projectionRunners) > 0 {
 		// simply iterate the list of projections and start them
@@ -158,4 +165,27 @@ func (x *Engine) Stop(ctx context.Context) error {
 	}
 	// stop the actor system and return the possible error
 	return x.actorSystem.Stop(ctx)
+}
+
+// Subscribe creates an events subscriber
+func (x *Engine) Subscribe(ctx context.Context) (eventstream.Subscriber, error) {
+	// add a span context
+	ctx, span := egotel.SpanContext(ctx, "Subscribe")
+	defer span.End()
+
+	// first check whether the ego engine has started or not
+	if !x.started.Load() {
+		return nil, errors.New("eGo engine has not started")
+	}
+	// create the subscriber
+	subscriber := x.eventStream.AddSubscriber()
+	// subscribe to all the topics
+	for i := 0; i < int(x.partitionsCount); i++ {
+		// create the topic
+		topic := fmt.Sprintf(eventsTopic, i)
+		// subscribe to the topic
+		x.eventStream.Subscribe(subscriber, topic)
+	}
+	// return the subscriber
+	return subscriber, nil
 }

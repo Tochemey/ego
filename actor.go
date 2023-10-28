@@ -31,11 +31,17 @@ import (
 	"github.com/pkg/errors"
 	"github.com/tochemey/ego/egopb"
 	"github.com/tochemey/ego/eventstore"
+	"github.com/tochemey/ego/eventstream"
 	"github.com/tochemey/ego/internal/telemetry"
 	"github.com/tochemey/goakt/actors"
 	"go.uber.org/atomic"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
+)
+
+var (
+	eventsTopic = "topic.events.%d"
 )
 
 // actor is an event sourced based actor
@@ -49,19 +55,21 @@ type actor[T State] struct {
 	eventsCounter   *atomic.Uint64
 	lastCommandTime time.Time
 	mu              sync.RWMutex
+	eventsStream    eventstream.Stream
 }
 
 // enforce compilation error
 var _ actors.Actor = &actor[State]{}
 
 // newActor creates an instance of actor provided the eventSourcedHandler and the events store
-func newActor[T State](behavior EntityBehavior[T], eventsStore eventstore.EventsStore) *actor[T] {
+func newActor[T State](behavior EntityBehavior[T], eventsStore eventstore.EventsStore, eventsStream eventstream.Stream) *actor[T] {
 	// create an instance of entity and return it
 	return &actor[T]{
 		eventsStore:    eventsStore,
 		EntityBehavior: behavior,
 		eventsCounter:  atomic.NewUint64(0),
 		mu:             sync.RWMutex{},
+		eventsStream:   eventsStream,
 	}
 }
 
@@ -69,8 +77,8 @@ func newActor[T State](behavior EntityBehavior[T], eventsStore eventstore.Events
 // At this stage we connect to the various stores
 func (entity *actor[T]) PreStart(ctx context.Context) error {
 	// add a span context
-	//ctx, span := telemetry.SpanContext(ctx, "PreStart")
-	//defer span.End()
+	ctx, span := telemetry.SpanContext(ctx, "PreStart")
+	defer span.End()
 	// acquire the lock
 	entity.mu.Lock()
 	// release lock when done
@@ -82,7 +90,7 @@ func (entity *actor[T]) PreStart(ctx context.Context) error {
 	}
 
 	// call the connect method of the journal store
-	if err := entity.eventsStore.Connect(ctx); err != nil {
+	if err := entity.eventsStore.Ping(ctx); err != nil {
 		return fmt.Errorf("failed to connect to the events store: %v", err)
 	}
 
@@ -124,10 +132,6 @@ func (entity *actor[T]) PostStop(ctx context.Context) error {
 	// release lock when done
 	defer entity.mu.Unlock()
 
-	// disconnect the journal
-	if err := entity.eventsStore.Disconnect(ctx); err != nil {
-		return fmt.Errorf("failed to disconnect the events store: %v", err)
-	}
 	return nil
 }
 
@@ -274,8 +278,25 @@ func (entity *actor[T]) processCommandAndReply(ctx actors.ReceiveContext, comman
 	// create a journal list
 	journals := []*egopb.Event{envelope}
 
-	// TODO persist the event in batch using a child actor
-	if err := entity.eventsStore.WriteEvents(goCtx, journals); err != nil {
+	// define the topic for the given shard
+	topic := fmt.Sprintf(eventsTopic, shardNumber)
+
+	// publish to the event stream and persist the event to the events store
+	eg, goCtx := errgroup.WithContext(goCtx)
+
+	// publish the message to the topic
+	eg.Go(func() error {
+		entity.eventsStream.Publish(topic, envelope)
+		return nil
+	})
+
+	// persist the event to the events store
+	eg.Go(func() error {
+		return entity.eventsStore.WriteEvents(goCtx, journals)
+	})
+
+	// handle the persistence error
+	if err := eg.Wait(); err != nil {
 		// send an error reply
 		entity.sendErrorReply(ctx, err)
 		return

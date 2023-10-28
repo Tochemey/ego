@@ -54,10 +54,12 @@ func TestProjection(t *testing.T) {
 		// set up the event store
 		journalStore := memory.NewEventsStore()
 		assert.NotNil(t, journalStore)
+		require.NoError(t, journalStore.Connect(ctx))
 
 		// set up the offset store
 		offsetStore := memoffsetstore.NewOffsetStore()
 		assert.NotNil(t, offsetStore)
+		require.NoError(t, offsetStore.Disconnect(ctx))
 
 		// set up the projection
 		// create a handler that return successfully
@@ -92,7 +94,7 @@ func TestProjection(t *testing.T) {
 		}
 
 		require.NoError(t, journalStore.WriteEvents(ctx, journals))
-		require.True(t, projection.isStarted.Load())
+		require.True(t, projection.started.Load())
 
 		// wait for the data to be persisted by the database since this an eventual consistency case
 		time.Sleep(time.Second)
@@ -112,6 +114,8 @@ func TestProjection(t *testing.T) {
 		assert.EqualValues(t, 10, handler.EventsCount())
 
 		// free resources
+		assert.NoError(t, journalStore.Disconnect(ctx))
+		assert.NoError(t, offsetStore.Disconnect(ctx))
 		assert.NoError(t, projection.Stop(ctx))
 	})
 	t.Run("with failed handler with fail strategy", func(t *testing.T) {
@@ -123,10 +127,12 @@ func TestProjection(t *testing.T) {
 		// set up the event store
 		journalStore := memory.NewEventsStore()
 		assert.NotNil(t, journalStore)
+		require.NoError(t, journalStore.Connect(ctx))
 
 		// set up the offset store
 		offsetStore := memoffsetstore.NewOffsetStore()
 		assert.NotNil(t, offsetStore)
+		require.NoError(t, offsetStore.Disconnect(ctx))
 
 		// set up the projection
 		// create a handler that return successfully
@@ -159,14 +165,16 @@ func TestProjection(t *testing.T) {
 		}
 
 		require.NoError(t, journalStore.WriteEvents(ctx, journals))
-		require.True(t, projection.isStarted.Load())
+		require.True(t, projection.started.Load())
 
 		// wait for the data to be persisted by the database since this an eventual consistency case
 		time.Sleep(time.Second)
 
 		// here due to the default recovery strategy the projection is stopped
-		require.False(t, projection.isStarted.Load())
+		require.False(t, projection.started.Load())
 		// free resources
+		assert.NoError(t, journalStore.Disconnect(ctx))
+		assert.NoError(t, offsetStore.Disconnect(ctx))
 		assert.NoError(t, projection.Stop(ctx))
 	})
 	t.Run("with failed handler and retry_fail strategy", func(t *testing.T) {
@@ -178,10 +186,12 @@ func TestProjection(t *testing.T) {
 		// set up the event store
 		journalStore := memory.NewEventsStore()
 		assert.NotNil(t, journalStore)
+		require.NoError(t, journalStore.Connect(ctx))
 
 		// set up the offset store
 		offsetStore := memoffsetstore.NewOffsetStore()
 		assert.NotNil(t, offsetStore)
+		require.NoError(t, offsetStore.Disconnect(ctx))
 
 		// set up the projection
 		// create a handler that return successfully
@@ -220,15 +230,17 @@ func TestProjection(t *testing.T) {
 		}
 
 		require.NoError(t, journalStore.WriteEvents(ctx, journals))
-		require.True(t, projection.isStarted.Load())
+		require.True(t, projection.started.Load())
 
 		// wait for the data to be persisted by the database since this an eventual consistency case
 		time.Sleep(1 * time.Second)
 
 		// let us grab the current offset
-		require.False(t, projection.isStarted.Load())
+		require.False(t, projection.started.Load())
 
 		// free resources
+		assert.NoError(t, journalStore.Disconnect(ctx))
+		assert.NoError(t, offsetStore.Disconnect(ctx))
 		assert.NoError(t, projection.Stop(ctx))
 	})
 	t.Run("with failed handler and skip strategy", func(t *testing.T) {
@@ -241,10 +253,12 @@ func TestProjection(t *testing.T) {
 		// set up the event store
 		journalStore := memory.NewEventsStore()
 		assert.NotNil(t, journalStore)
+		require.NoError(t, journalStore.Connect(ctx))
 
 		// set up the offset store
 		offsetStore := memoffsetstore.NewOffsetStore()
 		assert.NotNil(t, offsetStore)
+		require.NoError(t, offsetStore.Connect(ctx))
 
 		// set up the projection
 		// create a handler that return successfully
@@ -283,7 +297,7 @@ func TestProjection(t *testing.T) {
 		}
 
 		require.NoError(t, journalStore.WriteEvents(ctx, journals))
-		require.True(t, projection.isStarted.Load())
+		require.True(t, projection.started.Load())
 
 		// wait for the data to be persisted by the database since this an eventual consistency case
 		time.Sleep(time.Second)
@@ -300,6 +314,8 @@ func TestProjection(t *testing.T) {
 		assert.EqualValues(t, 5, handler.counter.Load())
 
 		// free resource
+		assert.NoError(t, journalStore.Disconnect(ctx))
+		assert.NoError(t, offsetStore.Disconnect(ctx))
 		assert.NoError(t, projection.Stop(ctx))
 	})
 	t.Run("with failed handler and skip retry strategy", func(t *testing.T) {
@@ -312,10 +328,12 @@ func TestProjection(t *testing.T) {
 		// set up the event store
 		journalStore := memory.NewEventsStore()
 		assert.NotNil(t, journalStore)
+		require.NoError(t, journalStore.Connect(ctx))
 
 		// set up the offset store
 		offsetStore := memoffsetstore.NewOffsetStore()
 		assert.NotNil(t, offsetStore)
+		require.NoError(t, offsetStore.Connect(ctx))
 
 		// set up the projection
 		// create a handler that return successfully
@@ -354,7 +372,7 @@ func TestProjection(t *testing.T) {
 		}
 
 		require.NoError(t, journalStore.WriteEvents(ctx, journals))
-		require.True(t, projection.isStarted.Load())
+		require.True(t, projection.started.Load())
 
 		// wait for the data to be persisted by the database since this an eventual consistency case
 		time.Sleep(time.Second)
@@ -371,6 +389,8 @@ func TestProjection(t *testing.T) {
 		assert.EqualValues(t, 5, handler.counter.Load())
 
 		// free resource
+		assert.NoError(t, journalStore.Disconnect(ctx))
+		assert.NoError(t, offsetStore.Disconnect(ctx))
 		assert.NoError(t, projection.Stop(ctx))
 	})
 }
