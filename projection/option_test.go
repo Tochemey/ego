@@ -38,42 +38,42 @@ func TestOption(t *testing.T) {
 	testCases := []struct {
 		name     string
 		option   Option
-		expected Runner
+		expected runner
 	}{
 		{
 			name:     "WithRefreshInterval",
 			option:   WithRefreshInterval(ts),
-			expected: Runner{refreshInterval: ts},
+			expected: runner{refreshInterval: ts},
 		},
 		{
 			name:     "WithMaxBufferSize",
 			option:   WithMaxBufferSize(5),
-			expected: Runner{maxBufferSize: 5},
+			expected: runner{maxBufferSize: 5},
 		},
 		{
 			name:     "WithStartOffset",
 			option:   WithStartOffset(from),
-			expected: Runner{startingOffset: from},
+			expected: runner{startingOffset: from},
 		},
 		{
 			name:     "WithResetOffset",
 			option:   WithResetOffset(to),
-			expected: Runner{resetOffsetTo: to},
+			expected: runner{resetOffsetTo: to},
 		},
 		{
 			name:     "WithLogger",
 			option:   WithLogger(log.DefaultLogger),
-			expected: Runner{logger: log.DefaultLogger},
+			expected: runner{logger: log.DefaultLogger},
 		},
 		{
 			name:     "WithRecoveryStrategy",
 			option:   WithRecoveryStrategy(recovery),
-			expected: Runner{recovery: recovery},
+			expected: runner{recovery: recovery},
 		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			var e Runner
+			var e runner
 			tc.option.Apply(&e)
 			assert.Equal(t, tc.expected, e)
 		})

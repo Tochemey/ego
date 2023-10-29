@@ -31,22 +31,22 @@ import (
 // Option is the interface that applies a configuration option.
 type Option interface {
 	// Apply sets the Option value of a config.
-	Apply(runner *Runner)
+	Apply(runner *runner)
 }
 
 var _ Option = OptionFunc(nil)
 
 // OptionFunc implements the Option interface.
-type OptionFunc func(*Runner)
+type OptionFunc func(*runner)
 
 // Apply applies the options to Engine
-func (f OptionFunc) Apply(runner *Runner) {
+func (f OptionFunc) Apply(runner *runner) {
 	f(runner)
 }
 
 // WithRefreshInterval sets the refresh interval
 func WithRefreshInterval(interval time.Duration) Option {
-	return OptionFunc(func(runner *Runner) {
+	return OptionFunc(func(runner *runner) {
 		runner.refreshInterval = interval
 	})
 }
@@ -54,35 +54,35 @@ func WithRefreshInterval(interval time.Duration) Option {
 // WithMaxBufferSize sets the max buffer size.
 // This defines how many events are fetched on a single run of the projection
 func WithMaxBufferSize(bufferSize int) Option {
-	return OptionFunc(func(runner *Runner) {
+	return OptionFunc(func(runner *runner) {
 		runner.maxBufferSize = bufferSize
 	})
 }
 
 // WithStartOffset sets the starting point where to read the events
 func WithStartOffset(startOffset time.Time) Option {
-	return OptionFunc(func(runner *Runner) {
+	return OptionFunc(func(runner *runner) {
 		runner.startingOffset = startOffset
 	})
 }
 
 // WithResetOffset helps reset the offset to a given timestamp.
 func WithResetOffset(resetOffset time.Time) Option {
-	return OptionFunc(func(runner *Runner) {
+	return OptionFunc(func(runner *runner) {
 		runner.resetOffsetTo = resetOffset
 	})
 }
 
 // WithLogger sets the actor system custom log
 func WithLogger(logger log.Logger) Option {
-	return OptionFunc(func(runner *Runner) {
+	return OptionFunc(func(runner *runner) {
 		runner.logger = logger
 	})
 }
 
 // WithRecoveryStrategy sets the recovery strategy
 func WithRecoveryStrategy(strategy *Recovery) Option {
-	return OptionFunc(func(runner *Runner) {
+	return OptionFunc(func(runner *runner) {
 		runner.recovery = strategy
 	})
 }

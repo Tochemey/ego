@@ -87,27 +87,20 @@ func TestEgo(t *testing.T) {
 		provider.EXPECT().DiscoverPeers().Return(addrs, nil)
 		provider.EXPECT().Close().Return(nil)
 
+		// create a projection message handler
 		handler := projection.NewDiscardHandler(log.DefaultLogger)
-		projection := &Projection{
-			Name:            "discard",
-			Handler:         handler,
-			OffsetStore:     offsetStore,
-			Recovery:        projection.NewRecovery(),
-			RefreshInterval: time.Second,
-			MaxBufferSize:   10,
-			ResetOffset:     time.Time{},
-			StartOffset:     time.Time{},
-		}
-
 		// create the ego engine
 		e := NewEngine("Sample", eventStore,
-			WithCluster(provider, config, 4),
-			WithProjection(projection))
+			WithCluster(provider, config, 4))
 		// start ego engine
 		err := e.Start(ctx)
 
 		// wait for the cluster to fully start
 		time.Sleep(time.Second)
+
+		// add projection
+		err = e.AddProjection(ctx, "discard", handler, offsetStore)
+		require.NoError(t, err)
 
 		// subscribe to events
 		subscriber, err := e.Subscribe(ctx)

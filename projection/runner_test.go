@@ -66,10 +66,13 @@ func TestProjection(t *testing.T) {
 		handler := NewDiscardHandler(logger)
 
 		// create an instance of the projection
-		projection := NewRunner(projectionName, handler, journalStore, offsetStore, WithRefreshInterval(time.Millisecond))
+		runner := newRunner(projectionName, handler, journalStore, offsetStore, WithRefreshInterval(time.Millisecond))
 		// start the projection
-		err := projection.Start(ctx)
+		err := runner.Start(ctx)
 		require.NoError(t, err)
+
+		// run the projection
+		runner.Run(ctx)
 
 		// persist some events
 		state, err := anypb.New(new(testpb.Account))
@@ -94,7 +97,7 @@ func TestProjection(t *testing.T) {
 		}
 
 		require.NoError(t, journalStore.WriteEvents(ctx, journals))
-		require.True(t, projection.started.Load())
+		require.True(t, runner.started.Load())
 
 		// wait for the data to be persisted by the database since this an eventual consistency case
 		time.Sleep(time.Second)
@@ -116,7 +119,7 @@ func TestProjection(t *testing.T) {
 		// free resources
 		assert.NoError(t, journalStore.Disconnect(ctx))
 		assert.NoError(t, offsetStore.Disconnect(ctx))
-		assert.NoError(t, projection.Stop(ctx))
+		assert.NoError(t, runner.Stop(ctx))
 	})
 	t.Run("with failed handler with fail strategy", func(t *testing.T) {
 		defer goleak.VerifyNone(t)
@@ -138,10 +141,13 @@ func TestProjection(t *testing.T) {
 		// create a handler that return successfully
 		handler := &testHandler1{}
 
-		projection := NewRunner(projectionName, handler, journalStore, offsetStore, WithRefreshInterval(time.Millisecond))
+		runner := newRunner(projectionName, handler, journalStore, offsetStore, WithRefreshInterval(time.Millisecond))
 		// start the projection
-		err := projection.Start(ctx)
+		err := runner.Start(ctx)
 		require.NoError(t, err)
+
+		// run the projection
+		runner.Run(ctx)
 
 		// persist some events
 		state, err := anypb.New(new(testpb.Account))
@@ -165,17 +171,17 @@ func TestProjection(t *testing.T) {
 		}
 
 		require.NoError(t, journalStore.WriteEvents(ctx, journals))
-		require.True(t, projection.started.Load())
+		require.True(t, runner.started.Load())
 
 		// wait for the data to be persisted by the database since this an eventual consistency case
 		time.Sleep(time.Second)
 
 		// here due to the default recovery strategy the projection is stopped
-		require.False(t, projection.started.Load())
+		require.False(t, runner.started.Load())
 		// free resources
 		assert.NoError(t, journalStore.Disconnect(ctx))
 		assert.NoError(t, offsetStore.Disconnect(ctx))
-		assert.NoError(t, projection.Stop(ctx))
+		assert.NoError(t, runner.Stop(ctx))
 	})
 	t.Run("with failed handler and retry_fail strategy", func(t *testing.T) {
 		defer goleak.VerifyNone(t)
@@ -197,7 +203,7 @@ func TestProjection(t *testing.T) {
 		// create a handler that return successfully
 		handler := &testHandler1{}
 
-		projection := NewRunner(projectionName, handler, journalStore, offsetStore,
+		runner := newRunner(projectionName, handler, journalStore, offsetStore,
 			WithRefreshInterval(time.Millisecond),
 			WithRecoveryStrategy(NewRecovery(
 				WithRecoveryPolicy(RetryAndFail),
@@ -205,8 +211,10 @@ func TestProjection(t *testing.T) {
 				WithRetryDelay(100*time.Millisecond))))
 
 		// start the projection
-		err := projection.Start(ctx)
+		err := runner.Start(ctx)
 		require.NoError(t, err)
+		// run the projection
+		runner.Run(ctx)
 
 		// persist some events
 		state, err := anypb.New(new(testpb.Account))
@@ -230,18 +238,18 @@ func TestProjection(t *testing.T) {
 		}
 
 		require.NoError(t, journalStore.WriteEvents(ctx, journals))
-		require.True(t, projection.started.Load())
+		require.True(t, runner.started.Load())
 
 		// wait for the data to be persisted by the database since this an eventual consistency case
 		time.Sleep(1 * time.Second)
 
 		// let us grab the current offset
-		require.False(t, projection.started.Load())
+		require.False(t, runner.started.Load())
 
 		// free resources
 		assert.NoError(t, journalStore.Disconnect(ctx))
 		assert.NoError(t, offsetStore.Disconnect(ctx))
-		assert.NoError(t, projection.Stop(ctx))
+		assert.NoError(t, runner.Stop(ctx))
 	})
 	t.Run("with failed handler and skip strategy", func(t *testing.T) {
 		defer goleak.VerifyNone(t)
@@ -264,16 +272,17 @@ func TestProjection(t *testing.T) {
 		// create a handler that return successfully
 		handler := &testHandler2{counter: atomic.NewInt32(0)}
 
-		projection := NewRunner(projectionName, handler, journalStore, offsetStore,
+		runner := newRunner(projectionName, handler, journalStore, offsetStore,
 			WithRefreshInterval(time.Millisecond),
 			WithRecoveryStrategy(NewRecovery(
 				WithRecoveryPolicy(Skip),
 				WithRetries(2),
 				WithRetryDelay(100*time.Millisecond))))
 		// start the projection
-		err := projection.Start(ctx)
+		err := runner.Start(ctx)
 		require.NoError(t, err)
-
+		// run the projection
+		runner.Run(ctx)
 		// persist some events
 		state, err := anypb.New(new(testpb.Account))
 		assert.NoError(t, err)
@@ -297,7 +306,7 @@ func TestProjection(t *testing.T) {
 		}
 
 		require.NoError(t, journalStore.WriteEvents(ctx, journals))
-		require.True(t, projection.started.Load())
+		require.True(t, runner.started.Load())
 
 		// wait for the data to be persisted by the database since this an eventual consistency case
 		time.Sleep(time.Second)
@@ -316,7 +325,7 @@ func TestProjection(t *testing.T) {
 		// free resource
 		assert.NoError(t, journalStore.Disconnect(ctx))
 		assert.NoError(t, offsetStore.Disconnect(ctx))
-		assert.NoError(t, projection.Stop(ctx))
+		assert.NoError(t, runner.Stop(ctx))
 	})
 	t.Run("with failed handler and skip retry strategy", func(t *testing.T) {
 		defer goleak.VerifyNone(t)
@@ -339,16 +348,17 @@ func TestProjection(t *testing.T) {
 		// create a handler that return successfully
 		handler := &testHandler2{counter: atomic.NewInt32(0)}
 
-		projection := NewRunner(projectionName, handler, journalStore, offsetStore,
+		runner := newRunner(projectionName, handler, journalStore, offsetStore,
 			WithRefreshInterval(time.Millisecond),
 			WithRecoveryStrategy(NewRecovery(
 				WithRecoveryPolicy(RetryAndSkip),
 				WithRetries(2),
 				WithRetryDelay(100*time.Millisecond))))
 		// start the projection
-		err := projection.Start(ctx)
+		err := runner.Start(ctx)
 		require.NoError(t, err)
-
+		// run the projection
+		runner.Run(ctx)
 		// persist some events
 		state, err := anypb.New(new(testpb.Account))
 		assert.NoError(t, err)
@@ -372,7 +382,7 @@ func TestProjection(t *testing.T) {
 		}
 
 		require.NoError(t, journalStore.WriteEvents(ctx, journals))
-		require.True(t, projection.started.Load())
+		require.True(t, runner.started.Load())
 
 		// wait for the data to be persisted by the database since this an eventual consistency case
 		time.Sleep(time.Second)
@@ -391,7 +401,7 @@ func TestProjection(t *testing.T) {
 		// free resource
 		assert.NoError(t, journalStore.Disconnect(ctx))
 		assert.NoError(t, offsetStore.Disconnect(ctx))
-		assert.NoError(t, projection.Stop(ctx))
+		assert.NoError(t, runner.Stop(ctx))
 	})
 }
 

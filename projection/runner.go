@@ -41,8 +41,8 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-// Runner defines the projection runner
-type Runner struct {
+// runner defines the projection runner
+type runner struct {
 	// Name specifies the runner Name
 	name string
 	// Logger specifies the logger
@@ -71,15 +71,15 @@ type Runner struct {
 	resetOffsetTo time.Time
 }
 
-// NewRunner create an instance of Runner given the name of the projection, the handler and the offsets store
+// newRunner create an instance of runner given the name of the projection, the handler and the offsets store
 // The name of the projection should be unique
-func NewRunner(name string,
+func newRunner(name string,
 	handler Handler,
 	eventsStore eventstore.EventsStore,
 	offsetStore offsetstore.OffsetStore,
-	opts ...Option) *Runner {
+	opts ...Option) *runner {
 	// create an instance of the runner with the default settings
-	runner := &Runner{
+	runner := &runner{
 		name:            name,
 		logger:          log.DefaultLogger,
 		handler:         handler,
@@ -103,7 +103,7 @@ func NewRunner(name string,
 }
 
 // Start starts the projection runner
-func (x *Runner) Start(ctx context.Context) error {
+func (x *runner) Start(ctx context.Context) error {
 	// add a span context
 	ctx, span := telemetry.SpanContext(ctx, "PreStart")
 	defer span.End()
@@ -170,14 +170,11 @@ func (x *Runner) Start(ctx context.Context) error {
 	// set the started status
 	x.started.Store(true)
 
-	// start processing
-	go x.processingLoop(ctx)
-
 	return nil
 }
 
 // Stop stops the projection runner
-func (x *Runner) Stop(ctx context.Context) error {
+func (x *runner) Stop(ctx context.Context) error {
 	// add a span context
 	ctx, span := telemetry.SpanContext(ctx, "PostStop")
 	defer span.End()
@@ -196,12 +193,18 @@ func (x *Runner) Stop(ctx context.Context) error {
 }
 
 // Name returns the projection runner Name
-func (x *Runner) Name() string {
+func (x *runner) Name() string {
 	return x.name
 }
 
+// Run start the runner
+func (x *runner) Run(ctx context.Context) {
+	// start processing
+	go x.processingLoop(ctx)
+}
+
 // processingLoop is a loop that continuously runs to process events persisted onto the journal store until the projection is stopped
-func (x *Runner) processingLoop(ctx context.Context) {
+func (x *runner) processingLoop(ctx context.Context) {
 	// create the time ticker
 	ticker := time.NewTicker(x.refreshInterval)
 	// create the stop ticker signal
@@ -281,7 +284,7 @@ func (x *Runner) processingLoop(ctx context.Context) {
 }
 
 // doProcess processes all events of a given persistent entity and hand them over to the handler
-func (x *Runner) doProcess(ctx context.Context, shard uint64) error {
+func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 	// add a span context
 	ctx, span := telemetry.SpanContext(ctx, "HandleShard")
 	defer span.End()
@@ -402,7 +405,7 @@ func (x *Runner) doProcess(ctx context.Context, shard uint64) error {
 }
 
 // preStart is used to perform some tasks before the projection starts
-func (x *Runner) preStart(ctx context.Context) error {
+func (x *runner) preStart(ctx context.Context) error {
 	// add a span context
 	ctx, span := telemetry.SpanContext(ctx, "PreStart")
 	defer span.End()

@@ -31,6 +31,7 @@ import (
 	"github.com/tochemey/ego/eventstore"
 	"github.com/tochemey/ego/eventstream"
 	egotel "github.com/tochemey/ego/internal/telemetry"
+	"github.com/tochemey/ego/offsetstore"
 	"github.com/tochemey/ego/projection"
 	"github.com/tochemey/goakt/actors"
 	"github.com/tochemey/goakt/discovery"
@@ -53,9 +54,6 @@ type Engine struct {
 	started           atomic.Bool
 
 	eventStream eventstream.Stream
-	// define the list of projections
-	projections       []*Projection
-	projectionRunners []*projection.Runner
 }
 
 // NewEngine creates an instance of Engine
@@ -67,28 +65,11 @@ func NewEngine(name string, eventsStore eventstore.EventsStore, opts ...Option) 
 		enableCluster: atomic.NewBool(false),
 		logger:        log.DefaultLogger,
 		telemetry:     telemetry.New(),
-		projections:   make([]*Projection, 0),
 		eventStream:   eventstream.New(),
 	}
 	// apply the various options
 	for _, opt := range opts {
 		opt.Apply(e)
-	}
-
-	// set the projection runners
-	for _, p := range e.projections {
-		// create the projection instance and add it to the list of runners
-		e.projectionRunners = append(e.projectionRunners, projection.NewRunner(
-			p.Name,
-			p.Handler,
-			e.eventsStore,
-			p.OffsetStore,
-			projection.WithMaxBufferSize(p.MaxBufferSize),
-			projection.WithRefreshInterval(p.RefreshInterval),
-			projection.WithRecoveryStrategy(p.Recovery),
-			projection.WithStartOffset(p.StartOffset),
-			projection.WithResetOffset(p.ResetOffset),
-			projection.WithLogger(e.logger)))
 	}
 
 	e.started.Store(false)
@@ -129,17 +110,35 @@ func (x *Engine) Start(ctx context.Context) error {
 	// set the started to true
 	x.started.Store(true)
 
-	// start the projections if is set
-	if len(x.projectionRunners) > 0 {
-		// simply iterate the list of projections and start them
-		// fail start when a single projection fail to start
-		for _, runner := range x.projectionRunners {
-			// start the runner
-			if err := runner.Start(ctx); err != nil {
-				x.logger.Error(errors.Wrapf(err, "failed to start projection=(%s)", runner.Name()))
-				return err
-			}
-		}
+	return nil
+}
+
+// AddProjection add a projection to the running eGo engine and start it
+func (x *Engine) AddProjection(ctx context.Context, name string, handler projection.Handler, offsetStore offsetstore.OffsetStore, opts ...projection.Option) error {
+	// add a span context
+	ctx, span := egotel.SpanContext(ctx, "AddProjection")
+	defer span.End()
+
+	// first check whether the ego engine has started or not
+	if !x.started.Load() {
+		return errors.New("eGo engine has not started")
+	}
+	// create the projection actor
+	actor := projection.New(name, handler, x.eventsStore, offsetStore, opts...)
+	// define variables to hold projection actor ref and error
+	var pid actors.PID
+	var err error
+	// spawn the actor
+	if pid, err = x.actorSystem.Spawn(ctx, name, actor); err != nil {
+		// add some error logging
+		x.logger.Error(errors.Wrapf(err, "failed to register the projection=(%s)", name))
+		return err
+	}
+	// start the projection
+	if err := actors.Tell(ctx, pid, projection.Start); err != nil {
+		// add some error logging
+		x.logger.Error(errors.Wrapf(err, "failed to start the projection=(%s)", name))
+		return err
 	}
 
 	return nil
@@ -151,18 +150,6 @@ func (x *Engine) Stop(ctx context.Context) error {
 	x.started.Store(false)
 	// close the event stream
 	x.eventStream.Close()
-	// stop the projections
-	if len(x.projectionRunners) > 0 {
-		// simply iterate the list of projections and start them
-		// fail stop when a single projection fail to stop
-		for _, runner := range x.projectionRunners {
-			// stop the runner
-			if err := runner.Stop(ctx); err != nil {
-				x.logger.Error(errors.Wrapf(err, "failed to stop projection=(%s)", runner.Name()))
-				return err
-			}
-		}
-	}
 	// stop the actor system and return the possible error
 	return x.actorSystem.Stop(ctx)
 }

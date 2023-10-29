@@ -26,8 +26,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/tochemey/ego/offsetstore/memory"
-	"github.com/tochemey/ego/projection"
 	"github.com/tochemey/goakt/discovery"
 	"github.com/tochemey/goakt/discovery/kubernetes"
 	"github.com/tochemey/goakt/log"
@@ -42,15 +40,6 @@ func TestOptions(t *testing.T) {
 	discoveryProvider := kubernetes.NewDiscovery()
 	config := discovery.NewConfig()
 	tel := telemetry.New()
-	offsetStore := memory.NewOffsetStore()
-	recovery := projection.NewRecovery()
-	handler := projection.NewDiscardHandler(logger)
-	projection := &Projection{
-		Name:        "kafka",
-		Handler:     handler,
-		OffsetStore: offsetStore,
-		Recovery:    recovery,
-	}
 
 	testCases := []struct {
 		name     string
@@ -76,13 +65,6 @@ func TestOptions(t *testing.T) {
 			name:     "WithTelemetry",
 			option:   WithTelemetry(tel),
 			expected: Engine{telemetry: tel},
-		},
-		{
-			name:   "WithProjection",
-			option: WithProjection(projection),
-			expected: Engine{
-				projections: []*Projection{projection},
-			},
 		},
 	}
 	for _, tc := range testCases {
