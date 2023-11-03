@@ -67,7 +67,7 @@ func NewEventsStore() *EventsStore {
 // Connect connects to the journal store
 func (s *EventsStore) Connect(ctx context.Context) error {
 	// add a span context
-	ctx, span := telemetry.SpanContext(ctx, "eventsStore.Connect")
+	_, span := telemetry.SpanContext(ctx, "eventsStore.Connect")
 	defer span.End()
 
 	// check whether this instance of the journal is connected or not
@@ -93,7 +93,7 @@ func (s *EventsStore) Connect(ctx context.Context) error {
 // Disconnect disconnect the journal store
 func (s *EventsStore) Disconnect(ctx context.Context) error {
 	// add a span context
-	ctx, span := telemetry.SpanContext(ctx, "eventsStore.Disconnect")
+	_, span := telemetry.SpanContext(ctx, "eventsStore.Disconnect")
 	defer span.End()
 
 	// check whether this instance of the journal is connected or not
@@ -123,12 +123,12 @@ func (s *EventsStore) Disconnect(ctx context.Context) error {
 // Ping verifies a connection to the database is still alive, establishing a connection if necessary.
 func (s *EventsStore) Ping(ctx context.Context) error {
 	// add a span context
-	ctx, span := telemetry.SpanContext(ctx, "eventsStore.Ping")
+	spanCtx, span := telemetry.SpanContext(ctx, "eventsStore.Ping")
 	defer span.End()
 
 	// check whether we are connected or not
 	if !s.connected.Load() {
-		return s.Connect(ctx)
+		return s.Connect(spanCtx)
 	}
 
 	return nil
@@ -138,7 +138,7 @@ func (s *EventsStore) Ping(ctx context.Context) error {
 // FIXME: enhance the implementation. As it stands it will be a bit slow when there are a lot of records
 func (s *EventsStore) PersistenceIDs(ctx context.Context, pageSize uint64, pageToken string) (persistenceIDs []string, nextPageToken string, err error) {
 	// add a span context
-	ctx, span := telemetry.SpanContext(ctx, "eventsStore.PersistenceIDs")
+	_, span := telemetry.SpanContext(ctx, "eventsStore.PersistenceIDs")
 	defer span.End()
 
 	// check whether this instance of the journal is connected or not
@@ -213,7 +213,7 @@ func (s *EventsStore) PersistenceIDs(ctx context.Context, pageSize uint64, pageT
 // WriteEvents persist events in batches for a given persistenceID
 func (s *EventsStore) WriteEvents(ctx context.Context, events []*egopb.Event) error {
 	// add a span context
-	ctx, span := telemetry.SpanContext(ctx, "eventsStore.WriteEvents")
+	_, span := telemetry.SpanContext(ctx, "eventsStore.WriteEvents")
 	defer span.End()
 
 	// check whether this instance of the journal is connected or not
@@ -265,7 +265,7 @@ func (s *EventsStore) WriteEvents(ctx context.Context, events []*egopb.Event) er
 // FIXME: enhance the implementation. As it stands it may be a bit slow when there are a lot of records
 func (s *EventsStore) DeleteEvents(ctx context.Context, persistenceID string, toSequenceNumber uint64) error {
 	// add a span context
-	ctx, span := telemetry.SpanContext(ctx, "eventsStore.DeleteEvents")
+	_, span := telemetry.SpanContext(ctx, "eventsStore.DeleteEvents")
 	defer span.End()
 
 	// check whether this instance of the journal is connected or not
@@ -318,7 +318,7 @@ func (s *EventsStore) DeleteEvents(ctx context.Context, persistenceID string, to
 // ReplayEvents fetches events for a given persistence ID from a given sequence number(inclusive) to a given sequence number(inclusive)
 func (s *EventsStore) ReplayEvents(ctx context.Context, persistenceID string, fromSequenceNumber, toSequenceNumber uint64, max uint64) ([]*egopb.Event, error) {
 	// add a span context
-	ctx, span := telemetry.SpanContext(ctx, "eventsStore.ReplayEvents")
+	_, span := telemetry.SpanContext(ctx, "eventsStore.ReplayEvents")
 	defer span.End()
 
 	// check whether this instance of the journal is connected or not
@@ -391,7 +391,7 @@ func (s *EventsStore) ReplayEvents(ctx context.Context, persistenceID string, fr
 // GetLatestEvent fetches the latest event
 func (s *EventsStore) GetLatestEvent(ctx context.Context, persistenceID string) (*egopb.Event, error) {
 	// add a span context
-	ctx, span := telemetry.SpanContext(ctx, "eventsStore.GetLatestEvent")
+	_, span := telemetry.SpanContext(ctx, "eventsStore.GetLatestEvent")
 	defer span.End()
 
 	// check whether this instance of the journal is connected or not
@@ -446,7 +446,7 @@ func (s *EventsStore) GetLatestEvent(ctx context.Context, persistenceID string) 
 // GetShardEvents returns the next (max) events after the offset in the journal for a given shard
 func (s *EventsStore) GetShardEvents(ctx context.Context, shardNumber uint64, offset int64, max uint64) ([]*egopb.Event, int64, error) {
 	// add a span context
-	ctx, span := telemetry.SpanContext(ctx, "eventsStore.GetShardEvents")
+	_, span := telemetry.SpanContext(ctx, "eventsStore.GetShardEvents")
 	defer span.End()
 
 	// check whether this instance of the journal is connected or not
@@ -532,7 +532,7 @@ func (s *EventsStore) GetShardEvents(ctx context.Context, shardNumber uint64, of
 // ShardNumbers returns the distinct list of all the shards in the journal store
 func (s *EventsStore) ShardNumbers(ctx context.Context) ([]uint64, error) {
 	// add a span context
-	ctx, span := telemetry.SpanContext(ctx, "eventsStore.NumShards")
+	_, span := telemetry.SpanContext(ctx, "eventsStore.NumShards")
 	defer span.End()
 
 	// check whether this instance of the journal is connected or not

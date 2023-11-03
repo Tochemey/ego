@@ -116,7 +116,7 @@ func (x *Engine) Start(ctx context.Context) error {
 // AddProjection add a projection to the running eGo engine and start it
 func (x *Engine) AddProjection(ctx context.Context, name string, handler projection.Handler, offsetStore offsetstore.OffsetStore, opts ...projection.Option) error {
 	// add a span context
-	ctx, span := egotel.SpanContext(ctx, "AddProjection")
+	spanCtx, span := egotel.SpanContext(ctx, "AddProjection")
 	defer span.End()
 
 	// first check whether the ego engine has started or not
@@ -129,13 +129,13 @@ func (x *Engine) AddProjection(ctx context.Context, name string, handler project
 	var pid actors.PID
 	var err error
 	// spawn the actor
-	if pid, err = x.actorSystem.Spawn(ctx, name, actor); err != nil {
+	if pid, err = x.actorSystem.Spawn(spanCtx, name, actor); err != nil {
 		// add some error logging
 		x.logger.Error(errors.Wrapf(err, "failed to register the projection=(%s)", name))
 		return err
 	}
 	// start the projection
-	if err := actors.Tell(ctx, pid, projection.Start); err != nil {
+	if err := actors.Tell(spanCtx, pid, projection.Start); err != nil {
 		// add some error logging
 		x.logger.Error(errors.Wrapf(err, "failed to start the projection=(%s)", name))
 		return err
@@ -157,7 +157,7 @@ func (x *Engine) Stop(ctx context.Context) error {
 // Subscribe creates an events subscriber
 func (x *Engine) Subscribe(ctx context.Context) (eventstream.Subscriber, error) {
 	// add a span context
-	ctx, span := egotel.SpanContext(ctx, "Subscribe")
+	_, span := egotel.SpanContext(ctx, "Subscribe")
 	defer span.End()
 
 	// first check whether the ego engine has started or not

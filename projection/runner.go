@@ -105,7 +105,7 @@ func newRunner(name string,
 // Start starts the projection runner
 func (x *runner) Start(ctx context.Context) error {
 	// add a span context
-	ctx, span := telemetry.SpanContext(ctx, "PreStart")
+	spanCtx, span := telemetry.SpanContext(ctx, "PreStart")
 	defer span.End()
 
 	if x.started.Load() {
@@ -118,7 +118,7 @@ func (x *runner) Start(ctx context.Context) error {
 	}
 
 	// call the connect method of the journal store
-	if err := x.offsetsStore.Ping(ctx); err != nil {
+	if err := x.offsetsStore.Ping(spanCtx); err != nil {
 		return fmt.Errorf("failed to connect to the offsets store: %v", err)
 	}
 
@@ -128,7 +128,7 @@ func (x *runner) Start(ctx context.Context) error {
 	}
 
 	// call the connect method of the journal store
-	if err := x.eventsStore.Ping(ctx); err != nil {
+	if err := x.eventsStore.Ping(spanCtx); err != nil {
 		return fmt.Errorf("failed to connect to the events store: %v", err)
 	}
 
@@ -143,7 +143,7 @@ func (x *runner) Start(ctx context.Context) error {
 	// create a new instance of retrier that will try a maximum of five times, with
 	// an initial delay of 100 ms and a maximum delay of 1 second
 	retrier := retry.NewRetrier(maxRetries, initialDelay, maxDelay)
-	err := retrier.RunContext(ctx, func(ctx context.Context) error {
+	err := retrier.RunContext(spanCtx, func(ctx context.Context) error {
 		// we ping both stores in parallel
 		g, ctx := errgroup.WithContext(ctx)
 		// ping the journal store
@@ -163,7 +163,7 @@ func (x *runner) Start(ctx context.Context) error {
 	}
 
 	// run pre-start tasks
-	if err := x.preStart(ctx); err != nil {
+	if err := x.preStart(spanCtx); err != nil {
 		return err
 	}
 
@@ -176,7 +176,7 @@ func (x *runner) Start(ctx context.Context) error {
 // Stop stops the projection runner
 func (x *runner) Stop(ctx context.Context) error {
 	// add a span context
-	ctx, span := telemetry.SpanContext(ctx, "PostStop")
+	_, span := telemetry.SpanContext(ctx, "PostStop")
 	defer span.End()
 
 	// check whether it is stopped or not
@@ -286,7 +286,7 @@ func (x *runner) processingLoop(ctx context.Context) {
 // doProcess processes all events of a given persistent entity and hand them over to the handler
 func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 	// add a span context
-	ctx, span := telemetry.SpanContext(ctx, "HandleShard")
+	spanCtx, span := telemetry.SpanContext(ctx, "HandleShard")
 	defer span.End()
 
 	if !x.started.Load() {
@@ -300,7 +300,7 @@ func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 	}
 
 	// get the latest offset persisted for the shard
-	offset, err := x.offsetsStore.GetCurrentOffset(ctx, projectionID)
+	offset, err := x.offsetsStore.GetCurrentOffset(spanCtx, projectionID)
 	if err != nil {
 		return err
 	}
@@ -313,7 +313,7 @@ func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 	}
 
 	// fetch events
-	events, nextOffset, err := x.eventsStore.GetShardEvents(ctx, shard, currOffset, uint64(x.maxBufferSize))
+	events, nextOffset, err := x.eventsStore.GetShardEvents(spanCtx, shard, currOffset, uint64(x.maxBufferSize))
 	if err != nil {
 		return err
 	}
@@ -341,7 +341,7 @@ func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 		switch x.recovery.RecoveryPolicy() {
 		case Fail:
 			// send the data to the handler. In case of error we log the error and fail the projection
-			if err := x.handler.Handle(ctx, persistenceID, event, state, seqNr); err != nil {
+			if err := x.handler.Handle(spanCtx, persistenceID, event, state, seqNr); err != nil {
 				x.logger.Error(errors.Wrapf(err, "failed to process event for persistence id=%s, revision=%d", persistenceID, seqNr))
 				return err
 			}
@@ -356,7 +356,7 @@ func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 			// pass the data to the projection handler
 			if err := backoff.Run(func() error {
 				// handle the projection handler error
-				if err := x.handler.Handle(ctx, persistenceID, event, state, seqNr); err != nil {
+				if err := x.handler.Handle(spanCtx, persistenceID, event, state, seqNr); err != nil {
 					x.logger.Error(errors.Wrapf(err, "failed to process event for persistence id=%s, revision=%d", persistenceID, seqNr))
 					return err
 				}
@@ -375,7 +375,7 @@ func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 			backoff := retry.NewRetrier(int(retries), 100*time.Millisecond, delay)
 			// pass the data to the projection handler
 			if err := backoff.Run(func() error {
-				return x.handler.Handle(ctx, persistenceID, event, state, seqNr)
+				return x.handler.Handle(spanCtx, persistenceID, event, state, seqNr)
 			}); err != nil {
 				// here we just log the error, but we skip the event and commit the offset
 				x.logger.Error(errors.Wrapf(err, "failed to process event for persistence id=%s, revision=%d", persistenceID, seqNr))
@@ -383,7 +383,7 @@ func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 
 		case Skip:
 			// send the data to the handler. In case of error we just log the error and skip the event by committing the offset
-			if err := x.handler.Handle(ctx, persistenceID, event, state, seqNr); err != nil {
+			if err := x.handler.Handle(spanCtx, persistenceID, event, state, seqNr); err != nil {
 				x.logger.Error(errors.Wrapf(err, "failed to process event for persistence id=%s, revision=%d", persistenceID, seqNr))
 			}
 		}
@@ -396,7 +396,7 @@ func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 			Timestamp:      timestamppb.Now().AsTime().UnixMilli(),
 		}
 		// write the given offset and return any possible error
-		if err := x.offsetsStore.WriteOffset(ctx, offset); err != nil {
+		if err := x.offsetsStore.WriteOffset(spanCtx, offset); err != nil {
 			return errors.Wrapf(err, "failed to persist offset for persistence id=%s", persistenceID)
 		}
 	}
@@ -407,13 +407,13 @@ func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 // preStart is used to perform some tasks before the projection starts
 func (x *runner) preStart(ctx context.Context) error {
 	// add a span context
-	ctx, span := telemetry.SpanContext(ctx, "PreStart")
+	spanCtx, span := telemetry.SpanContext(ctx, "PreStart")
 	defer span.End()
 
 	// reset the offset when it is set
 	if !x.resetOffsetTo.IsZero() {
 		// reset the offsets of the given projection
-		if err := x.offsetsStore.ResetOffset(ctx, x.name, x.resetOffsetTo.UnixMilli()); err != nil {
+		if err := x.offsetsStore.ResetOffset(spanCtx, x.name, x.resetOffsetTo.UnixMilli()); err != nil {
 			x.logger.Error(errors.Wrapf(err, "failed to reset projection=%s", x.name))
 			return err
 		}

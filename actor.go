@@ -77,7 +77,7 @@ func newActor[T State](behavior EntityBehavior[T], eventsStore eventstore.Events
 // At this stage we connect to the various stores
 func (entity *actor[T]) PreStart(ctx context.Context) error {
 	// add a span context
-	ctx, span := telemetry.SpanContext(ctx, "PreStart")
+	spanCtx, span := telemetry.SpanContext(ctx, "PreStart")
 	defer span.End()
 	// acquire the lock
 	entity.mu.Lock()
@@ -90,12 +90,12 @@ func (entity *actor[T]) PreStart(ctx context.Context) error {
 	}
 
 	// call the connect method of the journal store
-	if err := entity.eventsStore.Ping(ctx); err != nil {
+	if err := entity.eventsStore.Ping(spanCtx); err != nil {
 		return fmt.Errorf("failed to connect to the events store: %v", err)
 	}
 
 	// check whether there is a snapshot to recover from
-	if err := entity.recoverFromSnapshot(ctx); err != nil {
+	if err := entity.recoverFromSnapshot(spanCtx); err != nil {
 		return errors.Wrap(err, "failed to recover from snapshot")
 	}
 	return nil
@@ -124,7 +124,7 @@ func (entity *actor[T]) Receive(ctx actors.ReceiveContext) {
 // PostStop prepares the actor to gracefully shutdown
 func (entity *actor[T]) PostStop(ctx context.Context) error {
 	// add a span context
-	ctx, span := telemetry.SpanContext(ctx, "PostStop")
+	_, span := telemetry.SpanContext(ctx, "PostStop")
 	defer span.End()
 
 	// acquire the lock
@@ -139,11 +139,11 @@ func (entity *actor[T]) PostStop(ctx context.Context) error {
 // this is vital when the entity actor is restarting.
 func (entity *actor[T]) recoverFromSnapshot(ctx context.Context) error {
 	// add a span context
-	ctx, span := telemetry.SpanContext(ctx, "RecoverFromSnapshot")
+	spanCtx, span := telemetry.SpanContext(ctx, "RecoverFromSnapshot")
 	defer span.End()
 
 	// check whether there is a snapshot to recover from
-	event, err := entity.eventsStore.GetLatestEvent(ctx, entity.ID())
+	event, err := entity.eventsStore.GetLatestEvent(spanCtx, entity.ID())
 	// handle the error
 	if err != nil {
 		return errors.Wrap(err, "failed to recover the latest journal")

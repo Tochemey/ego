@@ -61,7 +61,7 @@ func NewOffsetStore() *OffsetStore {
 // Connect connects to the offset store
 func (x *OffsetStore) Connect(ctx context.Context) error {
 	// add a span context
-	ctx, span := telemetry.SpanContext(ctx, "OffsetStore.Connect")
+	_, span := telemetry.SpanContext(ctx, "OffsetStore.Connect")
 	defer span.End()
 
 	// check whether this instance of the journal is connected or not
@@ -87,7 +87,7 @@ func (x *OffsetStore) Connect(ctx context.Context) error {
 // Disconnect disconnects the offset store
 func (x *OffsetStore) Disconnect(ctx context.Context) error {
 	// add a span context
-	ctx, span := telemetry.SpanContext(ctx, "OffsetStore.Disconnect")
+	_, span := telemetry.SpanContext(ctx, "OffsetStore.Disconnect")
 	defer span.End()
 
 	// check whether this instance of the journal is connected or not
@@ -116,12 +116,12 @@ func (x *OffsetStore) Disconnect(ctx context.Context) error {
 // Ping verifies a connection to the database is still alive, establishing a connection if necessary.
 func (x *OffsetStore) Ping(ctx context.Context) error {
 	// add a span context
-	ctx, span := telemetry.SpanContext(ctx, "OffsetStore.Ping")
+	spanCtx, span := telemetry.SpanContext(ctx, "OffsetStore.Ping")
 	defer span.End()
 
 	// check whether we are connected or not
 	if !x.connected.Load() {
-		return x.Connect(ctx)
+		return x.Connect(spanCtx)
 	}
 
 	return nil
@@ -130,7 +130,7 @@ func (x *OffsetStore) Ping(ctx context.Context) error {
 // WriteOffset writes an offset to the offset store
 func (x *OffsetStore) WriteOffset(ctx context.Context, offset *egopb.Offset) error {
 	// add a span context
-	ctx, span := telemetry.SpanContext(ctx, "OffsetStore.WriteOffset")
+	_, span := telemetry.SpanContext(ctx, "OffsetStore.WriteOffset")
 	defer span.End()
 
 	// check whether this instance of the journal is connected or not
@@ -166,7 +166,7 @@ func (x *OffsetStore) WriteOffset(ctx context.Context, offset *egopb.Offset) err
 // GetCurrentOffset return the offset of a projection
 func (x *OffsetStore) GetCurrentOffset(ctx context.Context, projectionID *egopb.ProjectionId) (current *egopb.Offset, err error) {
 	// add a span context
-	ctx, span := telemetry.SpanContext(ctx, "OffsetStore.GetCurrentOffset")
+	_, span := telemetry.SpanContext(ctx, "OffsetStore.GetCurrentOffset")
 	defer span.End()
 
 	// check whether this instance of the journal is connected or not
@@ -211,7 +211,7 @@ func (x *OffsetStore) GetCurrentOffset(ctx context.Context, projectionID *egopb.
 // ResetOffset resets the offset of given projection to a given value across all shards
 func (x *OffsetStore) ResetOffset(ctx context.Context, projectionName string, value int64) error {
 	// add a span context
-	ctx, span := telemetry.SpanContext(ctx, "offsetStore.ResetOffset")
+	_, span := telemetry.SpanContext(ctx, "offsetStore.ResetOffset")
 	defer span.End()
 
 	// check whether this instance of the offset store is connected or not
