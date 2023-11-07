@@ -291,8 +291,9 @@ func TestActor(t *testing.T) {
 		// create an actor system
 		actorSystem, err := actors.NewActorSystem("TestActorSystem",
 			actors.WithPassivationDisabled(),
-			actors.WithLogger(log.DiscardLogger),
-			actors.WithActorInitMaxRetries(3))
+			actors.WithLogger(log.DefaultLogger),
+			actors.WithActorInitMaxRetries(3),
+		)
 		require.NoError(t, err)
 		assert.NotNil(t, actorSystem)
 
@@ -340,7 +341,8 @@ func TestActor(t *testing.T) {
 		// create the persistence actor using the behavior previously created
 		persistentActor := newActor[*testpb.Account](behavior, eventStore, eventStream)
 		// spawn the actor
-		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), persistentActor)
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), persistentActor)
+		require.NoError(t, err)
 		require.NotNil(t, pid)
 
 		var command proto.Message
@@ -401,7 +403,7 @@ func TestActor(t *testing.T) {
 
 		// restart the actor
 		pid, err = actorSystem.ReSpawn(ctx, behavior.ID())
-		assert.NoError(t, err)
+		require.NoError(t, err)
 
 		// fetch the current state
 		command = &egopb.GetStateCommand{}
