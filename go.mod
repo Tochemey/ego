@@ -10,7 +10,7 @@ require (
 	github.com/hashicorp/go-memdb v1.3.4
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.8.4
-	github.com/tochemey/goakt v1.3.0
+	github.com/tochemey/goakt v1.3.2
 	github.com/tochemey/gopack v0.0.0-20231019012242-829c971eb3ae
 	github.com/travisjeffery/go-dynaport v1.0.0
 	go.opentelemetry.io/otel v1.19.0
