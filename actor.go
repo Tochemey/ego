@@ -152,9 +152,11 @@ func (entity *actor[T]) recoverFromSnapshot(ctx context.Context) error {
 	// we do have the latest state just recover from it
 	if event != nil {
 		// set the current state
-		if err := event.GetResultingState().UnmarshalTo(entity.currentState); err != nil {
+		currentState := entity.InitialState()
+		if err := event.GetResultingState().UnmarshalTo(currentState); err != nil {
 			return errors.Wrap(err, "failed unmarshal the latest state")
 		}
+		entity.currentState = currentState
 
 		// set the event counter
 		entity.eventsCounter.Store(event.GetSequenceNumber())
