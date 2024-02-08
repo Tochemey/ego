@@ -31,8 +31,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tochemey/goakt/log"
-
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -43,7 +41,8 @@ import (
 	offsetstore "github.com/tochemey/ego/offsetstore/memory"
 	"github.com/tochemey/ego/projection"
 	"github.com/tochemey/goakt/discovery"
-	mockdisco "github.com/tochemey/goakt/testkit/discovery"
+	"github.com/tochemey/goakt/log"
+	mockdisco "github.com/tochemey/goakt/mocks/discovery"
 	"github.com/travisjeffery/go-dynaport"
 	"google.golang.org/protobuf/proto"
 )
