@@ -28,7 +28,7 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
-	"github.com/tochemey/goakt/pkg/queue"
+	"github.com/tochemey/ego/internal/queue"
 )
 
 // Subscriber defines the Subscriber Interface
