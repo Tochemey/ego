@@ -29,6 +29,7 @@ import (
 
 	"github.com/pkg/errors"
 	testpb "github.com/tochemey/ego/test/data/pb/v1"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 // AccountEntityBehavior implement EntityBehavior
@@ -76,6 +77,9 @@ func (t *AccountEntityBehavior) HandleCommand(_ context.Context, command Command
 
 	case *testpb.TestNoEvent:
 		return nil, nil
+
+	case *emptypb.Empty:
+		return []Event{new(emptypb.Empty)}, nil
 
 	default:
 		return nil, errors.New("unhandled command")

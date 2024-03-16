@@ -42,6 +42,7 @@ import (
 	"github.com/tochemey/gopack/postgres"
 	"go.uber.org/goleak"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func TestActor(t *testing.T) {
@@ -548,6 +549,85 @@ func TestActor(t *testing.T) {
 
 		// disconnect from the event store
 		assert.NoError(t, eventStore.Disconnect(ctx))
+		// close the stream
+		eventStream.Close()
+		// stop the actor system
+		err = actorSystem.Stop(ctx)
+		assert.NoError(t, err)
+	})
+	t.Run("with unhandled event", func(t *testing.T) {
+		defer goleak.VerifyNone(t)
+		ctx := context.TODO()
+		// create an actor system
+		actorSystem, err := actors.NewActorSystem("TestActorSystem",
+			actors.WithPassivationDisabled(),
+			actors.WithLogger(log.DiscardLogger),
+			actors.WithActorInitMaxRetries(3))
+		require.NoError(t, err)
+		assert.NotNil(t, actorSystem)
+
+		// start the actor system
+		err = actorSystem.Start(ctx)
+		require.NoError(t, err)
+
+		// create the event store
+		eventStore := memory.NewEventsStore()
+		// create a persistence id
+		persistenceID := uuid.NewString()
+		// create the persistence behavior
+		behavior := NewAccountEntityBehavior(persistenceID)
+
+		// connect the event store
+		err = eventStore.Connect(ctx)
+		require.NoError(t, err)
+
+		// create an instance of events stream
+		eventStream := eventstream.New()
+
+		// create the persistence actor using the behavior previously created
+		actor := newActor[*testpb.Account](behavior, eventStore, eventStream)
+		// spawn the actor
+		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), actor)
+		require.NotNil(t, pid)
+
+		// send the command to the actor
+		reply, err := actors.Ask(ctx, pid, &testpb.CreateAccount{AccountBalance: 500.00}, 5*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+		require.IsType(t, new(egopb.CommandReply), reply)
+
+		commandReply := reply.(*egopb.CommandReply)
+		require.IsType(t, new(egopb.CommandReply_StateReply), commandReply.GetReply())
+
+		state := commandReply.GetReply().(*egopb.CommandReply_StateReply)
+		assert.EqualValues(t, 1, state.StateReply.GetSequenceNumber())
+
+		// marshal the resulting state
+		resultingState := new(testpb.Account)
+		err = state.StateReply.GetState().UnmarshalTo(resultingState)
+		require.NoError(t, err)
+
+		expected := &testpb.Account{
+			AccountId:      persistenceID,
+			AccountBalance: 500.00,
+		}
+		assert.True(t, proto.Equal(expected, resultingState))
+
+		reply, err = actors.Ask(ctx, pid, new(emptypb.Empty), 5*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+		require.IsType(t, new(egopb.CommandReply), reply)
+
+		commandReply = reply.(*egopb.CommandReply)
+		require.IsType(t, new(egopb.CommandReply_ErrorReply), commandReply.GetReply())
+
+		errorReply := commandReply.GetReply().(*egopb.CommandReply_ErrorReply)
+		assert.Equal(t, "unhandled event", errorReply.ErrorReply.GetMessage())
+
+		// disconnect the events store
+		err = eventStore.Disconnect(ctx)
+		require.NoError(t, err)
+
 		// close the stream
 		eventStream.Close()
 		// stop the actor system
