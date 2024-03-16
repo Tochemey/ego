@@ -556,6 +556,7 @@ func TestActor(t *testing.T) {
 		assert.NoError(t, err)
 	})
 	t.Run("with unhandled event", func(t *testing.T) {
+		defer goleak.VerifyNone(t)
 		ctx := context.TODO()
 		// create an actor system
 		actorSystem, err := actors.NewActorSystem("TestActorSystem",
@@ -627,10 +628,12 @@ func TestActor(t *testing.T) {
 		err = eventStore.Disconnect(ctx)
 		require.NoError(t, err)
 
-		// close the stream
-		eventStream.Close()
-		// stop the actor system
-		err = actorSystem.Stop(ctx)
-		assert.NoError(t, err)
+		t.Cleanup(func() {
+			// close the stream
+			eventStream.Close()
+			// stop the actor system
+			err = actorSystem.Stop(ctx)
+			assert.NoError(t, err)
+		})
 	})
 }
