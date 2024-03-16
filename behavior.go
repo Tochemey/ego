@@ -50,7 +50,10 @@ type EntityBehavior[T State] interface {
 	//  Any decision should be solely based on the data passed in the commands and the state of the Behavior.
 	// In case of successful validation, one or more events expressing the mutations are persisted.
 	// Once the events are persisted, they are applied to the state producing a new valid state.
-	HandleCommand(ctx context.Context, command Command, priorState T) (event Event, err error)
+	// Every event emitted are processed one after the other in the same order they were emitted to guarantee consistency.
+	// It is at the discretion of the application developer to know in which order a given command should return the list of events
+	// This is really powerful when a command needs to return two events. For instance, an OpenAccount command can result in two events: one is AccountOpened and the second is AccountCredited
+	HandleCommand(ctx context.Context, command Command, priorState T) (events []Event, err error)
 	// HandleEvent handle events emitted by the command handlers. The event handlers are used to mutate the state of the event sourced actor by applying the events to it.
 	// Event handlers must be pure functions as they will be used when instantiating the event sourced actor and replaying the event journal.
 	HandleEvent(ctx context.Context, event Event, priorState T) (state T, err error)

@@ -113,20 +113,24 @@ func (a *AccountBehavior) InitialState() *samplepb.Account {
 }
 
 // HandleCommand handles every command that is sent to the persistent behavior
-func (a *AccountBehavior) HandleCommand(_ context.Context, command ego.Command, _ *samplepb.Account) (event ego.Event, err error) {
+func (a *AccountBehavior) HandleCommand(_ context.Context, command ego.Command, _ *samplepb.Account) (events []ego.Event, err error) {
 	switch cmd := command.(type) {
 	case *samplepb.CreateAccount:
 		// TODO in production grid app validate the command using the prior state
-		return &samplepb.AccountCreated{
-			AccountId:      cmd.GetAccountId(),
-			AccountBalance: cmd.GetAccountBalance(),
+		return []ego.Event{
+			&samplepb.AccountCreated{
+				AccountId:      cmd.GetAccountId(),
+				AccountBalance: cmd.GetAccountBalance(),
+			},
 		}, nil
 
 	case *samplepb.CreditAccount:
 		// TODO in production grid app validate the command using the prior state
-		return &samplepb.AccountCredited{
-			AccountId:      cmd.GetAccountId(),
-			AccountBalance: cmd.GetBalance(),
+		return []ego.Event{
+			&samplepb.AccountCredited{
+				AccountId:      cmd.GetAccountId(),
+				AccountBalance: cmd.GetBalance(),
+			},
 		}, nil
 
 	default:

@@ -51,20 +51,24 @@ func (t *AccountEntityBehavior) InitialState() *testpb.Account {
 	return new(testpb.Account)
 }
 
-func (t *AccountEntityBehavior) HandleCommand(_ context.Context, command Command, _ *testpb.Account) (event Event, err error) {
+func (t *AccountEntityBehavior) HandleCommand(_ context.Context, command Command, _ *testpb.Account) (events []Event, err error) {
 	switch cmd := command.(type) {
 	case *testpb.CreateAccount:
 		// TODO in production grid app validate the command using the prior state
-		return &testpb.AccountCreated{
-			AccountId:      t.id,
-			AccountBalance: cmd.GetAccountBalance(),
+		return []Event{
+			&testpb.AccountCreated{
+				AccountId:      t.id,
+				AccountBalance: cmd.GetAccountBalance(),
+			},
 		}, nil
 
 	case *testpb.CreditAccount:
 		if cmd.GetAccountId() == t.id {
-			return &testpb.AccountCredited{
-				AccountId:      cmd.GetAccountId(),
-				AccountBalance: cmd.GetBalance(),
+			return []Event{
+				&testpb.AccountCredited{
+					AccountId:      cmd.GetAccountId(),
+					AccountBalance: cmd.GetBalance(),
+				},
 			}, nil
 		}
 

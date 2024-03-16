@@ -213,22 +213,16 @@ func (entity *actor[T]) getStateAndReply(ctx actors.ReceiveContext) {
 
 // processCommandAndReply processes the incoming command
 func (entity *actor[T]) processCommandAndReply(ctx actors.ReceiveContext, command Command) {
-	// set the go context
 	goCtx := ctx.Context()
-	// pass the received command to the command handler
-	event, err := entity.HandleCommand(goCtx, command, entity.currentState)
-	// handle the command handler error
+	events, err := entity.HandleCommand(goCtx, command, entity.currentState)
 	if err != nil {
-		// send an error reply
 		entity.sendErrorReply(ctx, err)
 		return
 	}
 
-	// if the event is nil nothing is persisted, and we return no reply
-	if event == nil {
-		// get the current state and marshal it
+	// no-op when there are no events to process
+	if len(events) == 0 {
 		resultingState, _ := anypb.New(entity.currentState)
-		// create the command reply to send out
 		reply := &egopb.CommandReply{
 			Reply: &egopb.CommandReply_StateReply{
 				StateReply: &egopb.StateReply{
@@ -239,80 +233,92 @@ func (entity *actor[T]) processCommandAndReply(ctx actors.ReceiveContext, comman
 				},
 			},
 		}
-		// send the response
 		ctx.Response(reply)
 		return
 	}
 
-	// process the event by calling the event handler
-	resultingState, err := entity.HandleEvent(goCtx, event, entity.currentState)
-	// handle the event handler error
-	if err != nil {
-		// send an error reply
-		entity.sendErrorReply(ctx, err)
-		return
-	}
-
-	// increment the event counter
-	entity.eventsCounter.Inc()
-
-	// set the current state for the next command
-	entity.currentState = resultingState
-
-	// marshal the event and the resulting state
-	marshaledEvent, _ := anypb.New(event)
-	marshaledState, _ := anypb.New(resultingState)
-
-	sequenceNumber := entity.eventsCounter.Load()
-	timestamp := timestamppb.Now()
-	entity.lastCommandTime = timestamp.AsTime()
+	envelopesChan := make(chan *egopb.Event, 1)
+	eg, goCtx := errgroup.WithContext(goCtx)
 	shardNumber := ctx.Self().ActorSystem().GetPartition(entity.ID())
-
-	// create the event
-	envelope := &egopb.Event{
-		PersistenceId:  entity.ID(),
-		SequenceNumber: sequenceNumber,
-		IsDeleted:      false,
-		Event:          marshaledEvent,
-		ResultingState: marshaledState,
-		Timestamp:      entity.lastCommandTime.Unix(),
-		Shard:          shardNumber,
-	}
-
-	// create a journal list
-	journals := []*egopb.Event{envelope}
-
-	// define the topic for the given shard
 	topic := fmt.Sprintf(eventsTopic, shardNumber)
 
-	// publish to the event stream and persist the event to the events store
-	eg, goCtx := errgroup.WithContext(goCtx)
-
-	// publish the message to the topic
+	// 1-> process each event
+	// 2-> increment the events (processed) counter of the entity
+	// 3-> set the current state of the entity to the resulting state
+	// 4-> set the latCommandTime of the entity with the current timestamp
+	// 5-> marshal the resulting state and event to build the persistence envelope
+	// 6-> push the envelope to the envelope channel for downstream processing
 	eg.Go(func() error {
-		entity.eventsStream.Publish(topic, envelope)
+		defer close(envelopesChan)
+		for _, event := range events {
+			resultingState, err := entity.HandleEvent(goCtx, event, entity.currentState)
+			if err != nil {
+				entity.sendErrorReply(ctx, err)
+				return err
+			}
+
+			entity.eventsCounter.Inc()
+			entity.currentState = resultingState
+			entity.lastCommandTime = timestamppb.Now().AsTime()
+
+			event, _ := anypb.New(event)
+			state, _ := anypb.New(resultingState)
+
+			envelope := &egopb.Event{
+				PersistenceId:  entity.ID(),
+				SequenceNumber: entity.eventsCounter.Load(),
+				IsDeleted:      false,
+				Event:          event,
+				ResultingState: state,
+				Timestamp:      entity.lastCommandTime.Unix(),
+				Shard:          shardNumber,
+			}
+
+			select {
+			case envelopesChan <- envelope:
+			case <-goCtx.Done():
+				return goCtx.Err()
+			}
+		}
 		return nil
 	})
 
-	// persist the event to the events store
+	// 1-> publish the processed event
+	// 2-> build the list of envelopes for persistence
+	// 3-> persist the batch of envelopes when the channel is closed and return
 	eg.Go(func() error {
-		return entity.eventsStore.WriteEvents(goCtx, journals)
+		var envelopes []*egopb.Event
+		for {
+			select {
+			case envelope, ok := <-envelopesChan:
+				// channel closed, persist the envelopes
+				if !ok {
+					return entity.eventsStore.WriteEvents(goCtx, envelopes)
+				}
+
+				entity.eventsStream.Publish(topic, envelope)
+				envelopes = append(envelopes, envelope)
+			case <-goCtx.Done():
+				return goCtx.Err()
+			}
+		}
 	})
 
-	// handle the persistence error
+	// wait for all go routines to complete
 	if err := eg.Wait(); err != nil {
-		// send an error reply
 		entity.sendErrorReply(ctx, err)
 		return
 	}
+
+	state, _ := anypb.New(entity.currentState)
 
 	// create the command reply to send
 	reply := &egopb.CommandReply{
 		Reply: &egopb.CommandReply_StateReply{
 			StateReply: &egopb.StateReply{
 				PersistenceId:  entity.ID(),
-				State:          marshaledState,
-				SequenceNumber: sequenceNumber,
+				State:          state,
+				SequenceNumber: entity.eventsCounter.Load(),
 				Timestamp:      entity.lastCommandTime.Unix(),
 			},
 		},
