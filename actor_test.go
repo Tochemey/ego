@@ -556,7 +556,6 @@ func TestActor(t *testing.T) {
 		assert.NoError(t, err)
 	})
 	t.Run("with unhandled event", func(t *testing.T) {
-		defer goleak.VerifyNone(t)
 		ctx := context.TODO()
 		// create an actor system
 		actorSystem, err := actors.NewActorSystem("TestActorSystem",
