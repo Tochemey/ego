@@ -213,22 +213,16 @@ func (entity *actor[T]) getStateAndReply(ctx actors.ReceiveContext) {
 
 // processCommandAndReply processes the incoming command
 func (entity *actor[T]) processCommandAndReply(ctx actors.ReceiveContext, command Command) {
-	// set the go context
 	goCtx := ctx.Context()
-	// pass the received command to the command handler
-	event, err := entity.HandleCommand(goCtx, command, entity.currentState)
-	// handle the command handler error
+	events, err := entity.HandleCommand(goCtx, command, entity.currentState)
 	if err != nil {
-		// send an error reply
 		entity.sendErrorReply(ctx, err)
 		return
 	}
 
-	// if the event is nil nothing is persisted, and we return no reply
-	if event == nil {
-		// get the current state and marshal it
+	// no-op when there are no events to process
+	if len(events) == 0 {
 		resultingState, _ := anypb.New(entity.currentState)
-		// create the command reply to send out
 		reply := &egopb.CommandReply{
 			Reply: &egopb.CommandReply_StateReply{
 				StateReply: &egopb.StateReply{
@@ -239,85 +233,69 @@ func (entity *actor[T]) processCommandAndReply(ctx actors.ReceiveContext, comman
 				},
 			},
 		}
-		// send the response
 		ctx.Response(reply)
 		return
 	}
 
-	// process the event by calling the event handler
-	resultingState, err := entity.HandleEvent(goCtx, event, entity.currentState)
-	// handle the event handler error
-	if err != nil {
-		// send an error reply
-		entity.sendErrorReply(ctx, err)
-		return
-	}
-
-	// increment the event counter
-	entity.eventsCounter.Inc()
-
-	// set the current state for the next command
-	entity.currentState = resultingState
-
-	// marshal the event and the resulting state
-	marshaledEvent, _ := anypb.New(event)
-	marshaledState, _ := anypb.New(resultingState)
-
-	sequenceNumber := entity.eventsCounter.Load()
-	timestamp := timestamppb.Now()
-	entity.lastCommandTime = timestamp.AsTime()
 	shardNumber := ctx.Self().ActorSystem().GetPartition(entity.ID())
-
-	// create the event
-	envelope := &egopb.Event{
-		PersistenceId:  entity.ID(),
-		SequenceNumber: sequenceNumber,
-		IsDeleted:      false,
-		Event:          marshaledEvent,
-		ResultingState: marshaledState,
-		Timestamp:      entity.lastCommandTime.Unix(),
-		Shard:          shardNumber,
-	}
-
-	// create a journal list
-	journals := []*egopb.Event{envelope}
-
-	// define the topic for the given shard
 	topic := fmt.Sprintf(eventsTopic, shardNumber)
 
-	// publish to the event stream and persist the event to the events store
-	eg, goCtx := errgroup.WithContext(goCtx)
+	var envelopes []*egopb.Event
+	// process all events
+	for _, event := range events {
+		resultingState, err := entity.HandleEvent(goCtx, event, entity.currentState)
+		if err != nil {
+			entity.sendErrorReply(ctx, err)
+			return
+		}
 
-	// publish the message to the topic
+		entity.eventsCounter.Inc()
+		entity.currentState = resultingState
+		entity.lastCommandTime = timestamppb.Now().AsTime()
+
+		event, _ := anypb.New(event)
+		state, _ := anypb.New(resultingState)
+
+		envelope := &egopb.Event{
+			PersistenceId:  entity.ID(),
+			SequenceNumber: entity.eventsCounter.Load(),
+			IsDeleted:      false,
+			Event:          event,
+			ResultingState: state,
+			Timestamp:      entity.lastCommandTime.Unix(),
+			Shard:          shardNumber,
+		}
+		envelopes = append(envelopes, envelope)
+	}
+
+	eg, goCtx := errgroup.WithContext(goCtx)
 	eg.Go(func() error {
-		entity.eventsStream.Publish(topic, envelope)
+		for _, envelope := range envelopes {
+			entity.eventsStream.Publish(topic, envelope)
+		}
 		return nil
 	})
 
-	// persist the event to the events store
 	eg.Go(func() error {
-		return entity.eventsStore.WriteEvents(goCtx, journals)
+		return entity.eventsStore.WriteEvents(goCtx, envelopes)
 	})
 
-	// handle the persistence error
 	if err := eg.Wait(); err != nil {
-		// send an error reply
 		entity.sendErrorReply(ctx, err)
 		return
 	}
 
-	// create the command reply to send
+	state, _ := anypb.New(entity.currentState)
 	reply := &egopb.CommandReply{
 		Reply: &egopb.CommandReply_StateReply{
 			StateReply: &egopb.StateReply{
 				PersistenceId:  entity.ID(),
-				State:          marshaledState,
-				SequenceNumber: sequenceNumber,
+				State:          state,
+				SequenceNumber: entity.eventsCounter.Load(),
 				Timestamp:      entity.lastCommandTime.Unix(),
 			},
 		},
 	}
 
-	// send the response
 	ctx.Response(reply)
 }
