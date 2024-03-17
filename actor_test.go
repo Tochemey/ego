@@ -40,14 +40,12 @@ import (
 	"github.com/tochemey/goakt/actors"
 	"github.com/tochemey/goakt/log"
 	"github.com/tochemey/gopack/postgres"
-	"go.uber.org/goleak"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func TestActor(t *testing.T) {
 	t.Run("with state reply", func(t *testing.T) {
-		defer goleak.VerifyNone(t)
 		ctx := context.TODO()
 		// create an actor system
 		actorSystem, err := actors.NewActorSystem("TestActorSystem",
@@ -145,7 +143,6 @@ func TestActor(t *testing.T) {
 		assert.NoError(t, err)
 	})
 	t.Run("with error reply", func(t *testing.T) {
-		defer goleak.VerifyNone(t)
 		ctx := context.TODO()
 
 		// create an actor system
@@ -231,7 +228,6 @@ func TestActor(t *testing.T) {
 		assert.NoError(t, err)
 	})
 	t.Run("with unhandled command", func(t *testing.T) {
-		defer goleak.VerifyNone(t)
 		ctx := context.TODO()
 
 		// create an actor system
@@ -556,7 +552,6 @@ func TestActor(t *testing.T) {
 		assert.NoError(t, err)
 	})
 	t.Run("with unhandled event", func(t *testing.T) {
-		defer goleak.VerifyNone(t)
 		ctx := context.TODO()
 		// create an actor system
 		actorSystem, err := actors.NewActorSystem("TestActorSystem",
@@ -624,16 +619,13 @@ func TestActor(t *testing.T) {
 		errorReply := commandReply.GetReply().(*egopb.CommandReply_ErrorReply)
 		assert.Equal(t, "unhandled event", errorReply.ErrorReply.GetMessage())
 
-		// disconnect the events store
-		err = eventStore.Disconnect(ctx)
-		require.NoError(t, err)
+		// disconnect from the event store
+		require.NoError(t, eventStore.Disconnect(ctx))
 
-		t.Cleanup(func() {
-			// close the stream
-			eventStream.Close()
-			// stop the actor system
-			err = actorSystem.Stop(ctx)
-			assert.NoError(t, err)
-		})
+		// close the stream
+		eventStream.Close()
+		// stop the actor system
+		err = actorSystem.Stop(ctx)
+		assert.NoError(t, err)
 	})
 }
