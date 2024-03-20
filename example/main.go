@@ -89,7 +89,7 @@ func main() {
 	os.Exit(0)
 }
 
-// AccountBehavior implements persistence.Behavior
+// AccountBehavior implements EntityBehavior
 type AccountBehavior struct {
 	id string
 }

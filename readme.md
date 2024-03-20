@@ -111,7 +111,7 @@ func main() {
 		AccountId:      entityID,
 		AccountBalance: 500.00,
 	}
-	// send the command to the actor. Please don't ignore the error in production grid code
+	// send the command to the entity. Please don't ignore the error in production grid code
 	account, _, _ := entity.SendCommand(ctx, command)
 
 	log.Printf("current balance: %v", account.GetAccountBalance())
@@ -129,12 +129,12 @@ func main() {
 	signal.Notify(interruptSignal, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	<-interruptSignal
 
-	// stop the actor system
+	// stop the ego engine
 	_ = e.Stop(ctx)
 	os.Exit(0)
 }
 
-// AccountBehavior implements persistence.Behavior
+// AccountBehavior implements EntityBehavior
 type AccountBehavior struct {
 	id string
 }
