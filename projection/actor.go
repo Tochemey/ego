@@ -68,6 +68,8 @@ func (x *Projection) Receive(ctx actors.ReceiveContext) {
 	switch ctx.Message().(type) {
 	case *goaktpb.PostStart:
 		x.runner.Run(ctx.Context())
+	default:
+		ctx.Unhandled()
 	}
 }
 

@@ -52,18 +52,15 @@ type Entity[T State] struct {
 
 // NewEntity creates an instance of Entity
 func NewEntity[T State](ctx context.Context, behavior EntityBehavior[T], engine *Engine) (*Entity[T], error) {
-	// check whether the ego engine is defined
 	if engine == nil {
 		return nil, ErrEngineRequired
 	}
-	// check whether the eGo engine has started or not
+
 	if !engine.started.Load() {
 		return nil, ErrEngineNotStarted
 	}
 
-	// create the instance of the actor
 	pid, err := engine.actorSystem.Spawn(ctx, behavior.ID(), newActor(behavior, engine.eventsStore, engine.eventStream))
-	// return the error in case there is one
 	if err != nil {
 		return nil, err
 	}
@@ -77,30 +74,23 @@ func NewEntity[T State](ctx context.Context, behavior EntityBehavior[T], engine 
 // 2. nil when there is no resulting state or no event persisted
 // 3. an error in case of error
 func (x Entity[T]) SendCommand(ctx context.Context, command Command) (resultingState T, revision uint64, err error) {
-	// define a nil state
-	var nilT T
+	var nilOfT T
 
-	// check whether the underlying actor is set and running
 	if x.actor == nil || !x.actor.IsRunning() {
-		return nilT, 0, ErrUndefinedEntity
+		return nilOfT, 0, ErrUndefinedEntity
 	}
 
-	// send the command to the actor
 	reply, err := actors.Ask(ctx, x.actor, command, time.Second)
-	// handle the error
 	if err != nil {
-		return nilT, 0, err
+		return nilOfT, 0, err
 	}
 
-	// cast the reply to a command reply because that is the expected return type
 	commandReply, ok := reply.(*egopb.CommandReply)
-	// when casting is successful
 	if ok {
-		// parse the command reply and return the appropriate responses
 		return parseCommandReply[T](commandReply)
 	}
-	// casting failed
-	return nilT, 0, errors.New("failed to parse command reply")
+
+	return nilOfT, 0, errors.New("failed to parse command reply")
 }
 
 // parseCommandReply parses the command reply
@@ -109,17 +99,14 @@ func parseCommandReply[T State](reply *egopb.CommandReply) (T, uint64, error) {
 		state T
 		err   error
 	)
-	// parse the command reply
+
 	switch r := reply.GetReply().(type) {
 	case *egopb.CommandReply_StateReply:
-		// unmarshal the state
 		msg, err := r.StateReply.GetState().UnmarshalNew()
-		// return the error in case there is one
 		if err != nil {
 			return state, 0, err
 		}
 
-		// unpack the state properly
 		switch v := msg.(type) {
 		case T:
 			return v, r.StateReply.GetSequenceNumber(), nil

@@ -60,12 +60,9 @@ func NewDiscardHandler(logger log.Logger) *DiscardHandler {
 
 // Handle handles the events consumed
 func (x *DiscardHandler) Handle(_ context.Context, persistenceID string, event *anypb.Any, state *anypb.Any, revision uint64) error {
-	// add some logging information
 	x.logger.Debugf("handling event=(%s) revision=(%d) with resulting state=(%s) of persistenceId=(%s)",
 		event.GetTypeUrl(), revision, state.GetTypeUrl(), persistenceID)
-	// increase the counter
 	x.eventsCounter.Inc()
-	// return successful process
 	return nil
 }
 
