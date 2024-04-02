@@ -31,14 +31,15 @@ import (
 
 	"github.com/flowchartsman/retry"
 	"github.com/pkg/errors"
+	"go.uber.org/atomic"
+	"golang.org/x/sync/errgroup"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	"github.com/tochemey/ego/egopb"
 	"github.com/tochemey/ego/eventstore"
 	"github.com/tochemey/ego/internal/telemetry"
 	"github.com/tochemey/ego/offsetstore"
 	"github.com/tochemey/goakt/log"
-	"go.uber.org/atomic"
-	"golang.org/x/sync/errgroup"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // runner defines the projection runner
@@ -78,7 +79,6 @@ func newRunner(name string,
 	eventsStore eventstore.EventsStore,
 	offsetStore offsetstore.OffsetStore,
 	opts ...Option) *runner {
-	// create an instance of the runner with the default settings
 	runner := &runner{
 		name:            name,
 		logger:          log.DefaultLogger,
@@ -94,7 +94,6 @@ func newRunner(name string,
 		resetOffsetTo:   time.Time{},
 	}
 
-	// apply the various options
 	for _, opt := range opts {
 		opt.Apply(runner)
 	}
@@ -104,7 +103,6 @@ func newRunner(name string,
 
 // Start starts the projection runner
 func (x *runner) Start(ctx context.Context) error {
-	// add a span context
 	spanCtx, span := telemetry.SpanContext(ctx, "PreStart")
 	defer span.End()
 
@@ -112,22 +110,18 @@ func (x *runner) Start(ctx context.Context) error {
 		return nil
 	}
 
-	// connect to the offset store
 	if x.offsetsStore == nil {
 		return errors.New("offsets store is not defined")
 	}
 
-	// call the connect method of the journal store
 	if err := x.offsetsStore.Ping(spanCtx); err != nil {
 		return fmt.Errorf("failed to connect to the offsets store: %v", err)
 	}
 
-	// connect to the events store
 	if x.eventsStore == nil {
 		return errors.New("events store is not defined")
 	}
 
-	// call the connect method of the journal store
 	if err := x.eventsStore.Ping(spanCtx); err != nil {
 		return fmt.Errorf("failed to connect to the events store: %v", err)
 	}
@@ -144,17 +138,13 @@ func (x *runner) Start(ctx context.Context) error {
 	// an initial delay of 100 ms and a maximum delay of 1 second
 	retrier := retry.NewRetrier(maxRetries, initialDelay, maxDelay)
 	err := retrier.RunContext(spanCtx, func(ctx context.Context) error {
-		// we ping both stores in parallel
 		g, ctx := errgroup.WithContext(ctx)
-		// ping the journal store
 		g.Go(func() error {
 			return x.eventsStore.Ping(ctx)
 		})
-		// ping the offset store
 		g.Go(func() error {
 			return x.offsetsStore.Ping(ctx)
 		})
-		// return the result of operations
 		return g.Wait()
 	})
 
@@ -162,12 +152,10 @@ func (x *runner) Start(ctx context.Context) error {
 		return errors.Wrap(err, "failed to start the projection")
 	}
 
-	// run pre-start tasks
 	if err := x.preStart(spanCtx); err != nil {
 		return err
 	}
 
-	// set the started status
 	x.started.Store(true)
 
 	return nil
@@ -175,19 +163,15 @@ func (x *runner) Start(ctx context.Context) error {
 
 // Stop stops the projection runner
 func (x *runner) Stop(ctx context.Context) error {
-	// add a span context
 	_, span := telemetry.SpanContext(ctx, "PostStop")
 	defer span.End()
 
-	// check whether it is stopped or not
 	if !x.started.Load() {
 		return nil
 	}
 
-	// send the stop
 	x.stopSignal <- struct{}{}
 
-	// set the started status to false
 	x.started.Store(false)
 	return nil
 }
@@ -205,37 +189,27 @@ func (x *runner) Run(ctx context.Context) {
 
 // processingLoop is a loop that continuously runs to process events persisted onto the journal store until the projection is stopped
 func (x *runner) processingLoop(ctx context.Context) {
-	// create the time ticker
 	ticker := time.NewTicker(x.refreshInterval)
-	// create the stop ticker signal
 	tickerStopSig := make(chan struct{}, 1)
-	// start ticking
 	go func() {
 		for {
 			select {
 			case <-x.stopSignal:
-				// signal to stop the ticker
 				tickerStopSig <- struct{}{}
 				return
 			case <-ticker.C:
-				// with a simple parallelism we process all shards
 				g, ctx := errgroup.WithContext(ctx)
 				shardsChan := make(chan uint64, 1)
 
 				// let us fetch the shards
 				g.Go(func() error {
-					// close the channel once done
 					defer close(shardsChan)
-					// fetch the list of shards
 					shards, err := x.eventsStore.ShardNumbers(ctx)
-					// handle the error
 					if err != nil {
-						// log the error
 						x.logger.Error(errors.Wrap(err, "failed to fetch the list of shards"))
 						return err
 					}
 
-					// let us push the shard into the channel
 					for _, shard := range shards {
 						select {
 						case shardsChan <- shard:
@@ -263,13 +237,8 @@ func (x *runner) processingLoop(ctx context.Context) {
 
 				// wait for all the processing to be done
 				if err := g.Wait(); err != nil {
-					// log the error
 					x.logger.Error(err)
-					// here we stop the projection
-					err := x.Stop(ctx)
-					// handle the error
-					if err != nil {
-						// log the error
+					if err := x.Stop(ctx); err != nil {
 						x.logger.Error(err)
 						return
 					}
@@ -277,15 +246,13 @@ func (x *runner) processingLoop(ctx context.Context) {
 			}
 		}
 	}()
-	// wait for the stop signal to stop the ticker
+
 	<-tickerStopSig
-	// stop the ticker
 	ticker.Stop()
 }
 
 // doProcess processes all events of a given persistent entity and hand them over to the handler
 func (x *runner) doProcess(ctx context.Context, shard uint64) error {
-	// add a span context
 	spanCtx, span := telemetry.SpanContext(ctx, "HandleShard")
 	defer span.End()
 
@@ -293,35 +260,28 @@ func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 		return nil
 	}
 
-	// create the projection id
 	projectionID := &egopb.ProjectionId{
 		ProjectionName: x.name,
 		ShardNumber:    shard,
 	}
 
-	// get the latest offset persisted for the shard
 	offset, err := x.offsetsStore.GetCurrentOffset(spanCtx, projectionID)
 	if err != nil {
 		return err
 	}
 
-	// set the current offset
 	currOffset := offset.GetValue()
-	// overwrite that offset is startingOffset is set
 	if !x.startingOffset.IsZero() {
 		currOffset = x.startingOffset.UnixMilli()
 	}
 
-	// fetch events
 	events, nextOffset, err := x.eventsStore.GetShardEvents(spanCtx, shard, currOffset, uint64(x.maxBufferSize))
 	if err != nil {
 		return err
 	}
 
-	// grab the length of events
 	length := len(events)
 
-	// there is nothing to process
 	if length == 0 {
 		return nil
 	}
@@ -329,9 +289,8 @@ func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 	// define a variable that hold the number of events successfully processed
 	// iterate the events
 	for i := 0; i < length; i++ {
-		// grab the envelope
 		envelope := events[i]
-		// grab the data to pass to the projection handler
+
 		state := envelope.GetResultingState()
 		event := envelope.GetEvent()
 		seqNr := envelope.GetSequenceNumber()
@@ -347,7 +306,6 @@ func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 			}
 
 		case RetryAndFail:
-			// grab the max retries amd delay
 			retries := x.recovery.Retries()
 			delay := x.recovery.RetryDelay()
 			// create a new exponential backoff that will try a maximum of retries times, with
@@ -355,7 +313,6 @@ func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 			backoff := retry.NewRetrier(int(retries), 100*time.Millisecond, delay)
 			// pass the data to the projection handler
 			if err := backoff.Run(func() error {
-				// handle the projection handler error
 				if err := x.handler.Handle(spanCtx, persistenceID, event, state, seqNr); err != nil {
 					x.logger.Error(errors.Wrapf(err, "failed to process event for persistence id=%s, revision=%d", persistenceID, seqNr))
 					return err
@@ -367,7 +324,6 @@ func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 			}
 
 		case RetryAndSkip:
-			// grab the max retries amd delay
 			retries := x.recovery.Retries()
 			delay := x.recovery.RetryDelay()
 			// create a new exponential backoff that will try a maximum of retries times, with
@@ -387,6 +343,7 @@ func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 				x.logger.Error(errors.Wrapf(err, "failed to process event for persistence id=%s, revision=%d", persistenceID, seqNr))
 			}
 		}
+
 		// the envelope has been successfully processed
 		// here we commit the offset to the offset store and continue the next event
 		offset = &egopb.Offset{
@@ -395,7 +352,7 @@ func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 			Value:          nextOffset,
 			Timestamp:      timestamppb.Now().AsTime().UnixMilli(),
 		}
-		// write the given offset and return any possible error
+
 		if err := x.offsetsStore.WriteOffset(spanCtx, offset); err != nil {
 			return errors.Wrapf(err, "failed to persist offset for persistence id=%s", persistenceID)
 		}
@@ -406,13 +363,10 @@ func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 
 // preStart is used to perform some tasks before the projection starts
 func (x *runner) preStart(ctx context.Context) error {
-	// add a span context
 	spanCtx, span := telemetry.SpanContext(ctx, "PreStart")
 	defer span.End()
 
-	// reset the offset when it is set
 	if !x.resetOffsetTo.IsZero() {
-		// reset the offsets of the given projection
 		if err := x.offsetsStore.ResetOffset(spanCtx, x.name, x.resetOffsetTo.UnixMilli()); err != nil {
 			x.logger.Error(errors.Wrapf(err, "failed to reset projection=%s", x.name))
 			return err

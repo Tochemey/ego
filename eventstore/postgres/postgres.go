@@ -30,12 +30,13 @@ import (
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/pkg/errors"
+	"go.uber.org/atomic"
+	"google.golang.org/protobuf/proto"
+
 	"github.com/tochemey/ego/egopb"
 	"github.com/tochemey/ego/eventstore"
 	"github.com/tochemey/ego/internal/telemetry"
 	"github.com/tochemey/gopack/postgres"
-	"go.uber.org/atomic"
-	"google.golang.org/protobuf/proto"
 )
 
 var (

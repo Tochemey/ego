@@ -33,14 +33,15 @@ import (
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-memdb"
 	"github.com/pkg/errors"
-	"github.com/tochemey/ego/egopb"
-	"github.com/tochemey/ego/eventstore"
-	"github.com/tochemey/ego/internal/telemetry"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/known/anypb"
+
+	"github.com/tochemey/ego/egopb"
+	"github.com/tochemey/ego/eventstore"
+	"github.com/tochemey/ego/internal/telemetry"
 )
 
 // EventsStore keep in memory every journal

@@ -31,12 +31,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tochemey/ego/egopb"
-	"github.com/tochemey/ego/eventstore"
-	testpb "github.com/tochemey/ego/test/data/pb/v1"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
+
+	"github.com/tochemey/ego/egopb"
+	"github.com/tochemey/ego/eventstore"
+	testpb "github.com/tochemey/ego/test/data/pb/v1"
 )
 
 func TestEventsStore(t *testing.T) {

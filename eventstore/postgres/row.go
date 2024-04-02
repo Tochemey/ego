@@ -28,11 +28,12 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	"github.com/tochemey/ego/egopb"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/known/anypb"
+
+	"github.com/tochemey/ego/egopb"
 )
 
 // row represents the events store row

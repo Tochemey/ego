@@ -25,10 +25,11 @@
 package ego
 
 import (
+	"go.uber.org/atomic"
+
 	"github.com/tochemey/goakt/discovery"
 	"github.com/tochemey/goakt/log"
 	"github.com/tochemey/goakt/telemetry"
-	"go.uber.org/atomic"
 )
 
 // Option is the interface that applies a configuration option.

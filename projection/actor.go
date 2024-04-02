@@ -27,10 +27,12 @@ package projection
 import (
 	"context"
 
+	"google.golang.org/protobuf/types/known/emptypb"
+
 	"github.com/tochemey/ego/eventstore"
 	"github.com/tochemey/ego/offsetstore"
 	"github.com/tochemey/goakt/actors"
-	"google.golang.org/protobuf/types/known/emptypb"
+	"github.com/tochemey/goakt/goaktpb"
 )
 
 // Start is used to start the projection
@@ -64,7 +66,7 @@ func (x *Projection) PreStart(ctx context.Context) error {
 // Receive handle the message sent to the projection actor
 func (x *Projection) Receive(ctx actors.ReceiveContext) {
 	switch ctx.Message().(type) {
-	case *emptypb.Empty:
+	case *goaktpb.PostStart:
 		x.runner.Run(ctx.Context())
 	}
 }

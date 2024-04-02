@@ -35,6 +35,9 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/travisjeffery/go-dynaport"
+	"google.golang.org/protobuf/proto"
+
 	"github.com/tochemey/ego/egopb"
 	"github.com/tochemey/ego/eventstore/memory"
 	samplepb "github.com/tochemey/ego/example/pbs/sample/pb/v1"
@@ -43,8 +46,6 @@ import (
 	"github.com/tochemey/goakt/discovery"
 	"github.com/tochemey/goakt/log"
 	mockdisco "github.com/tochemey/goakt/mocks/discovery"
-	"github.com/travisjeffery/go-dynaport"
-	"google.golang.org/protobuf/proto"
 )
 
 func TestEgo(t *testing.T) {

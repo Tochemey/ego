@@ -28,6 +28,7 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+
 	"github.com/tochemey/ego/internal/queue"
 )
 

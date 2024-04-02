@@ -30,6 +30,8 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"go.uber.org/atomic"
+
 	"github.com/tochemey/ego/eventstore"
 	"github.com/tochemey/ego/eventstream"
 	egotel "github.com/tochemey/ego/internal/telemetry"
@@ -39,7 +41,6 @@ import (
 	"github.com/tochemey/goakt/discovery"
 	"github.com/tochemey/goakt/log"
 	"github.com/tochemey/goakt/telemetry"
-	"go.uber.org/atomic"
 )
 
 // Engine represents the engine that empowers the various entities

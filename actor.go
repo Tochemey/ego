@@ -31,15 +31,17 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"go.uber.org/atomic"
+	"golang.org/x/sync/errgroup"
+	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
+
 	"github.com/tochemey/ego/egopb"
 	"github.com/tochemey/ego/eventstore"
 	"github.com/tochemey/ego/eventstream"
 	"github.com/tochemey/ego/internal/telemetry"
 	"github.com/tochemey/goakt/actors"
-	"go.uber.org/atomic"
-	"golang.org/x/sync/errgroup"
-	"google.golang.org/protobuf/types/known/anypb"
-	"google.golang.org/protobuf/types/known/timestamppb"
+	"github.com/tochemey/goakt/goaktpb"
 )
 
 var (
@@ -116,6 +118,12 @@ func (entity *actor[T]) Receive(ctx actors.ReceiveContext) {
 
 	// grab the command sent
 	switch command := ctx.Message().(type) {
+	case *goaktpb.PostStart:
+		// TODO: handle this properly
+	case *goaktpb.PostStop:
+		// TODO: handle this properly. Remove this from Go-Akt
+	case *goaktpb.PreStart:
+		// TODO: handle this properly. Remove this from Go-Akt
 	case *egopb.GetStateCommand:
 		entity.getStateAndReply(ctx)
 	default:

@@ -32,6 +32,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
+
 	"github.com/tochemey/ego/egopb"
 	"github.com/tochemey/ego/eventstore/memory"
 	pgeventstore "github.com/tochemey/ego/eventstore/postgres"
@@ -40,8 +43,6 @@ import (
 	"github.com/tochemey/goakt/actors"
 	"github.com/tochemey/goakt/log"
 	"github.com/tochemey/gopack/postgres"
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 func TestActor(t *testing.T) {

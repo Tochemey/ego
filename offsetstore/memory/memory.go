@@ -32,10 +32,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-memdb"
 	"github.com/pkg/errors"
+	"go.uber.org/atomic"
+
 	"github.com/tochemey/ego/egopb"
 	"github.com/tochemey/ego/internal/telemetry"
 	"github.com/tochemey/ego/offsetstore"
-	"go.uber.org/atomic"
 )
 
 // OffsetStore implements the offset store interface
