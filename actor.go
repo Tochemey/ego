@@ -110,10 +110,6 @@ func (entity *actor[T]) Receive(ctx actors.ReceiveContext) {
 		if err := entity.recoverFromSnapshot(ctx.Context()); err != nil {
 			ctx.Err(errors.Wrap(err, "failed to recover from snapshot"))
 		}
-	case *goaktpb.PostStop:
-		// TODO: handle this properly. Remove this from Go-Akt
-	case *goaktpb.PreStart:
-		// TODO: handle this properly. Remove this from Go-Akt
 	case *egopb.GetStateCommand:
 		entity.getStateAndReply(ctx)
 	default:
