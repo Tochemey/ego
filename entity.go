@@ -31,8 +31,9 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/tochemey/ego/egopb"
-	"github.com/tochemey/goakt/actors"
+	"github.com/tochemey/goakt/v2/actors"
+
+	"github.com/tochemey/ego/v2/egopb"
 )
 
 var (

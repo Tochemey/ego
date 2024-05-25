@@ -84,7 +84,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/tochemey/ego"
 	"github.com/tochemey/ego/eventstore/memory"
-	samplepb "github.com/tochemey/ego/example/pbs/sample/pb/v1"
+	samplepb "github.com/tochemey/ego/example/pbs/sample/pb/v2"
 	"google.golang.org/protobuf/proto"
 )
 

@@ -27,9 +27,9 @@ package ego
 import (
 	"go.uber.org/atomic"
 
-	"github.com/tochemey/goakt/discovery"
-	"github.com/tochemey/goakt/log"
-	"github.com/tochemey/goakt/telemetry"
+	"github.com/tochemey/goakt/v2/discovery"
+	"github.com/tochemey/goakt/v2/log"
+	"github.com/tochemey/goakt/v2/telemetry"
 )
 
 // Option is the interface that applies a configuration option.
@@ -49,12 +49,16 @@ func (f OptionFunc) Apply(e *Engine) {
 }
 
 // WithCluster enables cluster mode
-func WithCluster(discoProvider discovery.Provider, config discovery.Config, partitionsCount uint64) Option {
+func WithCluster(provider discovery.Provider, partitionCount uint64, minimumPeersQuorum uint16, host string, remotingPort, gossipPort, peersPort int) Option {
 	return OptionFunc(func(e *Engine) {
 		e.enableCluster = atomic.NewBool(true)
-		e.discoveryProvider = discoProvider
-		e.discoveryConfig = config
-		e.partitionsCount = partitionsCount
+		e.discoveryProvider = provider
+		e.partitionsCount = partitionCount
+		e.peersPort = peersPort
+		e.minimumPeersQuorum = minimumPeersQuorum
+		e.gossipPort = gossipPort
+		e.hostName = host
+		e.remotingPort = remotingPort
 	})
 }
 

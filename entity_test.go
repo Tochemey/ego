@@ -31,8 +31,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tochemey/ego/eventstore/memory"
-	samplepb "github.com/tochemey/ego/example/pbs/sample/pb/v1"
+
+	"github.com/tochemey/ego/v2/eventstore/memory"
+	samplepb "github.com/tochemey/ego/v2/example/pbs/sample/pb/v1"
 )
 
 func TestNewEntity(t *testing.T) {

@@ -29,7 +29,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/tochemey/ego/internal/queue"
+	"github.com/tochemey/ego/v2/internal/queue"
 )
 
 // Subscriber defines the Subscriber Interface

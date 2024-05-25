@@ -35,14 +35,15 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	"github.com/tochemey/ego/egopb"
-	"github.com/tochemey/ego/eventstore/memory"
-	pgeventstore "github.com/tochemey/ego/eventstore/postgres"
-	"github.com/tochemey/ego/eventstream"
-	testpb "github.com/tochemey/ego/test/data/pb/v1"
-	"github.com/tochemey/goakt/actors"
-	"github.com/tochemey/goakt/log"
+	"github.com/tochemey/goakt/v2/actors"
+	"github.com/tochemey/goakt/v2/log"
 	"github.com/tochemey/gopack/postgres"
+
+	"github.com/tochemey/ego/v2/egopb"
+	"github.com/tochemey/ego/v2/eventstore/memory"
+	pgeventstore "github.com/tochemey/ego/v2/eventstore/postgres"
+	"github.com/tochemey/ego/v2/eventstream"
+	testpb "github.com/tochemey/ego/v2/test/data/pb/v1"
 )
 
 func TestActor(t *testing.T) {

@@ -30,18 +30,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.uber.org/atomic"
 
-	"github.com/tochemey/goakt/discovery"
-	"github.com/tochemey/goakt/discovery/kubernetes"
-	"github.com/tochemey/goakt/log"
-	"github.com/tochemey/goakt/telemetry"
+	"github.com/tochemey/goakt/v2/discovery/kubernetes"
+	"github.com/tochemey/goakt/v2/log"
+	"github.com/tochemey/goakt/v2/telemetry"
 )
 
 func TestOptions(t *testing.T) {
 	// use the default logger of GoAkt
 	logger := log.DefaultLogger
 	// create a discovery provider
-	discoveryProvider := kubernetes.NewDiscovery()
-	config := discovery.NewConfig()
+	discoveryProvider := kubernetes.NewDiscovery(&kubernetes.Config{})
 	tel := telemetry.New()
 
 	testCases := []struct {
@@ -51,12 +49,16 @@ func TestOptions(t *testing.T) {
 	}{
 		{
 			name:   "WithCluster",
-			option: WithCluster(discoveryProvider, config, 30),
+			option: WithCluster(discoveryProvider, 30, 3, "localhost", 1334, 1335, 1336),
 			expected: Engine{
-				discoveryProvider: discoveryProvider,
-				discoveryConfig:   config,
-				partitionsCount:   30,
-				enableCluster:     atomic.NewBool(true),
+				discoveryProvider:  discoveryProvider,
+				minimumPeersQuorum: 3,
+				hostName:           "localhost",
+				gossipPort:         1335,
+				peersPort:          1336,
+				remotingPort:       1334,
+				partitionsCount:    30,
+				enableCluster:      atomic.NewBool(true),
 			},
 		},
 		{

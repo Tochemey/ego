@@ -35,11 +35,12 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/tochemey/ego/egopb"
-	"github.com/tochemey/ego/eventstore"
-	"github.com/tochemey/ego/internal/telemetry"
-	"github.com/tochemey/ego/offsetstore"
-	"github.com/tochemey/goakt/log"
+	"github.com/tochemey/goakt/v2/log"
+
+	"github.com/tochemey/ego/v2/egopb"
+	"github.com/tochemey/ego/v2/eventstore"
+	"github.com/tochemey/ego/v2/internal/telemetry"
+	"github.com/tochemey/ego/v2/offsetstore"
 )
 
 // runner defines the projection runner

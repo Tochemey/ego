@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package tests.v1;
 
-option go_package = "github.com/tochemey/ego/tests/v1;testpb";
+option go_package = "github.com/tochemey/ego/tests/v2;testpb";
 
 message TestReply {}
 message TestPanic {}

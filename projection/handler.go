@@ -30,7 +30,7 @@ import (
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/types/known/anypb"
 
-	"github.com/tochemey/goakt/log"
+	"github.com/tochemey/goakt/v2/log"
 )
 
 // Handler is used to handle event and state consumed from the event store

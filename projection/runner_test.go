@@ -38,11 +38,12 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/tochemey/ego/egopb"
-	"github.com/tochemey/ego/eventstore/memory"
-	memoffsetstore "github.com/tochemey/ego/offsetstore/memory"
-	testpb "github.com/tochemey/ego/test/data/pb/v1"
-	"github.com/tochemey/goakt/log"
+	"github.com/tochemey/goakt/v2/log"
+
+	"github.com/tochemey/ego/v2/egopb"
+	"github.com/tochemey/ego/v2/eventstore/memory"
+	memoffsetstore "github.com/tochemey/ego/v2/offsetstore/memory"
+	testpb "github.com/tochemey/ego/v2/test/data/pb/v1"
 )
 
 func TestProjection(t *testing.T) {
