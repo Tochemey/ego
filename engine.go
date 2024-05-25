@@ -27,36 +27,41 @@ package ego
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/pkg/errors"
 	"go.uber.org/atomic"
+
+	"github.com/tochemey/goakt/v2/actors"
+	"github.com/tochemey/goakt/v2/discovery"
+	"github.com/tochemey/goakt/v2/log"
+	"github.com/tochemey/goakt/v2/telemetry"
 
 	"github.com/tochemey/ego/eventstore"
 	"github.com/tochemey/ego/eventstream"
 	egotel "github.com/tochemey/ego/internal/telemetry"
 	"github.com/tochemey/ego/offsetstore"
 	"github.com/tochemey/ego/projection"
-	"github.com/tochemey/goakt/actors"
-	"github.com/tochemey/goakt/discovery"
-	"github.com/tochemey/goakt/log"
-	"github.com/tochemey/goakt/telemetry"
 )
 
 // Engine represents the engine that empowers the various entities
 type Engine struct {
-	name              string                 // name is the application name
-	eventsStore       eventstore.EventsStore // eventsStore is the events store
-	enableCluster     *atomic.Bool           // enableCluster enable/disable cluster mode
-	actorSystem       actors.ActorSystem     // actorSystem is the underlying actor system
-	logger            log.Logger             // logger is the logging engine to use
-	discoveryProvider discovery.Provider     // discoveryProvider is the discovery provider for clustering
-	discoveryConfig   discovery.Config       // discoveryConfig is the discovery provider config for clustering
-	telemetry         *telemetry.Telemetry   // telemetry is the observability engine
-	partitionsCount   uint64                 // partitionsCount specifies the number of partitions
-	started           atomic.Bool
-
-	eventStream eventstream.Stream
+	name               string                 // name is the application name
+	eventsStore        eventstore.EventsStore // eventsStore is the events store
+	enableCluster      *atomic.Bool           // enableCluster enable/disable cluster mode
+	actorSystem        actors.ActorSystem     // actorSystem is the underlying actor system
+	logger             log.Logger             // logger is the logging engine to use
+	discoveryProvider  discovery.Provider     // discoveryProvider is the discovery provider for clustering
+	telemetry          *telemetry.Telemetry   // telemetry is the observability engine
+	partitionsCount    uint64                 // partitionsCount specifies the number of partitions
+	started            atomic.Bool
+	hostName           string
+	peersPort          int
+	gossipPort         int
+	remotingPort       int
+	minimumPeersQuorum uint16
+	eventStream        eventstream.Stream
 }
 
 // NewEngine creates an instance of Engine
@@ -90,9 +95,18 @@ func (x *Engine) Start(ctx context.Context) error {
 	}
 
 	if x.enableCluster.Load() {
-		opts = append(opts, actors.WithClustering(
-			discovery.NewServiceDiscovery(x.discoveryProvider, x.discoveryConfig),
-			x.partitionsCount))
+		if x.hostName == "" {
+			x.hostName, _ = os.Hostname()
+		}
+
+		opts = append(opts,
+			actors.WithClustering(
+				x.discoveryProvider,
+				x.partitionsCount,
+				x.minimumPeersQuorum,
+				x.gossipPort,
+				x.peersPort),
+			actors.WithRemoting(x.hostName, int32(x.remotingPort)))
 	}
 
 	var err error

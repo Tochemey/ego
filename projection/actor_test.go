@@ -36,12 +36,13 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/tochemey/goakt/v2/actors"
+	"github.com/tochemey/goakt/v2/log"
+
 	"github.com/tochemey/ego/egopb"
 	"github.com/tochemey/ego/eventstore/memory"
 	memoffsetstore "github.com/tochemey/ego/offsetstore/memory"
 	testpb "github.com/tochemey/ego/test/data/pb/v1"
-	"github.com/tochemey/goakt/actors"
-	"github.com/tochemey/goakt/log"
 )
 
 func TestActor(t *testing.T) {

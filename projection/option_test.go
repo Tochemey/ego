@@ -30,7 +30,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/tochemey/goakt/log"
+	"github.com/tochemey/goakt/v2/log"
 )
 
 func TestOption(t *testing.T) {

@@ -27,7 +27,7 @@ package projection
 import (
 	"time"
 
-	"github.com/tochemey/goakt/log"
+	"github.com/tochemey/goakt/v2/log"
 )
 
 // Option is the interface that applies a configuration option.

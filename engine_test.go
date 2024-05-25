@@ -38,14 +38,14 @@ import (
 	"github.com/travisjeffery/go-dynaport"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/tochemey/goakt/v2/log"
+	mockdisco "github.com/tochemey/goakt/v2/mocks/discovery"
+
 	"github.com/tochemey/ego/egopb"
 	"github.com/tochemey/ego/eventstore/memory"
 	samplepb "github.com/tochemey/ego/example/pbs/sample/pb/v1"
 	offsetstore "github.com/tochemey/ego/offsetstore/memory"
 	"github.com/tochemey/ego/projection"
-	"github.com/tochemey/goakt/discovery"
-	"github.com/tochemey/goakt/log"
-	mockdisco "github.com/tochemey/goakt/mocks/discovery"
 )
 
 func TestEgo(t *testing.T) {
@@ -62,15 +62,7 @@ func TestEgo(t *testing.T) {
 		clusterPort := nodePorts[1]
 		remotingPort := nodePorts[2]
 
-		podName := "pod"
 		host := "127.0.0.1"
-
-		// set the environments
-		t.Setenv("GOSSIP_PORT", strconv.Itoa(gossipPort))
-		t.Setenv("CLUSTER_PORT", strconv.Itoa(clusterPort))
-		t.Setenv("REMOTING_PORT", strconv.Itoa(remotingPort))
-		t.Setenv("NODE_NAME", podName)
-		t.Setenv("NODE_IP", host)
 
 		// define discovered addresses
 		addrs := []string{
@@ -79,13 +71,11 @@ func TestEgo(t *testing.T) {
 
 		// mock the discovery provider
 		provider := new(mockdisco.Provider)
-		config := discovery.NewConfig()
 
 		provider.EXPECT().ID().Return("testDisco")
 		provider.EXPECT().Initialize().Return(nil)
 		provider.EXPECT().Register().Return(nil)
 		provider.EXPECT().Deregister().Return(nil)
-		provider.EXPECT().SetConfig(config).Return(nil)
 		provider.EXPECT().DiscoverPeers().Return(addrs, nil)
 		provider.EXPECT().Close().Return(nil)
 
@@ -93,7 +83,7 @@ func TestEgo(t *testing.T) {
 		handler := projection.NewDiscardHandler(log.DefaultLogger)
 		// create the ego engine
 		e := NewEngine("Sample", eventStore,
-			WithCluster(provider, config, 4))
+			WithCluster(provider, 4, 1, host, remotingPort, gossipPort, clusterPort))
 		// start ego engine
 		err := e.Start(ctx)
 

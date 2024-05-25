@@ -33,10 +33,11 @@ import (
 	"syscall"
 
 	"github.com/google/uuid"
+	"google.golang.org/protobuf/proto"
+
 	"github.com/tochemey/ego"
 	"github.com/tochemey/ego/eventstore/memory"
 	samplepb "github.com/tochemey/ego/example/pbs/sample/pb/v1"
-	"google.golang.org/protobuf/proto"
 )
 
 func main() {

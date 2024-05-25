@@ -29,10 +29,11 @@ import (
 
 	"google.golang.org/protobuf/types/known/emptypb"
 
+	"github.com/tochemey/goakt/v2/actors"
+	"github.com/tochemey/goakt/v2/goaktpb"
+
 	"github.com/tochemey/ego/eventstore"
 	"github.com/tochemey/ego/offsetstore"
-	"github.com/tochemey/goakt/actors"
-	"github.com/tochemey/goakt/goaktpb"
 )
 
 // Start is used to start the projection

@@ -28,8 +28,9 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
-	testpb "github.com/tochemey/ego/test/data/pb/v1"
 	"google.golang.org/protobuf/types/known/emptypb"
+
+	testpb "github.com/tochemey/ego/test/data/pb/v1"
 )
 
 // AccountEntityBehavior implement EntityBehavior

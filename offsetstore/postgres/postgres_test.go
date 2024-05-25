@@ -33,9 +33,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/tochemey/gopack/postgres"
+
 	"github.com/tochemey/ego/egopb"
 	"github.com/tochemey/ego/offsetstore"
-	"github.com/tochemey/gopack/postgres"
 )
 
 func TestPostgresOffsetStore(t *testing.T) {

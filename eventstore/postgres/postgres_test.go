@@ -35,10 +35,11 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/tochemey/gopack/postgres"
+
 	"github.com/tochemey/ego/egopb"
 	"github.com/tochemey/ego/eventstore"
 	testpb "github.com/tochemey/ego/test/data/pb/v1"
-	"github.com/tochemey/gopack/postgres"
 )
 
 func TestPostgresEventsStore(t *testing.T) {
