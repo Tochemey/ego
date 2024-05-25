@@ -39,10 +39,10 @@ import (
 	"github.com/tochemey/goakt/v2/actors"
 	"github.com/tochemey/goakt/v2/goaktpb"
 
-	"github.com/tochemey/ego/egopb"
-	"github.com/tochemey/ego/eventstore"
-	"github.com/tochemey/ego/eventstream"
-	"github.com/tochemey/ego/internal/telemetry"
+	"github.com/tochemey/ego/v2/egopb"
+	"github.com/tochemey/ego/v2/eventstore"
+	"github.com/tochemey/ego/v2/eventstream"
+	"github.com/tochemey/ego/v2/internal/telemetry"
 )
 
 var (

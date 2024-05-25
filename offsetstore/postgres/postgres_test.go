@@ -35,8 +35,8 @@ import (
 
 	"github.com/tochemey/gopack/postgres"
 
-	"github.com/tochemey/ego/egopb"
-	"github.com/tochemey/ego/offsetstore"
+	"github.com/tochemey/ego/v2/egopb"
+	"github.com/tochemey/ego/v2/offsetstore"
 )
 
 func TestPostgresOffsetStore(t *testing.T) {

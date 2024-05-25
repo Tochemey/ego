@@ -39,9 +39,9 @@ import (
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/known/anypb"
 
-	"github.com/tochemey/ego/egopb"
-	"github.com/tochemey/ego/eventstore"
-	"github.com/tochemey/ego/internal/telemetry"
+	"github.com/tochemey/ego/v2/egopb"
+	"github.com/tochemey/ego/v2/eventstore"
+	"github.com/tochemey/ego/v2/internal/telemetry"
 )
 
 // EventsStore keep in memory every journal

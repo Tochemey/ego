@@ -38,7 +38,7 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN}}
-      - uses: earthly/actions/setup-earthly@v1
+      - uses: earthly/actions/setup-earthly@v2
         with:
           version: v0.7.19
       - name: Earthly version

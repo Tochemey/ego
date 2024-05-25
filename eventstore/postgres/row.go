@@ -33,7 +33,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/known/anypb"
 
-	"github.com/tochemey/ego/egopb"
+	"github.com/tochemey/ego/v2/egopb"
 )
 
 // row represents the events store row

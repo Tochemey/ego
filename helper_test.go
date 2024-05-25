@@ -30,7 +30,7 @@ import (
 	"github.com/pkg/errors"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	testpb "github.com/tochemey/ego/test/data/pb/v1"
+	testpb "github.com/tochemey/ego/v2/test/data/pb/v1"
 )
 
 // AccountEntityBehavior implement EntityBehavior

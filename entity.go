@@ -33,7 +33,7 @@ import (
 
 	"github.com/tochemey/goakt/v2/actors"
 
-	"github.com/tochemey/ego/egopb"
+	"github.com/tochemey/ego/v2/egopb"
 )
 
 var (

@@ -35,9 +35,9 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/tochemey/ego"
-	"github.com/tochemey/ego/eventstore/memory"
-	samplepb "github.com/tochemey/ego/example/pbs/sample/pb/v1"
+	"github.com/tochemey/ego/v2"
+	"github.com/tochemey/ego/v2/eventstore/memory"
+	samplepb "github.com/tochemey/ego/v2/example/pbs/sample/pb/v1"
 )
 
 func main() {

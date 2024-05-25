@@ -1,4 +1,4 @@
-module github.com/tochemey/ego
+module github.com/tochemey/ego/v2
 
 go 1.21
 

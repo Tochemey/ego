@@ -38,11 +38,11 @@ import (
 	"github.com/tochemey/goakt/v2/log"
 	"github.com/tochemey/goakt/v2/telemetry"
 
-	"github.com/tochemey/ego/eventstore"
-	"github.com/tochemey/ego/eventstream"
-	egotel "github.com/tochemey/ego/internal/telemetry"
-	"github.com/tochemey/ego/offsetstore"
-	"github.com/tochemey/ego/projection"
+	"github.com/tochemey/ego/v2/eventstore"
+	"github.com/tochemey/ego/v2/eventstream"
+	egotel "github.com/tochemey/ego/v2/internal/telemetry"
+	"github.com/tochemey/ego/v2/offsetstore"
+	"github.com/tochemey/ego/v2/projection"
 )
 
 // Engine represents the engine that empowers the various entities

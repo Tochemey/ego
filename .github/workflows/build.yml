@@ -34,7 +34,7 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN}}
-      - uses: earthly/actions/setup-earthly@v1
+      - uses: earthly/actions/setup-earthly@v2
         with:
           version: v0.7.19
       - name: Earthly version
@@ -52,7 +52,7 @@ jobs:
           files: ./coverage.out # optional
           fail_ci_if_error: false # optional (default = false)
           verbose: false # optional (default = false)
-#      - uses: go-semantic-release/action@v1
+#      - uses: go-semantic-release/action@v2
 #        id: semver
 #        with:
 #          github-token: ${{ secrets.GITHUB_TOKEN }}

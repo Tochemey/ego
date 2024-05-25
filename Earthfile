@@ -13,7 +13,7 @@ protogen:
             --path protos/ego
 
     # save artifact to
-    SAVE ARTIFACT gen/ego/v1 AS LOCAL egopb
+    SAVE ARTIFACT gen/ego/v2 AS LOCAL egopb
 
 testprotogen:
     # copy the proto files to generate

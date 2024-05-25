@@ -35,9 +35,9 @@ import (
 
 	"github.com/tochemey/gopack/postgres"
 
-	"github.com/tochemey/ego/egopb"
-	"github.com/tochemey/ego/eventstore"
-	"github.com/tochemey/ego/internal/telemetry"
+	"github.com/tochemey/ego/v2/egopb"
+	"github.com/tochemey/ego/v2/eventstore"
+	"github.com/tochemey/ego/v2/internal/telemetry"
 )
 
 var (
