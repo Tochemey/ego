@@ -38,13 +38,14 @@ import (
 	"github.com/travisjeffery/go-dynaport"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/tochemey/goakt/v2/log"
+	mockdisco "github.com/tochemey/goakt/v2/mocks/discovery"
+
 	"github.com/tochemey/ego/v2/egopb"
 	"github.com/tochemey/ego/v2/eventstore/memory"
 	samplepb "github.com/tochemey/ego/v2/example/pbs/sample/pb/v1"
 	offsetstore "github.com/tochemey/ego/v2/offsetstore/memory"
 	"github.com/tochemey/ego/v2/projection"
-	"github.com/tochemey/goakt/v2/log"
-	mockdisco "github.com/tochemey/goakt/v2/mocks/discovery"
 )
 
 func TestEgo(t *testing.T) {

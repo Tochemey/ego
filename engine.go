@@ -33,15 +33,16 @@ import (
 	"github.com/pkg/errors"
 	"go.uber.org/atomic"
 
+	"github.com/tochemey/goakt/v2/actors"
+	"github.com/tochemey/goakt/v2/discovery"
+	"github.com/tochemey/goakt/v2/log"
+	"github.com/tochemey/goakt/v2/telemetry"
+
 	"github.com/tochemey/ego/v2/eventstore"
 	"github.com/tochemey/ego/v2/eventstream"
 	egotel "github.com/tochemey/ego/v2/internal/telemetry"
 	"github.com/tochemey/ego/v2/offsetstore"
 	"github.com/tochemey/ego/v2/projection"
-	"github.com/tochemey/goakt/v2/actors"
-	"github.com/tochemey/goakt/v2/discovery"
-	"github.com/tochemey/goakt/v2/log"
-	"github.com/tochemey/goakt/v2/telemetry"
 )
 
 // Engine represents the engine that empowers the various entities
