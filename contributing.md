@@ -9,7 +9,7 @@ There are two ways you can become a contributor:
 2. Follow these steps
     - Fork the repository
     - Create a feature branch
-    - Set your docker credentials on your fork using the following secret names: `$DOCKER_USER` and `$DOCKER_PASS`
+    - Set your docker credentials on your fork using the following secret names: `DOCKER_USER` and `DOCKER_PASS`
     - Submit a [pull request](https://help.github.com/articles/using-pull-requests)
 
 ## Test & Linter
