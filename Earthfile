@@ -1,6 +1,8 @@
-VERSION 0.7
+VERSION 0.8
 
 FROM tochemey/docker-go:1.21.0-1.0.0
+
+RUN go install github.com/ory/go-acc@latest
 
 protogen:
     # copy the proto files to generate
@@ -78,7 +80,7 @@ local-test:
     FROM +vendor
 
     WITH DOCKER --pull postgres:11
-        RUN go test -mod=vendor ./... -race -v -coverprofile=coverage.out -covermode=atomic -coverpkg=./...
+        RUN go-acc ./... -o coverage.out --ignore egopb,test,example -- -mod=vendor -race -v
     END
 
     SAVE ARTIFACT coverage.out AS LOCAL coverage.out

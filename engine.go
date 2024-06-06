@@ -33,16 +33,15 @@ import (
 	"github.com/pkg/errors"
 	"go.uber.org/atomic"
 
-	"github.com/tochemey/goakt/v2/actors"
-	"github.com/tochemey/goakt/v2/discovery"
-	"github.com/tochemey/goakt/v2/log"
-	"github.com/tochemey/goakt/v2/telemetry"
-
 	"github.com/tochemey/ego/v2/eventstore"
 	"github.com/tochemey/ego/v2/eventstream"
 	egotel "github.com/tochemey/ego/v2/internal/telemetry"
 	"github.com/tochemey/ego/v2/offsetstore"
 	"github.com/tochemey/ego/v2/projection"
+	"github.com/tochemey/goakt/v2/actors"
+	"github.com/tochemey/goakt/v2/discovery"
+	"github.com/tochemey/goakt/v2/log"
+	"github.com/tochemey/goakt/v2/telemetry"
 )
 
 // Engine represents the engine that empowers the various entities
@@ -99,13 +98,23 @@ func (x *Engine) Start(ctx context.Context) error {
 			x.hostName, _ = os.Hostname()
 		}
 
+		replicatCount := 1
+		if x.minimumPeersQuorum > 1 {
+			replicatCount = 2
+		}
+
+		clusterConfig := actors.
+			NewClusterConfig().
+			WithDiscovery(x.discoveryProvider).
+			WithGossipPort(x.gossipPort).
+			WithPeersPort(x.peersPort).
+			WithMinimumPeersQuorum(uint32(x.minimumPeersQuorum)).
+			WithReplicaCount(uint32(replicatCount)).
+			WithPartitionCount(x.partitionsCount).
+			WithKinds(new(actor[State]))
+
 		opts = append(opts,
-			actors.WithClustering(
-				x.discoveryProvider,
-				x.partitionsCount,
-				x.minimumPeersQuorum,
-				x.gossipPort,
-				x.peersPort),
+			actors.WithCluster(clusterConfig),
 			actors.WithRemoting(x.hostName, int32(x.remotingPort)))
 	}
 
