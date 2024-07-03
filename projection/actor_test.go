@@ -39,10 +39,10 @@ import (
 	"github.com/tochemey/goakt/v2/actors"
 	"github.com/tochemey/goakt/v2/log"
 
-	"github.com/tochemey/ego/v2/egopb"
-	"github.com/tochemey/ego/v2/eventstore/memory"
-	memoffsetstore "github.com/tochemey/ego/v2/offsetstore/memory"
-	testpb "github.com/tochemey/ego/v2/test/data/pb/v1"
+	"github.com/tochemey/ego/v3/egopb"
+	"github.com/tochemey/ego/v3/eventstore/memory"
+	memoffsetstore "github.com/tochemey/ego/v3/offsetstore/memory"
+	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
 )
 
 func TestActor(t *testing.T) {

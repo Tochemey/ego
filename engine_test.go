@@ -41,11 +41,11 @@ import (
 	"github.com/tochemey/goakt/v2/log"
 	mockdisco "github.com/tochemey/goakt/v2/mocks/discovery"
 
-	"github.com/tochemey/ego/v2/egopb"
-	"github.com/tochemey/ego/v2/eventstore/memory"
-	samplepb "github.com/tochemey/ego/v2/example/pbs/sample/pb/v1"
-	offsetstore "github.com/tochemey/ego/v2/offsetstore/memory"
-	"github.com/tochemey/ego/v2/projection"
+	"github.com/tochemey/ego/v3/egopb"
+	"github.com/tochemey/ego/v3/eventstore/memory"
+	samplepb "github.com/tochemey/ego/v3/example/pbs/sample/pb/v1"
+	offsetstore "github.com/tochemey/ego/v3/offsetstore/memory"
+	"github.com/tochemey/ego/v3/projection"
 )
 
 func TestEgo(t *testing.T) {
@@ -82,20 +82,20 @@ func TestEgo(t *testing.T) {
 		// create a projection message handler
 		handler := projection.NewDiscardHandler(log.DefaultLogger)
 		// create the ego engine
-		e := NewEngine("Sample", eventStore,
+		engine := NewEngine("Sample", eventStore,
 			WithCluster(provider, 4, 1, host, remotingPort, gossipPort, clusterPort))
 		// start ego engine
-		err := e.Start(ctx)
+		err := engine.Start(ctx)
 
 		// wait for the cluster to fully start
 		time.Sleep(time.Second)
 
 		// add projection
-		err = e.AddProjection(ctx, "discard", handler, offsetStore)
+		err = engine.AddProjection(ctx, "discard", handler, offsetStore)
 		require.NoError(t, err)
 
 		// subscribe to events
-		subscriber, err := e.Subscribe(ctx)
+		subscriber, err := engine.Subscribe(ctx)
 		require.NoError(t, err)
 		require.NotNil(t, subscriber)
 
@@ -105,7 +105,7 @@ func TestEgo(t *testing.T) {
 		// create an entity behavior with a given id
 		behavior := NewAccountBehavior(entityID)
 		// create an entity
-		entity, err := NewEntity[*samplepb.Account](ctx, behavior, e)
+		err = engine.Entity(ctx, behavior)
 		require.NoError(t, err)
 		// send some commands to the pid
 		var command proto.Message
@@ -119,11 +119,13 @@ func TestEgo(t *testing.T) {
 		time.Sleep(time.Second)
 
 		// send the command to the actor. Please don't ignore the error in production grid code
-		resultingState, revision, err := entity.SendCommand(ctx, command)
+		resultingState, revision, err := engine.SendCommand(ctx, entityID, command, time.Minute)
 		require.NoError(t, err)
+		account, ok := resultingState.(*samplepb.Account)
+		require.True(t, ok)
 
-		assert.EqualValues(t, 500.00, resultingState.GetAccountBalance())
-		assert.Equal(t, entityID, resultingState.GetAccountId())
+		assert.EqualValues(t, 500.00, account.GetAccountBalance())
+		assert.Equal(t, entityID, account.GetAccountId())
 		assert.EqualValues(t, 1, revision)
 
 		// send another command to credit the balance
@@ -131,11 +133,14 @@ func TestEgo(t *testing.T) {
 			AccountId: entityID,
 			Balance:   250,
 		}
-		newState, revision, err := entity.SendCommand(ctx, command)
-		require.NoError(t, err)
 
-		assert.EqualValues(t, 750.00, newState.GetAccountBalance())
-		assert.Equal(t, entityID, newState.GetAccountId())
+		newState, revision, err := engine.SendCommand(ctx, entityID, command, time.Minute)
+		require.NoError(t, err)
+		newAccount, ok := newState.(*samplepb.Account)
+		require.True(t, ok)
+
+		assert.EqualValues(t, 750.00, newAccount.GetAccountBalance())
+		assert.Equal(t, entityID, newAccount.GetAccountId())
 		assert.EqualValues(t, 2, revision)
 
 		for message := range subscriber.Iterator() {
@@ -154,7 +159,7 @@ func TestEgo(t *testing.T) {
 		// free resources
 		assert.NoError(t, eventStore.Disconnect(ctx))
 		assert.NoError(t, offsetStore.Disconnect(ctx))
-		assert.NoError(t, e.Stop(ctx))
+		assert.NoError(t, engine.Stop(ctx))
 	})
 	t.Run("With no cluster enabled", func(t *testing.T) {
 		ctx := context.TODO()
@@ -163,16 +168,16 @@ func TestEgo(t *testing.T) {
 		// connect to the event store
 		require.NoError(t, eventStore.Connect(ctx))
 		// create the ego engine
-		e := NewEngine("Sample", eventStore)
+		engine := NewEngine("Sample", eventStore)
 		// start ego engine
-		err := e.Start(ctx)
+		err := engine.Start(ctx)
 		require.NoError(t, err)
 		// create a persistence id
 		entityID := uuid.NewString()
 		// create an entity behavior with a given id
 		behavior := NewAccountBehavior(entityID)
 		// create an entity
-		entity, err := NewEntity[*samplepb.Account](ctx, behavior, e)
+		err = engine.Entity(ctx, behavior)
 		require.NoError(t, err)
 		// send some commands to the pid
 		var command proto.Message
@@ -182,11 +187,13 @@ func TestEgo(t *testing.T) {
 			AccountBalance: 500.00,
 		}
 		// send the command to the actor. Please don't ignore the error in production grid code
-		resultingState, revision, err := entity.SendCommand(ctx, command)
+		resultingState, revision, err := engine.SendCommand(ctx, entityID, command, time.Minute)
 		require.NoError(t, err)
+		account, ok := resultingState.(*samplepb.Account)
+		require.True(t, ok)
 
-		assert.EqualValues(t, 500.00, resultingState.GetAccountBalance())
-		assert.Equal(t, entityID, resultingState.GetAccountId())
+		assert.EqualValues(t, 500.00, account.GetAccountBalance())
+		assert.Equal(t, entityID, account.GetAccountId())
 		assert.EqualValues(t, 1, revision)
 
 		// send another command to credit the balance
@@ -194,16 +201,18 @@ func TestEgo(t *testing.T) {
 			AccountId: entityID,
 			Balance:   250,
 		}
-		newState, revision, err := entity.SendCommand(ctx, command)
+		newState, revision, err := engine.SendCommand(ctx, entityID, command, time.Minute)
 		require.NoError(t, err)
+		newAccount, ok := newState.(*samplepb.Account)
+		require.True(t, ok)
 
-		assert.EqualValues(t, 750.00, newState.GetAccountBalance())
-		assert.Equal(t, entityID, newState.GetAccountId())
+		assert.EqualValues(t, 750.00, newAccount.GetAccountBalance())
+		assert.Equal(t, entityID, newAccount.GetAccountId())
 		assert.EqualValues(t, 2, revision)
 
 		// free resources
 		assert.NoError(t, eventStore.Disconnect(ctx))
-		assert.NoError(t, e.Stop(ctx))
+		assert.NoError(t, engine.Stop(ctx))
 	})
 }
 
@@ -213,7 +222,7 @@ type AccountBehavior struct {
 }
 
 // make sure that AccountBehavior is a true persistence behavior
-var _ EntityBehavior[*samplepb.Account] = &AccountBehavior{}
+var _ EntityBehavior = &AccountBehavior{}
 
 // NewAccountBehavior creates an instance of AccountBehavior
 func NewAccountBehavior(id string) *AccountBehavior {
@@ -226,12 +235,12 @@ func (a *AccountBehavior) ID() string {
 }
 
 // InitialState returns the initial state
-func (a *AccountBehavior) InitialState() *samplepb.Account {
+func (a *AccountBehavior) InitialState() State {
 	return new(samplepb.Account)
 }
 
 // HandleCommand handles every command that is sent to the persistent behavior
-func (a *AccountBehavior) HandleCommand(_ context.Context, command Command, _ *samplepb.Account) (events []Event, err error) {
+func (a *AccountBehavior) HandleCommand(_ context.Context, command Command, _ State) (events []Event, err error) {
 	switch cmd := command.(type) {
 	case *samplepb.CreateAccount:
 		// TODO in production grid app validate the command using the prior state
@@ -257,7 +266,7 @@ func (a *AccountBehavior) HandleCommand(_ context.Context, command Command, _ *s
 }
 
 // HandleEvent handles every event emitted
-func (a *AccountBehavior) HandleEvent(_ context.Context, event Event, priorState *samplepb.Account) (state *samplepb.Account, err error) {
+func (a *AccountBehavior) HandleEvent(_ context.Context, event Event, priorState State) (state State, err error) {
 	switch evt := event.(type) {
 	case *samplepb.AccountCreated:
 		return &samplepb.Account{
@@ -266,7 +275,8 @@ func (a *AccountBehavior) HandleEvent(_ context.Context, event Event, priorState
 		}, nil
 
 	case *samplepb.AccountCredited:
-		bal := priorState.GetAccountBalance() + evt.GetAccountBalance()
+		account := priorState.(*samplepb.Account)
+		bal := account.GetAccountBalance() + evt.GetAccountBalance()
 		return &samplepb.Account{
 			AccountId:      evt.GetAccountId(),
 			AccountBalance: bal,

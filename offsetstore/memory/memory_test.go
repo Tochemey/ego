@@ -33,8 +33,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/tochemey/ego/v2/egopb"
-	"github.com/tochemey/ego/v2/offsetstore"
+	"github.com/tochemey/ego/v3/egopb"
+	"github.com/tochemey/ego/v3/offsetstore"
 )
 
 func TestOffsetStore(t *testing.T) {

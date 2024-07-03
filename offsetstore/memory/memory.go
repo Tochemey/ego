@@ -34,9 +34,9 @@ import (
 	"github.com/pkg/errors"
 	"go.uber.org/atomic"
 
-	"github.com/tochemey/ego/v2/egopb"
-	"github.com/tochemey/ego/v2/internal/telemetry"
-	"github.com/tochemey/ego/v2/offsetstore"
+	"github.com/tochemey/ego/v3/egopb"
+	"github.com/tochemey/ego/v3/internal/telemetry"
+	"github.com/tochemey/ego/v3/offsetstore"
 )
 
 // OffsetStore implements the offset store interface

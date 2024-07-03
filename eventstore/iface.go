@@ -27,7 +27,7 @@ package eventstore
 import (
 	"context"
 
-	"github.com/tochemey/ego/v2/egopb"
+	"github.com/tochemey/ego/v3/egopb"
 )
 
 // EventsStore defines the API to write to the events store

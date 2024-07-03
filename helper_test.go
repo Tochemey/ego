@@ -30,7 +30,7 @@ import (
 	"github.com/pkg/errors"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	testpb "github.com/tochemey/ego/v2/test/data/pb/v1"
+	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
 )
 
 // AccountEntityBehavior implement EntityBehavior
@@ -39,7 +39,7 @@ type AccountEntityBehavior struct {
 }
 
 // make sure that testAccountBehavior is a true persistence behavior
-var _ EntityBehavior[*testpb.Account] = &AccountEntityBehavior{}
+var _ EntityBehavior = (*AccountEntityBehavior)(nil)
 
 // NewAccountEntityBehavior creates an instance of AccountEntityBehavior
 func NewAccountEntityBehavior(id string) *AccountEntityBehavior {
@@ -49,11 +49,11 @@ func (t *AccountEntityBehavior) ID() string {
 	return t.id
 }
 
-func (t *AccountEntityBehavior) InitialState() *testpb.Account {
+func (t *AccountEntityBehavior) InitialState() State {
 	return new(testpb.Account)
 }
 
-func (t *AccountEntityBehavior) HandleCommand(_ context.Context, command Command, _ *testpb.Account) (events []Event, err error) {
+func (t *AccountEntityBehavior) HandleCommand(_ context.Context, command Command, _ State) (events []Event, err error) {
 	switch cmd := command.(type) {
 	case *testpb.CreateAccount:
 		// TODO in production grid app validate the command using the prior state
@@ -87,7 +87,7 @@ func (t *AccountEntityBehavior) HandleCommand(_ context.Context, command Command
 	}
 }
 
-func (t *AccountEntityBehavior) HandleEvent(_ context.Context, event Event, priorState *testpb.Account) (state *testpb.Account, err error) {
+func (t *AccountEntityBehavior) HandleEvent(_ context.Context, event Event, priorState State) (state State, err error) {
 	switch evt := event.(type) {
 	case *testpb.AccountCreated:
 		return &testpb.Account{
@@ -96,7 +96,9 @@ func (t *AccountEntityBehavior) HandleEvent(_ context.Context, event Event, prio
 		}, nil
 
 	case *testpb.AccountCredited:
-		bal := priorState.GetAccountBalance() + evt.GetAccountBalance()
+		// we can safely cast the prior state to Account
+		account := priorState.(*testpb.Account)
+		bal := account.GetAccountBalance() + evt.GetAccountBalance()
 		return &testpb.Account{
 			AccountId:      evt.GetAccountId(),
 			AccountBalance: bal,

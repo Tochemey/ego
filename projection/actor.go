@@ -32,8 +32,8 @@ import (
 	"github.com/tochemey/goakt/v2/actors"
 	"github.com/tochemey/goakt/v2/goaktpb"
 
-	"github.com/tochemey/ego/v2/eventstore"
-	"github.com/tochemey/ego/v2/offsetstore"
+	"github.com/tochemey/ego/v3/eventstore"
+	"github.com/tochemey/ego/v3/offsetstore"
 )
 
 // Start is used to start the projection

@@ -1,8 +1,8 @@
 syntax = "proto3";
 
-package tests.v1;
+package tests.v3;
 
-option go_package = "github.com/tochemey/ego/tests/v2;testpb";
+option go_package = "github.com/tochemey/ego/tests/v3;testpb";
 
 message TestReply {}
 message TestPanic {}

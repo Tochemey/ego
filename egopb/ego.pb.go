@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.31.0
 // 	protoc        (unknown)
-// source: ego/v2/ego.proto
+// source: ego/v3/ego.proto
 
 package egopb
 
@@ -46,7 +46,7 @@ type Event struct {
 func (x *Event) Reset() {
 	*x = Event{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_ego_v2_ego_proto_msgTypes[0]
+		mi := &file_ego_v3_ego_proto_msgTypes[0]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -59,7 +59,7 @@ func (x *Event) String() string {
 func (*Event) ProtoMessage() {}
 
 func (x *Event) ProtoReflect() protoreflect.Message {
-	mi := &file_ego_v2_ego_proto_msgTypes[0]
+	mi := &file_ego_v3_ego_proto_msgTypes[0]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -72,7 +72,7 @@ func (x *Event) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Event.ProtoReflect.Descriptor instead.
 func (*Event) Descriptor() ([]byte, []int) {
-	return file_ego_v2_ego_proto_rawDescGZIP(), []int{0}
+	return file_ego_v3_ego_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *Event) GetPersistenceId() string {
@@ -143,7 +143,7 @@ type CommandReply struct {
 func (x *CommandReply) Reset() {
 	*x = CommandReply{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_ego_v2_ego_proto_msgTypes[1]
+		mi := &file_ego_v3_ego_proto_msgTypes[1]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -156,7 +156,7 @@ func (x *CommandReply) String() string {
 func (*CommandReply) ProtoMessage() {}
 
 func (x *CommandReply) ProtoReflect() protoreflect.Message {
-	mi := &file_ego_v2_ego_proto_msgTypes[1]
+	mi := &file_ego_v3_ego_proto_msgTypes[1]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -169,7 +169,7 @@ func (x *CommandReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommandReply.ProtoReflect.Descriptor instead.
 func (*CommandReply) Descriptor() ([]byte, []int) {
-	return file_ego_v2_ego_proto_rawDescGZIP(), []int{1}
+	return file_ego_v3_ego_proto_rawDescGZIP(), []int{1}
 }
 
 func (m *CommandReply) GetReply() isCommandReply_Reply {
@@ -231,7 +231,7 @@ type StateReply struct {
 func (x *StateReply) Reset() {
 	*x = StateReply{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_ego_v2_ego_proto_msgTypes[2]
+		mi := &file_ego_v3_ego_proto_msgTypes[2]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -244,7 +244,7 @@ func (x *StateReply) String() string {
 func (*StateReply) ProtoMessage() {}
 
 func (x *StateReply) ProtoReflect() protoreflect.Message {
-	mi := &file_ego_v2_ego_proto_msgTypes[2]
+	mi := &file_ego_v3_ego_proto_msgTypes[2]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -257,7 +257,7 @@ func (x *StateReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StateReply.ProtoReflect.Descriptor instead.
 func (*StateReply) Descriptor() ([]byte, []int) {
-	return file_ego_v2_ego_proto_rawDescGZIP(), []int{2}
+	return file_ego_v3_ego_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *StateReply) GetPersistenceId() string {
@@ -302,7 +302,7 @@ type ErrorReply struct {
 func (x *ErrorReply) Reset() {
 	*x = ErrorReply{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_ego_v2_ego_proto_msgTypes[3]
+		mi := &file_ego_v3_ego_proto_msgTypes[3]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -315,7 +315,7 @@ func (x *ErrorReply) String() string {
 func (*ErrorReply) ProtoMessage() {}
 
 func (x *ErrorReply) ProtoReflect() protoreflect.Message {
-	mi := &file_ego_v2_ego_proto_msgTypes[3]
+	mi := &file_ego_v3_ego_proto_msgTypes[3]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -328,7 +328,7 @@ func (x *ErrorReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ErrorReply.ProtoReflect.Descriptor instead.
 func (*ErrorReply) Descriptor() ([]byte, []int) {
-	return file_ego_v2_ego_proto_rawDescGZIP(), []int{3}
+	return file_ego_v3_ego_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ErrorReply) GetMessage() string {
@@ -348,7 +348,7 @@ type NoReply struct {
 func (x *NoReply) Reset() {
 	*x = NoReply{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_ego_v2_ego_proto_msgTypes[4]
+		mi := &file_ego_v3_ego_proto_msgTypes[4]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -361,7 +361,7 @@ func (x *NoReply) String() string {
 func (*NoReply) ProtoMessage() {}
 
 func (x *NoReply) ProtoReflect() protoreflect.Message {
-	mi := &file_ego_v2_ego_proto_msgTypes[4]
+	mi := &file_ego_v3_ego_proto_msgTypes[4]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -374,7 +374,7 @@ func (x *NoReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NoReply.ProtoReflect.Descriptor instead.
 func (*NoReply) Descriptor() ([]byte, []int) {
-	return file_ego_v2_ego_proto_rawDescGZIP(), []int{4}
+	return file_ego_v3_ego_proto_rawDescGZIP(), []int{4}
 }
 
 // GetStateCommand tells the Aggregate
@@ -388,7 +388,7 @@ type GetStateCommand struct {
 func (x *GetStateCommand) Reset() {
 	*x = GetStateCommand{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_ego_v2_ego_proto_msgTypes[5]
+		mi := &file_ego_v3_ego_proto_msgTypes[5]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -401,7 +401,7 @@ func (x *GetStateCommand) String() string {
 func (*GetStateCommand) ProtoMessage() {}
 
 func (x *GetStateCommand) ProtoReflect() protoreflect.Message {
-	mi := &file_ego_v2_ego_proto_msgTypes[5]
+	mi := &file_ego_v3_ego_proto_msgTypes[5]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -414,7 +414,7 @@ func (x *GetStateCommand) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetStateCommand.ProtoReflect.Descriptor instead.
 func (*GetStateCommand) Descriptor() ([]byte, []int) {
-	return file_ego_v2_ego_proto_rawDescGZIP(), []int{5}
+	return file_ego_v3_ego_proto_rawDescGZIP(), []int{5}
 }
 
 // Offset defines the projection offset
@@ -436,7 +436,7 @@ type Offset struct {
 func (x *Offset) Reset() {
 	*x = Offset{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_ego_v2_ego_proto_msgTypes[6]
+		mi := &file_ego_v3_ego_proto_msgTypes[6]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -449,7 +449,7 @@ func (x *Offset) String() string {
 func (*Offset) ProtoMessage() {}
 
 func (x *Offset) ProtoReflect() protoreflect.Message {
-	mi := &file_ego_v2_ego_proto_msgTypes[6]
+	mi := &file_ego_v3_ego_proto_msgTypes[6]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -462,7 +462,7 @@ func (x *Offset) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Offset.ProtoReflect.Descriptor instead.
 func (*Offset) Descriptor() ([]byte, []int) {
-	return file_ego_v2_ego_proto_rawDescGZIP(), []int{6}
+	return file_ego_v3_ego_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *Offset) GetShardNumber() uint64 {
@@ -508,7 +508,7 @@ type ProjectionId struct {
 func (x *ProjectionId) Reset() {
 	*x = ProjectionId{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_ego_v2_ego_proto_msgTypes[7]
+		mi := &file_ego_v3_ego_proto_msgTypes[7]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -521,7 +521,7 @@ func (x *ProjectionId) String() string {
 func (*ProjectionId) ProtoMessage() {}
 
 func (x *ProjectionId) ProtoReflect() protoreflect.Message {
-	mi := &file_ego_v2_ego_proto_msgTypes[7]
+	mi := &file_ego_v3_ego_proto_msgTypes[7]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -534,7 +534,7 @@ func (x *ProjectionId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProjectionId.ProtoReflect.Descriptor instead.
 func (*ProjectionId) Descriptor() ([]byte, []int) {
-	return file_ego_v2_ego_proto_rawDescGZIP(), []int{7}
+	return file_ego_v3_ego_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *ProjectionId) GetProjectionName() string {
@@ -551,10 +551,10 @@ func (x *ProjectionId) GetShardNumber() uint64 {
 	return 0
 }
 
-var File_ego_v2_ego_proto protoreflect.FileDescriptor
+var File_ego_v3_ego_proto protoreflect.FileDescriptor
 
-var file_ego_v2_ego_proto_rawDesc = []byte{
-	0x0a, 0x10, 0x65, 0x67, 0x6f, 0x2f, 0x76, 0x32, 0x2f, 0x65, 0x67, 0x6f, 0x2e, 0x70, 0x72, 0x6f,
+var file_ego_v3_ego_proto_rawDesc = []byte{
+	0x0a, 0x10, 0x65, 0x67, 0x6f, 0x2f, 0x76, 0x33, 0x2f, 0x65, 0x67, 0x6f, 0x2e, 0x70, 0x72, 0x6f,
 	0x74, 0x6f, 0x12, 0x06, 0x65, 0x67, 0x6f, 0x2e, 0x76, 0x31, 0x1a, 0x19, 0x67, 0x6f, 0x6f, 0x67,
 	0x6c, 0x65, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66, 0x2f, 0x61, 0x6e, 0x79, 0x2e,
 	0x70, 0x72, 0x6f, 0x74, 0x6f, 0x22, 0x95, 0x02, 0x0a, 0x05, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x12,
@@ -616,7 +616,7 @@ var file_ego_v2_ego_proto_rawDesc = []byte{
 	0x6f, 0x6d, 0x2e, 0x65, 0x67, 0x6f, 0x2e, 0x76, 0x31, 0x42, 0x08, 0x45, 0x67, 0x6f, 0x50, 0x72,
 	0x6f, 0x74, 0x6f, 0x48, 0x02, 0x50, 0x01, 0x5a, 0x20, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62, 0x2e,
 	0x63, 0x6f, 0x6d, 0x2f, 0x74, 0x6f, 0x63, 0x68, 0x65, 0x6d, 0x65, 0x79, 0x2f, 0x65, 0x67, 0x6f,
-	0x2f, 0x76, 0x32, 0x3b, 0x65, 0x67, 0x6f, 0x70, 0x62, 0xa2, 0x02, 0x03, 0x45, 0x58, 0x58, 0xaa,
+	0x2f, 0x76, 0x33, 0x3b, 0x65, 0x67, 0x6f, 0x70, 0x62, 0xa2, 0x02, 0x03, 0x45, 0x58, 0x58, 0xaa,
 	0x02, 0x06, 0x45, 0x67, 0x6f, 0x2e, 0x56, 0x31, 0xca, 0x02, 0x06, 0x45, 0x67, 0x6f, 0x5c, 0x56,
 	0x31, 0xe2, 0x02, 0x12, 0x45, 0x67, 0x6f, 0x5c, 0x56, 0x31, 0x5c, 0x47, 0x50, 0x42, 0x4d, 0x65,
 	0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0xea, 0x02, 0x07, 0x45, 0x67, 0x6f, 0x3a, 0x3a, 0x56, 0x31,
@@ -624,19 +624,19 @@ var file_ego_v2_ego_proto_rawDesc = []byte{
 }
 
 var (
-	file_ego_v2_ego_proto_rawDescOnce sync.Once
-	file_ego_v2_ego_proto_rawDescData = file_ego_v2_ego_proto_rawDesc
+	file_ego_v3_ego_proto_rawDescOnce sync.Once
+	file_ego_v3_ego_proto_rawDescData = file_ego_v3_ego_proto_rawDesc
 )
 
-func file_ego_v2_ego_proto_rawDescGZIP() []byte {
-	file_ego_v2_ego_proto_rawDescOnce.Do(func() {
-		file_ego_v2_ego_proto_rawDescData = protoimpl.X.CompressGZIP(file_ego_v2_ego_proto_rawDescData)
+func file_ego_v3_ego_proto_rawDescGZIP() []byte {
+	file_ego_v3_ego_proto_rawDescOnce.Do(func() {
+		file_ego_v3_ego_proto_rawDescData = protoimpl.X.CompressGZIP(file_ego_v3_ego_proto_rawDescData)
 	})
-	return file_ego_v2_ego_proto_rawDescData
+	return file_ego_v3_ego_proto_rawDescData
 }
 
-var file_ego_v2_ego_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
-var file_ego_v2_ego_proto_goTypes = []interface{}{
+var file_ego_v3_ego_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_ego_v3_ego_proto_goTypes = []interface{}{
 	(*Event)(nil),           // 0: ego.v1.Event
 	(*CommandReply)(nil),    // 1: ego.v1.CommandReply
 	(*StateReply)(nil),      // 2: ego.v1.StateReply
@@ -647,7 +647,7 @@ var file_ego_v2_ego_proto_goTypes = []interface{}{
 	(*ProjectionId)(nil),    // 7: ego.v1.ProjectionId
 	(*anypb.Any)(nil),       // 8: google.protobuf.Any
 }
-var file_ego_v2_ego_proto_depIdxs = []int32{
+var file_ego_v3_ego_proto_depIdxs = []int32{
 	8, // 0: ego.v1.Event.event:type_name -> google.protobuf.Any
 	8, // 1: ego.v1.Event.resulting_state:type_name -> google.protobuf.Any
 	2, // 2: ego.v1.CommandReply.state_reply:type_name -> ego.v1.StateReply
@@ -660,13 +660,13 @@ var file_ego_v2_ego_proto_depIdxs = []int32{
 	0, // [0:5] is the sub-list for field type_name
 }
 
-func init() { file_ego_v2_ego_proto_init() }
-func file_ego_v2_ego_proto_init() {
-	if File_ego_v2_ego_proto != nil {
+func init() { file_ego_v3_ego_proto_init() }
+func file_ego_v3_ego_proto_init() {
+	if File_ego_v3_ego_proto != nil {
 		return
 	}
 	if !protoimpl.UnsafeEnabled {
-		file_ego_v2_ego_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
+		file_ego_v3_ego_proto_msgTypes[0].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*Event); i {
 			case 0:
 				return &v.state
@@ -678,7 +678,7 @@ func file_ego_v2_ego_proto_init() {
 				return nil
 			}
 		}
-		file_ego_v2_ego_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
+		file_ego_v3_ego_proto_msgTypes[1].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*CommandReply); i {
 			case 0:
 				return &v.state
@@ -690,7 +690,7 @@ func file_ego_v2_ego_proto_init() {
 				return nil
 			}
 		}
-		file_ego_v2_ego_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
+		file_ego_v3_ego_proto_msgTypes[2].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*StateReply); i {
 			case 0:
 				return &v.state
@@ -702,7 +702,7 @@ func file_ego_v2_ego_proto_init() {
 				return nil
 			}
 		}
-		file_ego_v2_ego_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
+		file_ego_v3_ego_proto_msgTypes[3].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*ErrorReply); i {
 			case 0:
 				return &v.state
@@ -714,7 +714,7 @@ func file_ego_v2_ego_proto_init() {
 				return nil
 			}
 		}
-		file_ego_v2_ego_proto_msgTypes[4].Exporter = func(v interface{}, i int) interface{} {
+		file_ego_v3_ego_proto_msgTypes[4].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*NoReply); i {
 			case 0:
 				return &v.state
@@ -726,7 +726,7 @@ func file_ego_v2_ego_proto_init() {
 				return nil
 			}
 		}
-		file_ego_v2_ego_proto_msgTypes[5].Exporter = func(v interface{}, i int) interface{} {
+		file_ego_v3_ego_proto_msgTypes[5].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*GetStateCommand); i {
 			case 0:
 				return &v.state
@@ -738,7 +738,7 @@ func file_ego_v2_ego_proto_init() {
 				return nil
 			}
 		}
-		file_ego_v2_ego_proto_msgTypes[6].Exporter = func(v interface{}, i int) interface{} {
+		file_ego_v3_ego_proto_msgTypes[6].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*Offset); i {
 			case 0:
 				return &v.state
@@ -750,7 +750,7 @@ func file_ego_v2_ego_proto_init() {
 				return nil
 			}
 		}
-		file_ego_v2_ego_proto_msgTypes[7].Exporter = func(v interface{}, i int) interface{} {
+		file_ego_v3_ego_proto_msgTypes[7].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*ProjectionId); i {
 			case 0:
 				return &v.state
@@ -763,7 +763,7 @@ func file_ego_v2_ego_proto_init() {
 			}
 		}
 	}
-	file_ego_v2_ego_proto_msgTypes[1].OneofWrappers = []interface{}{
+	file_ego_v3_ego_proto_msgTypes[1].OneofWrappers = []interface{}{
 		(*CommandReply_StateReply)(nil),
 		(*CommandReply_ErrorReply)(nil),
 	}
@@ -771,18 +771,18 @@ func file_ego_v2_ego_proto_init() {
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: file_ego_v2_ego_proto_rawDesc,
+			RawDescriptor: file_ego_v3_ego_proto_rawDesc,
 			NumEnums:      0,
 			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_ego_v2_ego_proto_goTypes,
-		DependencyIndexes: file_ego_v2_ego_proto_depIdxs,
-		MessageInfos:      file_ego_v2_ego_proto_msgTypes,
+		GoTypes:           file_ego_v3_ego_proto_goTypes,
+		DependencyIndexes: file_ego_v3_ego_proto_depIdxs,
+		MessageInfos:      file_ego_v3_ego_proto_msgTypes,
 	}.Build()
-	File_ego_v2_ego_proto = out.File
-	file_ego_v2_ego_proto_rawDesc = nil
-	file_ego_v2_ego_proto_goTypes = nil
-	file_ego_v2_ego_proto_depIdxs = nil
+	File_ego_v3_ego_proto = out.File
+	file_ego_v3_ego_proto_rawDesc = nil
+	file_ego_v3_ego_proto_goTypes = nil
+	file_ego_v3_ego_proto_depIdxs = nil
 }
