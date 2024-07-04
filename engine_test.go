@@ -35,6 +35,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tochemey/goakt/v2/actors"
 	"github.com/travisjeffery/go-dynaport"
 	"google.golang.org/protobuf/proto"
 
@@ -214,6 +215,65 @@ func TestEgo(t *testing.T) {
 		assert.NoError(t, eventStore.Disconnect(ctx))
 		assert.NoError(t, engine.Stop(ctx))
 	})
+	t.Run("With SendCommand when not started", func(t *testing.T) {
+		ctx := context.TODO()
+		// create the event store
+		eventStore := memory.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+
+		// create the ego engine
+		engine := NewEngine("Sample", eventStore)
+		// create a persistence id
+		entityID := uuid.NewString()
+
+		_, _, err := engine.SendCommand(ctx, entityID, new(samplepb.CreateAccount), time.Minute)
+		require.Error(t, err)
+		assert.EqualError(t, err, ErrEngineNotStarted.Error())
+
+		assert.NoError(t, eventStore.Disconnect(ctx))
+	})
+	t.Run("With SendCommand when entityID is not set", func(t *testing.T) {
+		ctx := context.TODO()
+		// create the event store
+		eventStore := memory.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+
+		// create the ego engine
+		engine := NewEngine("Sample", eventStore)
+		err := engine.Start(ctx)
+		require.NoError(t, err)
+
+		// create a persistence id
+		entityID := ""
+
+		_, _, err = engine.SendCommand(ctx, entityID, new(samplepb.CreateAccount), time.Minute)
+		require.Error(t, err)
+		assert.EqualError(t, err, ErrUndefinedEntityID.Error())
+
+		assert.NoError(t, eventStore.Disconnect(ctx))
+		assert.NoError(t, engine.Stop(ctx))
+	})
+	t.Run("With SendCommand when entity is not found", func(t *testing.T) {
+		ctx := context.TODO()
+		// create the event store
+		eventStore := memory.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+
+		// create the ego engine
+		engine := NewEngine("Sample", eventStore)
+		err := engine.Start(ctx)
+		require.NoError(t, err)
+
+		// create a persistence id
+		entityID := uuid.NewString()
+
+		_, _, err = engine.SendCommand(ctx, entityID, new(samplepb.CreateAccount), time.Minute)
+		require.Error(t, err)
+		assert.EqualError(t, err, actors.ErrActorNotFound(entityID).Error())
+
+		assert.NoError(t, eventStore.Disconnect(ctx))
+		assert.NoError(t, engine.Stop(ctx))
+	})
 }
 
 // AccountBehavior implements persistence.Behavior
@@ -236,7 +296,7 @@ func (a *AccountBehavior) ID() string {
 
 // InitialState returns the initial state
 func (a *AccountBehavior) InitialState() State {
-	return new(samplepb.Account)
+	return State(new(samplepb.Account))
 }
 
 // HandleCommand handles every command that is sent to the persistent behavior

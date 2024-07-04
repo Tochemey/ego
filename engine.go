@@ -165,8 +165,10 @@ func (x *Engine) AddProjection(ctx context.Context, name string, handler project
 
 	actor := projection.New(name, handler, x.eventsStore, offsetStore, opts...)
 
-	var pid actors.PID
-	var err error
+	var (
+		pid actors.PID
+		err error
+	)
 
 	x.locker.Lock()
 	actorSystem := x.actorSystem
