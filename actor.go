@@ -39,10 +39,10 @@ import (
 	"github.com/tochemey/goakt/v2/actors"
 	"github.com/tochemey/goakt/v2/goaktpb"
 
-	"github.com/tochemey/ego/v2/egopb"
-	"github.com/tochemey/ego/v2/eventstore"
-	"github.com/tochemey/ego/v2/eventstream"
-	"github.com/tochemey/ego/v2/internal/telemetry"
+	"github.com/tochemey/ego/v3/egopb"
+	"github.com/tochemey/ego/v3/eventstore"
+	"github.com/tochemey/ego/v3/eventstream"
+	"github.com/tochemey/ego/v3/internal/telemetry"
 )
 
 var (
@@ -50,12 +50,12 @@ var (
 )
 
 // actor is an event sourced based actor
-type actor[T State] struct {
-	EntityBehavior[T]
+type actor struct {
+	EntityBehavior
 	// specifies the events store
 	eventsStore eventstore.EventsStore
 	// specifies the current state
-	currentState T
+	currentState State
 
 	eventsCounter   *atomic.Uint64
 	lastCommandTime time.Time
@@ -64,12 +64,12 @@ type actor[T State] struct {
 }
 
 // enforce compilation error
-var _ actors.Actor = &actor[State]{}
+var _ actors.Actor = (*actor)(nil)
 
 // newActor creates an instance of actor provided the eventSourcedHandler and the events store
-func newActor[T State](behavior EntityBehavior[T], eventsStore eventstore.EventsStore, eventsStream eventstream.Stream) *actor[T] {
+func newActor(behavior EntityBehavior, eventsStore eventstore.EventsStore, eventsStream eventstream.Stream) *actor {
 	// create an instance of entity and return it
-	return &actor[T]{
+	return &actor{
 		eventsStore:    eventsStore,
 		EntityBehavior: behavior,
 		eventsCounter:  atomic.NewUint64(0),
@@ -80,7 +80,7 @@ func newActor[T State](behavior EntityBehavior[T], eventsStore eventstore.Events
 
 // PreStart pre-starts the actor
 // At this stage we connect to the various stores
-func (entity *actor[T]) PreStart(ctx context.Context) error {
+func (entity *actor) PreStart(ctx context.Context) error {
 	spanCtx, span := telemetry.SpanContext(ctx, "PreStart")
 	defer span.End()
 	entity.mu.Lock()
@@ -98,7 +98,7 @@ func (entity *actor[T]) PreStart(ctx context.Context) error {
 }
 
 // Receive processes any message dropped into the actor mailbox.
-func (entity *actor[T]) Receive(ctx actors.ReceiveContext) {
+func (entity *actor) Receive(ctx actors.ReceiveContext) {
 	_, span := telemetry.SpanContext(ctx.Context(), "Receive")
 	defer span.End()
 
@@ -119,7 +119,7 @@ func (entity *actor[T]) Receive(ctx actors.ReceiveContext) {
 }
 
 // PostStop prepares the actor to gracefully shutdown
-func (entity *actor[T]) PostStop(ctx context.Context) error {
+func (entity *actor) PostStop(ctx context.Context) error {
 	_, span := telemetry.SpanContext(ctx, "PostStop")
 	defer span.End()
 
@@ -131,7 +131,7 @@ func (entity *actor[T]) PostStop(ctx context.Context) error {
 
 // recoverFromSnapshot reset the persistent actor to the latest snapshot in case there is one
 // this is vital when the entity actor is restarting.
-func (entity *actor[T]) recoverFromSnapshot(ctx context.Context) error {
+func (entity *actor) recoverFromSnapshot(ctx context.Context) error {
 	spanCtx, span := telemetry.SpanContext(ctx, "RecoverFromSnapshot")
 	defer span.End()
 
@@ -157,7 +157,7 @@ func (entity *actor[T]) recoverFromSnapshot(ctx context.Context) error {
 }
 
 // sendErrorReply sends an error as a reply message
-func (entity *actor[T]) sendErrorReply(ctx actors.ReceiveContext, err error) {
+func (entity *actor) sendErrorReply(ctx actors.ReceiveContext, err error) {
 	reply := &egopb.CommandReply{
 		Reply: &egopb.CommandReply_ErrorReply{
 			ErrorReply: &egopb.ErrorReply{
@@ -170,7 +170,7 @@ func (entity *actor[T]) sendErrorReply(ctx actors.ReceiveContext, err error) {
 }
 
 // getStateAndReply returns the current state of the entity
-func (entity *actor[T]) getStateAndReply(ctx actors.ReceiveContext) {
+func (entity *actor) getStateAndReply(ctx actors.ReceiveContext) {
 	latestEvent, err := entity.eventsStore.GetLatestEvent(ctx.Context(), entity.ID())
 	if err != nil {
 		entity.sendErrorReply(ctx, err)
@@ -193,7 +193,7 @@ func (entity *actor[T]) getStateAndReply(ctx actors.ReceiveContext) {
 }
 
 // processCommandAndReply processes the incoming command
-func (entity *actor[T]) processCommandAndReply(ctx actors.ReceiveContext, command Command) {
+func (entity *actor) processCommandAndReply(ctx actors.ReceiveContext, command Command) {
 	goCtx := ctx.Context()
 	events, err := entity.HandleCommand(goCtx, command, entity.currentState)
 	if err != nil {

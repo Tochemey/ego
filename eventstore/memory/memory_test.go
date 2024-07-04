@@ -35,9 +35,9 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/tochemey/ego/v2/egopb"
-	"github.com/tochemey/ego/v2/eventstore"
-	testpb "github.com/tochemey/ego/v2/test/data/pb/v1"
+	"github.com/tochemey/ego/v3/egopb"
+	"github.com/tochemey/ego/v3/eventstore"
+	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
 )
 
 func TestEventsStore(t *testing.T) {

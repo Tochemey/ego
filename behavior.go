@@ -35,13 +35,13 @@ type Event proto.Message
 type State proto.Message
 
 // EntityBehavior defines an event sourced behavior when modeling a CQRS EntityBehavior.
-type EntityBehavior[T State] interface {
+type EntityBehavior interface {
 	// ID defines the id that will be used in the event journal.
 	// This helps track the entity in the events store.
 	ID() string
 	// InitialState returns the event sourced actor initial state.
 	// This is set as the initial state when there are no snapshots found the entity
-	InitialState() T
+	InitialState() State
 	// HandleCommand helps handle commands received by the event sourced actor. The command handlers define how to handle each incoming command,
 	// which validations must be applied, and finally, which events will be persisted if any. When there is no event to be persisted a nil can
 	// be returned as a no-op. Command handlers are the meat of the event sourced actor.
@@ -53,8 +53,8 @@ type EntityBehavior[T State] interface {
 	// Every event emitted are processed one after the other in the same order they were emitted to guarantee consistency.
 	// It is at the discretion of the application developer to know in which order a given command should return the list of events
 	// This is really powerful when a command needs to return two events. For instance, an OpenAccount command can result in two events: one is AccountOpened and the second is AccountCredited
-	HandleCommand(ctx context.Context, command Command, priorState T) (events []Event, err error)
+	HandleCommand(ctx context.Context, command Command, priorState State) (events []Event, err error)
 	// HandleEvent handle events emitted by the command handlers. The event handlers are used to mutate the state of the event sourced actor by applying the events to it.
 	// Event handlers must be pure functions as they will be used when instantiating the event sourced actor and replaying the event journal.
-	HandleEvent(ctx context.Context, event Event, priorState T) (state T, err error)
+	HandleEvent(ctx context.Context, event Event, priorState State) (state State, err error)
 }

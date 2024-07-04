@@ -28,21 +28,35 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
 	"go.uber.org/atomic"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/tochemey/goakt/v2/actors"
 	"github.com/tochemey/goakt/v2/discovery"
 	"github.com/tochemey/goakt/v2/log"
 	"github.com/tochemey/goakt/v2/telemetry"
 
-	"github.com/tochemey/ego/v2/eventstore"
-	"github.com/tochemey/ego/v2/eventstream"
-	egotel "github.com/tochemey/ego/v2/internal/telemetry"
-	"github.com/tochemey/ego/v2/offsetstore"
-	"github.com/tochemey/ego/v2/projection"
+	"github.com/tochemey/ego/v3/egopb"
+	"github.com/tochemey/ego/v3/eventstore"
+	"github.com/tochemey/ego/v3/eventstream"
+	egotel "github.com/tochemey/ego/v3/internal/telemetry"
+	"github.com/tochemey/ego/v3/offsetstore"
+	"github.com/tochemey/ego/v3/projection"
+)
+
+var (
+	// ErrEngineRequired is returned when the eGo engine is not set
+	ErrEngineRequired = errors.New("eGo engine is not defined")
+	// ErrEngineNotStarted is returned when the eGo engine has not started
+	ErrEngineNotStarted = errors.New("eGo engine has not started")
+	// ErrUndefinedEntityID is returned when sending a command to an undefined entity
+	ErrUndefinedEntityID = errors.New("eGo entity id is not defined")
+	// ErrCommandReplyUnmarshalling is returned when unmarshalling command reply failed
+	ErrCommandReplyUnmarshalling = errors.New("failed to parse command reply")
 )
 
 // Engine represents the engine that empowers the various entities
@@ -62,6 +76,7 @@ type Engine struct {
 	remotingPort       int
 	minimumPeersQuorum uint16
 	eventStream        eventstream.Stream
+	locker             *sync.Mutex
 }
 
 // NewEngine creates an instance of Engine
@@ -73,6 +88,7 @@ func NewEngine(name string, eventsStore eventstore.EventsStore, opts ...Option) 
 		logger:        log.DefaultLogger,
 		telemetry:     telemetry.New(),
 		eventStream:   eventstream.New(),
+		locker:        &sync.Mutex{},
 	}
 
 	for _, opt := range opts {
@@ -99,9 +115,9 @@ func (x *Engine) Start(ctx context.Context) error {
 			x.hostName, _ = os.Hostname()
 		}
 
-		replicatCount := 1
+		replicaCount := 1
 		if x.minimumPeersQuorum > 1 {
-			replicatCount = 2
+			replicaCount = 2
 		}
 
 		clusterConfig := actors.
@@ -110,9 +126,9 @@ func (x *Engine) Start(ctx context.Context) error {
 			WithGossipPort(x.gossipPort).
 			WithPeersPort(x.peersPort).
 			WithMinimumPeersQuorum(uint32(x.minimumPeersQuorum)).
-			WithReplicaCount(uint32(replicatCount)).
+			WithReplicaCount(uint32(replicaCount)).
 			WithPartitionCount(x.partitionsCount).
-			WithKinds(new(actor[State]))
+			WithKinds(new(actor))
 
 		opts = append(opts,
 			actors.WithCluster(clusterConfig),
@@ -140,16 +156,25 @@ func (x *Engine) AddProjection(ctx context.Context, name string, handler project
 	spanCtx, span := egotel.SpanContext(ctx, "AddProjection")
 	defer span.End()
 
-	if !x.started.Load() {
-		return errors.New("eGo engine has not started")
+	x.locker.Lock()
+	started := x.started.Load()
+	x.locker.Unlock()
+	if !started {
+		return ErrEngineNotStarted
 	}
 
 	actor := projection.New(name, handler, x.eventsStore, offsetStore, opts...)
 
-	var pid actors.PID
-	var err error
+	var (
+		pid actors.PID
+		err error
+	)
 
-	if pid, err = x.actorSystem.Spawn(spanCtx, name, actor); err != nil {
+	x.locker.Lock()
+	actorSystem := x.actorSystem
+	x.locker.Unlock()
+
+	if pid, err = actorSystem.Spawn(spanCtx, name, actor); err != nil {
 		x.logger.Error(errors.Wrapf(err, "failed to register the projection=(%s)", name))
 		return err
 	}
@@ -174,15 +199,131 @@ func (x *Engine) Subscribe(ctx context.Context) (eventstream.Subscriber, error) 
 	_, span := egotel.SpanContext(ctx, "Subscribe")
 	defer span.End()
 
-	if !x.started.Load() {
-		return nil, errors.New("eGo engine has not started")
+	x.locker.Lock()
+	started := x.started.Load()
+	x.locker.Unlock()
+	if !started {
+		return nil, ErrEngineNotStarted
 	}
 
-	subscriber := x.eventStream.AddSubscriber()
+	x.locker.Lock()
+	eventStream := x.eventStream
+	x.locker.Unlock()
+
+	subscriber := eventStream.AddSubscriber()
 	for i := 0; i < int(x.partitionsCount); i++ {
 		topic := fmt.Sprintf(eventsTopic, i)
 		x.eventStream.Subscribe(subscriber, topic)
 	}
 
 	return subscriber, nil
+}
+
+// Entity creates an entity. This will return the entity path
+// that can be used to send command to the entity
+func (x *Engine) Entity(ctx context.Context, behavior EntityBehavior) error {
+	x.locker.Lock()
+	started := x.started.Load()
+	x.locker.Unlock()
+	if !started {
+		return ErrEngineNotStarted
+	}
+
+	x.locker.Lock()
+	actorSystem := x.actorSystem
+	eventsStore := x.eventsStore
+	eventStream := x.eventStream
+	x.locker.Unlock()
+
+	_, err := actorSystem.Spawn(ctx,
+		behavior.ID(),
+		newActor(behavior, eventsStore, eventStream))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// SendCommand sends command to a given entity ref.
+// This will return:
+// 1. the resulting state after the command has been handled and the emitted event persisted
+// 2. nil when there is no resulting state or no event persisted
+// 3. an error in case of error
+func (x *Engine) SendCommand(ctx context.Context, entityID string, cmd Command, timeout time.Duration) (resultingState State, revision uint64, err error) {
+	ctx, span := egotel.SpanContext(ctx, "SendCommand")
+	defer span.End()
+
+	x.locker.Lock()
+	started := x.started.Load()
+	x.locker.Unlock()
+	if !started {
+		return nil, 0, ErrEngineNotStarted
+	}
+
+	// entityID is not defined
+	if entityID == "" {
+		return nil, 0, ErrUndefinedEntityID
+	}
+
+	x.locker.Lock()
+	actorSystem := x.actorSystem
+	x.locker.Unlock()
+
+	// locate the given actor
+	addr, pid, err := actorSystem.ActorOf(ctx, entityID)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	var reply proto.Message
+	if pid != nil {
+		// put the given command to the underlying actor of the entity
+		reply, err = actors.Ask(ctx, pid, cmd, timeout)
+	} else if addr != nil {
+		// send the command to the given address
+		res, err := actors.RemoteAsk(ctx, addr, cmd, timeout)
+		if err == nil {
+			// let us unmarshal the response
+			reply, err = res.UnmarshalNew()
+		}
+	}
+
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// cast the reply as it supposes
+	commandReply, ok := reply.(*egopb.CommandReply)
+	if ok {
+		return parseCommandReply(commandReply)
+	}
+	return nil, 0, ErrCommandReplyUnmarshalling
+}
+
+// parseCommandReply parses the command reply
+func parseCommandReply(reply *egopb.CommandReply) (State, uint64, error) {
+	var (
+		state State
+		err   error
+	)
+
+	switch r := reply.GetReply().(type) {
+	case *egopb.CommandReply_StateReply:
+		msg, err := r.StateReply.GetState().UnmarshalNew()
+		if err != nil {
+			return state, 0, err
+		}
+
+		switch v := msg.(type) {
+		case State:
+			return v, r.StateReply.GetSequenceNumber(), nil
+		default:
+			return state, 0, fmt.Errorf("got %s", r.StateReply.GetState().GetTypeUrl())
+		}
+	case *egopb.CommandReply_ErrorReply:
+		err = errors.New(r.ErrorReply.GetMessage())
+		return state, 0, err
+	}
+	return state, 0, errors.New("no state received")
 }

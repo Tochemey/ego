@@ -31,13 +31,14 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/tochemey/ego/v2"
-	"github.com/tochemey/ego/v2/eventstore/memory"
-	samplepb "github.com/tochemey/ego/v2/example/pbs/sample/pb/v1"
+	"github.com/tochemey/ego/v3"
+	"github.com/tochemey/ego/v3/eventstore/memory"
+	samplepb "github.com/tochemey/ego/v3/example/pbs/sample/pb/v1"
 )
 
 func main() {
@@ -48,15 +49,15 @@ func main() {
 	// connect the event store
 	_ = eventStore.Connect(ctx)
 	// create the ego engine
-	e := ego.NewEngine("Sample", eventStore)
+	engine := ego.NewEngine("Sample", eventStore)
 	// start ego engine
-	_ = e.Start(ctx)
+	_ = engine.Start(ctx)
 	// create a persistence id
 	entityID := uuid.NewString()
 	// create an entity behavior with a given id
 	behavior := NewAccountBehavior(entityID)
 	// create an entity
-	entity, _ := ego.NewEntity[*samplepb.Account](ctx, behavior, e)
+	_ = engine.Entity(ctx, behavior)
 
 	// send some commands to the pid
 	var command proto.Message
@@ -66,8 +67,8 @@ func main() {
 		AccountBalance: 500.00,
 	}
 	// send the command to the actor. Please don't ignore the error in production grid code
-	account, _, _ := entity.SendCommand(ctx, command)
-
+	reply, _, _ := engine.SendCommand(ctx, entityID, command, time.Minute)
+	account := reply.(*samplepb.Account)
 	log.Printf("current balance: %v", account.GetAccountBalance())
 
 	// send another command to credit the balance
@@ -75,7 +76,9 @@ func main() {
 		AccountId: entityID,
 		Balance:   250,
 	}
-	account, _, _ = entity.SendCommand(ctx, command)
+
+	reply, _, _ = engine.SendCommand(ctx, entityID, command, time.Minute)
+	account = reply.(*samplepb.Account)
 	log.Printf("current balance: %v", account.GetAccountBalance())
 
 	// capture ctrl+c
@@ -86,7 +89,7 @@ func main() {
 	// disconnect the event store
 	_ = eventStore.Disconnect(ctx)
 	// stop the actor system
-	_ = e.Stop(ctx)
+	_ = engine.Stop(ctx)
 	os.Exit(0)
 }
 
@@ -96,7 +99,7 @@ type AccountBehavior struct {
 }
 
 // make sure that AccountBehavior is a true persistence behavior
-var _ ego.EntityBehavior[*samplepb.Account] = &AccountBehavior{}
+var _ ego.EntityBehavior = &AccountBehavior{}
 
 // NewAccountBehavior creates an instance of AccountBehavior
 func NewAccountBehavior(id string) *AccountBehavior {
@@ -109,12 +112,12 @@ func (a *AccountBehavior) ID() string {
 }
 
 // InitialState returns the initial state
-func (a *AccountBehavior) InitialState() *samplepb.Account {
-	return new(samplepb.Account)
+func (a *AccountBehavior) InitialState() ego.State {
+	return ego.State(new(samplepb.Account))
 }
 
 // HandleCommand handles every command that is sent to the persistent behavior
-func (a *AccountBehavior) HandleCommand(_ context.Context, command ego.Command, _ *samplepb.Account) (events []ego.Event, err error) {
+func (a *AccountBehavior) HandleCommand(_ context.Context, command ego.Command, _ ego.State) (events []ego.Event, err error) {
 	switch cmd := command.(type) {
 	case *samplepb.CreateAccount:
 		// TODO in production grid app validate the command using the prior state
@@ -140,7 +143,7 @@ func (a *AccountBehavior) HandleCommand(_ context.Context, command ego.Command, 
 }
 
 // HandleEvent handles every event emitted
-func (a *AccountBehavior) HandleEvent(_ context.Context, event ego.Event, priorState *samplepb.Account) (state *samplepb.Account, err error) {
+func (a *AccountBehavior) HandleEvent(_ context.Context, event ego.Event, priorState ego.State) (state ego.State, err error) {
 	switch evt := event.(type) {
 	case *samplepb.AccountCreated:
 		return &samplepb.Account{
@@ -149,7 +152,8 @@ func (a *AccountBehavior) HandleEvent(_ context.Context, event ego.Event, priorS
 		}, nil
 
 	case *samplepb.AccountCredited:
-		bal := priorState.GetAccountBalance() + evt.GetAccountBalance()
+		account := priorState.(*samplepb.Account)
+		bal := account.GetAccountBalance() + evt.GetAccountBalance()
 		return &samplepb.Account{
 			AccountId:      evt.GetAccountId(),
 			AccountBalance: bal,

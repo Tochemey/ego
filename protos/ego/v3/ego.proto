@@ -4,7 +4,7 @@ package ego.v1;
 
 import "google/protobuf/any.proto";
 
-option go_package = "github.com/tochemey/ego/v2;egopb";
+option go_package = "github.com/tochemey/ego/v3;egopb";
 
 // Event defines the event that needs to be persisted onto the events store
 message Event {

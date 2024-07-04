@@ -37,10 +37,10 @@ import (
 
 	"github.com/tochemey/goakt/v2/log"
 
-	"github.com/tochemey/ego/v2/egopb"
-	"github.com/tochemey/ego/v2/eventstore"
-	"github.com/tochemey/ego/v2/internal/telemetry"
-	"github.com/tochemey/ego/v2/offsetstore"
+	"github.com/tochemey/ego/v3/egopb"
+	"github.com/tochemey/ego/v3/eventstore"
+	"github.com/tochemey/ego/v3/internal/telemetry"
+	"github.com/tochemey/ego/v3/offsetstore"
 )
 
 // runner defines the projection runner
