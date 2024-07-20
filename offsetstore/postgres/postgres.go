@@ -27,10 +27,11 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
-	"github.com/pkg/errors"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 
@@ -157,7 +158,7 @@ func (x *OffsetStore) WriteOffset(ctx context.Context, offset *egopb.Offset) err
 	tx, err := x.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	// return the error in case we are unable to get a database transaction
 	if err != nil {
-		return errors.Wrap(err, "failed to obtain a database transaction")
+		return fmt.Errorf("failed to obtain a database transaction: %w", err)
 	}
 
 	var (
@@ -175,7 +176,7 @@ func (x *OffsetStore) WriteOffset(ctx context.Context, offset *egopb.Offset) err
 	query, args, err = deleteBuilder.ToSql()
 	// handle the error while generating the SQL
 	if err != nil {
-		return errors.Wrap(err, "unable to build sql delete statement")
+		return fmt.Errorf("unable to build sql delete statement: %w", err)
 	}
 
 	// execute the query
@@ -183,10 +184,10 @@ func (x *OffsetStore) WriteOffset(ctx context.Context, offset *egopb.Offset) err
 	if execErr != nil {
 		// attempt to roll back the transaction and log the error in case there is an error
 		if err = tx.Rollback(); err != nil {
-			return errors.Wrap(err, "unable to rollback db transaction")
+			return fmt.Errorf("unable to rollback db transaction: %w", err)
 		}
 		// return the main error
-		return errors.Wrap(execErr, "failed to record events")
+		return fmt.Errorf("failed to record events: %w", execErr)
 	}
 
 	// create the insert statement
@@ -203,7 +204,7 @@ func (x *OffsetStore) WriteOffset(ctx context.Context, offset *egopb.Offset) err
 	query, args, err = insertBuilder.ToSql()
 	// handle the error while generating the SQL
 	if err != nil {
-		return errors.Wrap(err, "unable to build sql insert statement")
+		return fmt.Errorf("unable to build sql insert statement: %w", err)
 	}
 
 	// insert into the table
@@ -211,16 +212,16 @@ func (x *OffsetStore) WriteOffset(ctx context.Context, offset *egopb.Offset) err
 	if execErr != nil {
 		// attempt to roll back the transaction and log the error in case there is an error
 		if err = tx.Rollback(); err != nil {
-			return errors.Wrap(err, "unable to rollback db transaction")
+			return fmt.Errorf("unable to rollback db transaction: %w", err)
 		}
 		// return the main error
-		return errors.Wrap(execErr, "failed to record events")
+		return fmt.Errorf("failed to record events: %w", execErr)
 	}
 
 	// commit the transaction
 	if commitErr := tx.Commit(); commitErr != nil {
 		// return the commit error in case there is one
-		return errors.Wrap(commitErr, "failed to record events")
+		return fmt.Errorf("failed to record events: %w", commitErr)
 	}
 	// every looks good
 	return nil
@@ -247,13 +248,13 @@ func (x *OffsetStore) GetCurrentOffset(ctx context.Context, projectionID *egopb.
 	// get the sql statement and the arguments
 	query, args, err := statement.ToSql()
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to build the select sql statement")
+		return nil, fmt.Errorf("failed to build the select sql statement: %w", err)
 	}
 
 	row := new(offsetRow)
 	err = x.db.Select(ctx, row, query, args...)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to fetch the current offset from the database")
+		return nil, fmt.Errorf("failed to fetch the current offset from the database: %w", err)
 	}
 
 	return &egopb.Offset{
@@ -279,7 +280,7 @@ func (x *OffsetStore) ResetOffset(ctx context.Context, projectionName string, va
 	tx, err := x.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	// return the error in case we are unable to get a database transaction
 	if err != nil {
-		return errors.Wrap(err, "failed to obtain a database transaction")
+		return fmt.Errorf("failed to obtain a database transaction: %w", err)
 	}
 
 	// define the current timestamp
@@ -296,7 +297,7 @@ func (x *OffsetStore) ResetOffset(ctx context.Context, projectionName string, va
 	query, args, err := statement.ToSql()
 	// handle the error while generating the SQL
 	if err != nil {
-		return errors.Wrap(err, "unable to build sql insert statement")
+		return fmt.Errorf("unable to build sql insert statement: %w", err)
 	}
 
 	// insert into the table
@@ -304,16 +305,16 @@ func (x *OffsetStore) ResetOffset(ctx context.Context, projectionName string, va
 	if execErr != nil {
 		// attempt to roll back the transaction and log the error in case there is an error
 		if err = tx.Rollback(); err != nil {
-			return errors.Wrap(err, "unable to rollback db transaction")
+			return fmt.Errorf("unable to rollback db transaction: %w", err)
 		}
 		// return the main error
-		return errors.Wrap(execErr, "failed to record events")
+		return fmt.Errorf("failed to record events: %w", execErr)
 	}
 
 	// commit the transaction
 	if commitErr := tx.Commit(); commitErr != nil {
 		// return the commit error in case there is one
-		return errors.Wrap(commitErr, "failed to record events")
+		return fmt.Errorf("failed to record events: %w", commitErr)
 	}
 	// every looks good
 	return nil

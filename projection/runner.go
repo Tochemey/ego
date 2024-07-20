@@ -26,11 +26,11 @@ package projection
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/flowchartsman/retry"
-	"github.com/pkg/errors"
 	"go.uber.org/atomic"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -116,7 +116,7 @@ func (x *runner) Start(ctx context.Context) error {
 	}
 
 	if err := x.offsetsStore.Ping(spanCtx); err != nil {
-		return fmt.Errorf("failed to connect to the offsets store: %v", err)
+		return fmt.Errorf("failed to connect to the offsets store: %ws", err)
 	}
 
 	if x.eventsStore == nil {
@@ -124,7 +124,7 @@ func (x *runner) Start(ctx context.Context) error {
 	}
 
 	if err := x.eventsStore.Ping(spanCtx); err != nil {
-		return fmt.Errorf("failed to connect to the events store: %v", err)
+		return fmt.Errorf("failed to connect to the events store: %w", err)
 	}
 
 	// we will ping the stores 5 times to see whether there have started successfully or not.
@@ -150,7 +150,7 @@ func (x *runner) Start(ctx context.Context) error {
 	})
 
 	if err != nil {
-		return errors.Wrap(err, "failed to start the projection")
+		return fmt.Errorf("failed to start the projection: %w", err)
 	}
 
 	if err := x.preStart(spanCtx); err != nil {
@@ -207,7 +207,7 @@ func (x *runner) processingLoop(ctx context.Context) {
 					defer close(shardsChan)
 					shards, err := x.eventsStore.ShardNumbers(ctx)
 					if err != nil {
-						x.logger.Error(errors.Wrap(err, "failed to fetch the list of shards"))
+						x.logger.Error(fmt.Errorf("failed to fetch the list of shards:%w", err))
 						return err
 					}
 
@@ -302,7 +302,7 @@ func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 		case Fail:
 			// send the data to the handler. In case of error we log the error and fail the projection
 			if err := x.handler.Handle(spanCtx, persistenceID, event, state, seqNr); err != nil {
-				x.logger.Error(errors.Wrapf(err, "failed to process event for persistence id=%s, revision=%d", persistenceID, seqNr))
+				x.logger.Error(fmt.Errorf("failed to process event for persistence id=%s, revision=%d: %w", persistenceID, seqNr, err))
 				return err
 			}
 
@@ -315,7 +315,7 @@ func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 			// pass the data to the projection handler
 			if err := backoff.Run(func() error {
 				if err := x.handler.Handle(spanCtx, persistenceID, event, state, seqNr); err != nil {
-					x.logger.Error(errors.Wrapf(err, "failed to process event for persistence id=%s, revision=%d", persistenceID, seqNr))
+					x.logger.Error(fmt.Errorf("failed to process event for persistence id=%s, revision=%d: %w", persistenceID, seqNr, err))
 					return err
 				}
 				return nil
@@ -335,13 +335,13 @@ func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 				return x.handler.Handle(spanCtx, persistenceID, event, state, seqNr)
 			}); err != nil {
 				// here we just log the error, but we skip the event and commit the offset
-				x.logger.Error(errors.Wrapf(err, "failed to process event for persistence id=%s, revision=%d", persistenceID, seqNr))
+				x.logger.Error(fmt.Errorf("failed to process event for persistence id=%s, revision=%d: %w", persistenceID, seqNr, err))
 			}
 
 		case Skip:
 			// send the data to the handler. In case of error we just log the error and skip the event by committing the offset
 			if err := x.handler.Handle(spanCtx, persistenceID, event, state, seqNr); err != nil {
-				x.logger.Error(errors.Wrapf(err, "failed to process event for persistence id=%s, revision=%d", persistenceID, seqNr))
+				x.logger.Error(fmt.Errorf("failed to process event for persistence id=%s, revision=%d: %w", persistenceID, seqNr, err))
 			}
 		}
 
@@ -355,7 +355,7 @@ func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 		}
 
 		if err := x.offsetsStore.WriteOffset(spanCtx, offset); err != nil {
-			return errors.Wrapf(err, "failed to persist offset for persistence id=%s", persistenceID)
+			return fmt.Errorf("failed to persist offset for persistence id=%s: %w", persistenceID, err)
 		}
 	}
 
@@ -369,7 +369,7 @@ func (x *runner) preStart(ctx context.Context) error {
 
 	if !x.resetOffsetTo.IsZero() {
 		if err := x.offsetsStore.ResetOffset(spanCtx, x.name, x.resetOffsetTo.UnixMilli()); err != nil {
-			x.logger.Error(errors.Wrapf(err, "failed to reset projection=%s", x.name))
+			x.logger.Error(fmt.Errorf("failed to reset projection=%s: %w", x.name, err))
 			return err
 		}
 	}

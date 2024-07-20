@@ -27,7 +27,6 @@ package postgres
 import (
 	"fmt"
 
-	"github.com/pkg/errors"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
@@ -54,11 +53,11 @@ func (x row) ToEvent() (*egopb.Event, error) {
 	// unmarshal the event and the state
 	evt, err := toProto(x.EventManifest, x.EventPayload)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to unmarshal the journal event")
+		return nil, fmt.Errorf("failed to unmarshal the journal event: %w", err)
 	}
 	state, err := toProto(x.StateManifest, x.StatePayload)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to unmarshal the journal state")
+		return nil, fmt.Errorf("failed to unmarshal the journal state: %w", err)
 	}
 
 	return &egopb.Event{
@@ -84,11 +83,11 @@ func (x rows) ToEvents() ([]*egopb.Event, error) {
 		// unmarshal the event and the state
 		evt, err := toProto(row.EventManifest, row.EventPayload)
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to unmarshal the journal event")
+			return nil, fmt.Errorf("failed to unmarshal the journal event: %w", err)
 		}
 		state, err := toProto(row.StateManifest, row.StatePayload)
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to unmarshal the journal state")
+			return nil, fmt.Errorf("failed to unmarshal the journal state: %w", err)
 		}
 		// create the event and add it to the list of events
 		events = append(events, &egopb.Event{

@@ -26,13 +26,13 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 
 	goset "github.com/deckarep/golang-set/v2"
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-memdb"
-	"github.com/pkg/errors"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -112,7 +112,7 @@ func (s *EventsStore) Disconnect(ctx context.Context) error {
 		// free memory resource
 		if _, err := txn.DeleteAll(journalTableName, journalPK); err != nil {
 			txn.Abort()
-			return errors.Wrap(err, "failed to free memory resource")
+			return fmt.Errorf("failed to free memory resource: %w", err)
 		}
 		txn.Commit()
 	}
@@ -169,7 +169,7 @@ func (s *EventsStore) PersistenceIDs(ctx context.Context, pageSize uint64, pageT
 
 	// handle the error
 	if err != nil {
-		return nil, "", errors.Wrap(err, "failed to get the persistence Ids")
+		return nil, "", fmt.Errorf("failed to get the persistence Ids: %w", err)
 	}
 
 	var journals []*journal
@@ -255,7 +255,7 @@ func (s *EventsStore) WriteEvents(ctx context.Context, events []*egopb.Event) er
 			// abort the transaction
 			txn.Abort()
 			// return the error
-			return errors.Wrap(err, "failed to persist event on to the journal store")
+			return fmt.Errorf("failed to persist event on to the journal store: %w", err)
 		}
 	}
 	// commit the transaction
@@ -284,7 +284,7 @@ func (s *EventsStore) DeleteEvents(ctx context.Context, persistenceID string, to
 	if err != nil {
 		// abort the transaction
 		txn.Abort()
-		return errors.Wrapf(err, "failed to delete %d persistenceId=%s events", toSequenceNumber, persistenceID)
+		return fmt.Errorf("failed to delete %d persistenceId=%s events: %w", toSequenceNumber, persistenceID, err)
 	}
 
 	// loop over the records and delete them
@@ -309,7 +309,7 @@ func (s *EventsStore) DeleteEvents(ctx context.Context, persistenceID string, to
 			if err := txn.Delete(journalTableName, journal); err != nil {
 				// abort the transaction
 				txn.Abort()
-				return errors.Wrapf(err, "failed to delete %d persistenceId=%s events", toSequenceNumber, persistenceID)
+				return fmt.Errorf("failed to delete %d persistenceId=%s events: %w", toSequenceNumber, persistenceID, err)
 			}
 		}
 	}
@@ -337,7 +337,7 @@ func (s *EventsStore) ReplayEvents(ctx context.Context, persistenceID string, fr
 	if err != nil {
 		// abort the transaction
 		txn.Abort()
-		return nil, errors.Wrapf(err, "failed to replay events %d for persistenceId=%s events", (toSequenceNumber-fromSequenceNumber)+1, persistenceID)
+		return nil, fmt.Errorf("failed to replay events %d for persistenceId=%s events: %w", (toSequenceNumber-fromSequenceNumber)+1, persistenceID, err)
 	}
 
 	// loop over the records and delete them
@@ -361,11 +361,11 @@ func (s *EventsStore) ReplayEvents(ctx context.Context, persistenceID string, fr
 			// unmarshal the event and the state
 			evt, err := toProto(journal.EventManifest, journal.EventPayload)
 			if err != nil {
-				return nil, errors.Wrap(err, "failed to unmarshal the journal event")
+				return nil, fmt.Errorf("failed to unmarshal the journal event: %w", err)
 			}
 			state, err := toProto(journal.StateManifest, journal.StatePayload)
 			if err != nil {
-				return nil, errors.Wrap(err, "failed to unmarshal the journal state")
+				return nil, fmt.Errorf("failed to unmarshal the journal state: %w", err)
 			}
 
 			if uint64(len(events)) <= max {
@@ -412,7 +412,7 @@ func (s *EventsStore) GetLatestEvent(ctx context.Context, persistenceID string) 
 		if errors.Is(err, memdb.ErrNotFound) {
 			return nil, nil
 		}
-		return nil, errors.Wrapf(err, "failed to fetch the latest event from the database for persistenceId=%s", persistenceID)
+		return nil, fmt.Errorf("failed to fetch the latest event from the database for persistenceId=%s: %w", persistenceID, err)
 	}
 
 	// no record found
@@ -425,11 +425,11 @@ func (s *EventsStore) GetLatestEvent(ctx context.Context, persistenceID string) 
 		// unmarshal the event and the state
 		evt, err := toProto(journal.EventManifest, journal.EventPayload)
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to unmarshal the journal event")
+			return nil, fmt.Errorf("failed to unmarshal the journal event: %w", err)
 		}
 		state, err := toProto(journal.StateManifest, journal.StatePayload)
 		if err != nil {
-			return nil, errors.Wrap(err, "failed to unmarshal the journal state")
+			return nil, fmt.Errorf("failed to unmarshal the journal state: %w", err)
 		}
 
 		return &egopb.Event{
@@ -465,7 +465,7 @@ func (s *EventsStore) GetShardEvents(ctx context.Context, shardNumber uint64, of
 	if err != nil {
 		// abort the transaction
 		txn.Abort()
-		return nil, 0, errors.Wrapf(err, "failed to get events of shard=(%d)", shardNumber)
+		return nil, 0, fmt.Errorf("failed to get events of shard=(%d): %w", shardNumber, err)
 	}
 
 	// loop over the records and delete them
@@ -494,11 +494,11 @@ func (s *EventsStore) GetShardEvents(ctx context.Context, shardNumber uint64, of
 			// unmarshal the event and the state
 			evt, err := toProto(journal.EventManifest, journal.EventPayload)
 			if err != nil {
-				return nil, 0, errors.Wrap(err, "failed to unmarshal the journal event")
+				return nil, 0, fmt.Errorf("failed to unmarshal the journal event: %w", err)
 			}
 			state, err := toProto(journal.StateManifest, journal.StatePayload)
 			if err != nil {
-				return nil, 0, errors.Wrap(err, "failed to unmarshal the journal state")
+				return nil, 0, fmt.Errorf("failed to unmarshal the journal state: %w", err)
 			}
 
 			if uint64(len(events)) <= max {
@@ -551,7 +551,7 @@ func (s *EventsStore) ShardNumbers(ctx context.Context) ([]uint64, error) {
 	if err != nil {
 		// abort the transaction
 		txn.Abort()
-		return nil, errors.Wrap(err, "failed to fetch the list of shard number")
+		return nil, fmt.Errorf("failed to fetch the list of shard number: %w", err)
 	}
 
 	// loop over the records

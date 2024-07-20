@@ -26,12 +26,12 @@ package ego
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
 	"time"
 
-	"github.com/pkg/errors"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 
@@ -138,7 +138,7 @@ func (x *Engine) Start(ctx context.Context) error {
 	var err error
 	x.actorSystem, err = actors.NewActorSystem(x.name, opts...)
 	if err != nil {
-		x.logger.Error(errors.Wrap(err, "failed to create the ego actor system"))
+		x.logger.Error(fmt.Errorf("failed to create the ego actor system: %w", err))
 		return err
 	}
 
@@ -175,12 +175,12 @@ func (x *Engine) AddProjection(ctx context.Context, name string, handler project
 	x.locker.Unlock()
 
 	if pid, err = actorSystem.Spawn(spanCtx, name, actor); err != nil {
-		x.logger.Error(errors.Wrapf(err, "failed to register the projection=(%s)", name))
+		x.logger.Error(fmt.Errorf("failed to register the projection=(%s): %w", name, err))
 		return err
 	}
 
 	if err := actors.Tell(spanCtx, pid, projection.Start); err != nil {
-		x.logger.Error(errors.Wrapf(err, "failed to start the projection=(%s)", name))
+		x.logger.Error(fmt.Errorf("failed to start the projection=(%s): %w", name, err))
 		return err
 	}
 

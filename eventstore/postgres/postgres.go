@@ -27,9 +27,10 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
 
 	sq "github.com/Masterminds/squirrel"
-	"github.com/pkg/errors"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 
@@ -171,7 +172,7 @@ func (s *EventsStore) PersistenceIDs(ctx context.Context, pageSize uint64, pageT
 	query, args, err := statement.ToSql()
 	// handle the error
 	if err != nil {
-		return nil, "", errors.Wrap(err, "failed to build the sql statement")
+		return nil, "", fmt.Errorf("failed to build the sql statement: %w", err)
 	}
 
 	// create the ds to hold the database record
@@ -183,7 +184,7 @@ func (s *EventsStore) PersistenceIDs(ctx context.Context, pageSize uint64, pageT
 	var rows []*row
 	err = s.db.SelectAll(ctx, &rows, query, args...)
 	if err != nil {
-		return nil, "", errors.Wrap(err, "failed to fetch the events from the database")
+		return nil, "", fmt.Errorf("failed to fetch the events from the database: %w", err)
 	}
 
 	// grab the fetched records
@@ -219,7 +220,7 @@ func (s *EventsStore) WriteEvents(ctx context.Context, events []*egopb.Event) er
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	// return the error in case we are unable to get a database transaction
 	if err != nil {
-		return errors.Wrap(err, "failed to obtain a database transaction")
+		return fmt.Errorf("failed to obtain a database transaction: %w", err)
 	}
 
 	// start creating the sql statement for insertion
@@ -258,17 +259,17 @@ func (s *EventsStore) WriteEvents(ctx context.Context, events []*egopb.Event) er
 			query, args, err := statement.ToSql()
 			// handle the error while generating the SQL
 			if err != nil {
-				return errors.Wrap(err, "unable to build sql insert statement")
+				return fmt.Errorf("unable to build sql insert statement: %w", err)
 			}
 			// insert into the table
 			_, execErr := tx.ExecContext(ctx, query, args...)
 			if execErr != nil {
 				// attempt to roll back the transaction and log the error in case there is an error
 				if err = tx.Rollback(); err != nil {
-					return errors.Wrap(err, "unable to rollback db transaction")
+					return fmt.Errorf("unable to rollback db transaction: %w", err)
 				}
 				// return the main error
-				return errors.Wrap(execErr, "failed to record events")
+				return fmt.Errorf("failed to record events: %w", execErr)
 			}
 
 			// reset the statement for the next bulk
@@ -279,7 +280,7 @@ func (s *EventsStore) WriteEvents(ctx context.Context, events []*egopb.Event) er
 	// commit the transaction
 	if commitErr := tx.Commit(); commitErr != nil {
 		// return the commit error in case there is one
-		return errors.Wrap(commitErr, "failed to record events")
+		return fmt.Errorf("failed to record events: %w", commitErr)
 	}
 	// every looks good
 	return nil
@@ -305,12 +306,12 @@ func (s *EventsStore) DeleteEvents(ctx context.Context, persistenceID string, to
 	// get the sql statement and the arguments
 	query, args, err := statement.ToSql()
 	if err != nil {
-		return errors.Wrap(err, "failed to build the delete events sql statement")
+		return fmt.Errorf("failed to build the delete events sql statement: %w", err)
 	}
 
 	// execute the sql statement
 	if _, err := s.db.Exec(ctx, query, args...); err != nil {
-		return errors.Wrap(err, "failed to delete events from the database")
+		return fmt.Errorf("failed to delete events from the database: %w", err)
 	}
 
 	return nil
@@ -340,14 +341,14 @@ func (s *EventsStore) ReplayEvents(ctx context.Context, persistenceID string, fr
 	// get the sql statement and the arguments
 	query, args, err := statement.ToSql()
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to build the select sql statement")
+		return nil, fmt.Errorf("failed to build the select sql statement: %w", err)
 	}
 
 	// execute the query against the database
 	var rows rows
 	err = s.db.SelectAll(ctx, &rows, query, args...)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to fetch the events from the database")
+		return nil, fmt.Errorf("failed to fetch the events from the database: %w", err)
 	}
 
 	// return the derivative events
@@ -376,14 +377,14 @@ func (s *EventsStore) GetLatestEvent(ctx context.Context, persistenceID string) 
 	// get the sql statement and the arguments
 	query, args, err := statement.ToSql()
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to build the select sql statement")
+		return nil, fmt.Errorf("failed to build the select sql statement: %w", err)
 	}
 
 	// execute the query against the database
 	row := new(row)
 	err = s.db.Select(ctx, row, query, args...)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to fetch the latest event from the database")
+		return nil, fmt.Errorf("failed to fetch the latest event from the database: %w", err)
 	}
 
 	// check whether we do have data
@@ -418,14 +419,14 @@ func (s *EventsStore) GetShardEvents(ctx context.Context, shardNumber uint64, of
 	// get the sql statement and the arguments
 	query, args, err := statement.ToSql()
 	if err != nil {
-		return nil, 0, errors.Wrap(err, "failed to build the select sql statement")
+		return nil, 0, fmt.Errorf("failed to build the select sql statement: %w", err)
 	}
 
 	// execute the query against the database
 	var rows rows
 	err = s.db.SelectAll(ctx, &rows, query, args...)
 	if err != nil {
-		return nil, 0, errors.Wrap(err, "failed to fetch the events from the database")
+		return nil, 0, fmt.Errorf("failed to fetch the events from the database: %w", err)
 	}
 
 	// short-circuit the request
@@ -464,13 +465,13 @@ func (s *EventsStore) ShardNumbers(ctx context.Context) ([]uint64, error) {
 	// get the sql statement and the arguments
 	query, args, err := statement.ToSql()
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to build the select sql statement")
+		return nil, fmt.Errorf("failed to build the select sql statement: %w", err)
 	}
 
 	var shardNumbers []uint64
 	err = s.db.SelectAll(ctx, &shardNumbers, query, args...)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to fetch the events from the database")
+		return nil, fmt.Errorf("failed to fetch the events from the database: %w", err)
 	}
 
 	return shardNumbers, nil

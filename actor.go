@@ -26,11 +26,11 @@ package ego
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
-	"github.com/pkg/errors"
 	"go.uber.org/atomic"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -109,7 +109,7 @@ func (entity *actor) Receive(ctx actors.ReceiveContext) {
 	switch command := ctx.Message().(type) {
 	case *goaktpb.PostStart:
 		if err := entity.recoverFromSnapshot(ctx.Context()); err != nil {
-			ctx.Err(errors.Wrap(err, "failed to recover from snapshot"))
+			ctx.Err(fmt.Errorf("failed to recover from snapshot: %w", err))
 		}
 	case *egopb.GetStateCommand:
 		entity.getStateAndReply(ctx)
@@ -137,14 +137,14 @@ func (entity *actor) recoverFromSnapshot(ctx context.Context) error {
 
 	event, err := entity.eventsStore.GetLatestEvent(spanCtx, entity.ID())
 	if err != nil {
-		return errors.Wrap(err, "failed to recover the latest journal")
+		return fmt.Errorf("failed to recover the latest journal: %w", err)
 	}
 
 	// we do have the latest state just recover from it
 	if event != nil {
 		currentState := entity.InitialState()
 		if err := event.GetResultingState().UnmarshalTo(currentState); err != nil {
-			return errors.Wrap(err, "failed unmarshal the latest state")
+			return fmt.Errorf("failed unmarshal the latest state: %w", err)
 		}
 		entity.currentState = currentState
 

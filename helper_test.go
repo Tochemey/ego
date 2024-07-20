@@ -26,8 +26,8 @@ package ego
 
 import (
 	"context"
+	"errors"
 
-	"github.com/pkg/errors"
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"

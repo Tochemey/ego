@@ -26,12 +26,12 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-memdb"
-	"github.com/pkg/errors"
 	"go.uber.org/atomic"
 
 	"github.com/tochemey/ego/v3/egopb"
@@ -106,7 +106,7 @@ func (x *OffsetStore) Disconnect(ctx context.Context) error {
 		// free memory resource
 		if _, err := txn.DeleteAll(offsetTableName, offsetPK); err != nil {
 			txn.Abort()
-			return errors.Wrap(err, "failed to free memory resource")
+			return fmt.Errorf("failed to free memory resource: %w", err)
 		}
 		txn.Commit()
 	}
@@ -158,7 +158,7 @@ func (x *OffsetStore) WriteOffset(ctx context.Context, offset *egopb.Offset) err
 		// abort the transaction
 		txn.Abort()
 		// return the error
-		return errors.Wrap(err, "failed to persist offset record on to the offset store")
+		return fmt.Errorf("failed to persist offset record on to the offset store: %w", err)
 	}
 	// commit the transaction
 	txn.Commit()
@@ -187,8 +187,11 @@ func (x *OffsetStore) GetCurrentOffset(ctx context.Context, projectionID *egopb.
 		if errors.Is(err, memdb.ErrNotFound) {
 			return nil, nil
 		}
-		return nil, errors.Wrapf(err, "failed to get the current offset for shard=%d given projection=%s",
-			projectionID.GetShardNumber(), projectionID.GetProjectionName())
+		return nil, fmt.Errorf(
+			"failed to get the current offset for shard=%d given projection=%s: %w",
+			projectionID.GetShardNumber(),
+			projectionID.GetProjectionName(),
+			err)
 	}
 
 	// no record found
@@ -230,7 +233,7 @@ func (x *OffsetStore) ResetOffset(ctx context.Context, projectionName string, va
 	if err != nil {
 		// abort the transaction
 		txn.Abort()
-		return errors.Wrap(err, "failed to fetch the list of shard number")
+		return fmt.Errorf("failed to fetch the list of shard number: %w", err)
 	}
 
 	// loop over the records
@@ -259,7 +262,7 @@ func (x *OffsetStore) ResetOffset(ctx context.Context, projectionName string, va
 			// abort the transaction
 			txn.Abort()
 			// return the error
-			return errors.Wrap(err, "failed to persist offset record on to the offset store")
+			return fmt.Errorf("failed to persist offset record on to the offset store: %w", err)
 		}
 	}
 
