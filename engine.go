@@ -107,7 +107,7 @@ func (x *Engine) Start(ctx context.Context) error {
 		actors.WithActorInitMaxRetries(1),
 		actors.WithReplyTimeout(5 * time.Second),
 		actors.WithTelemetry(x.telemetry),
-		actors.WithSupervisorStrategy(actors.StopDirective),
+		actors.WithSupervisorDirective(actors.NewStopDirective()),
 	}
 
 	if x.enableCluster.Load() {
