@@ -37,7 +37,8 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/tochemey/ego/v3"
-	"github.com/tochemey/ego/v3/eventstore/memory"
+	"github.com/tochemey/ego/v3/eventstore/dynamodb"
+	// "github.com/tochemey/ego/v3/eventstore/memory"
 	samplepb "github.com/tochemey/ego/v3/example/pbs/sample/pb/v1"
 )
 
@@ -45,9 +46,13 @@ func main() {
 	// create the go context
 	ctx := context.Background()
 	// create the event store
-	eventStore := memory.NewEventsStore()
+	// eventStore := memory.NewEventsStore()
+	eventStore := dynamodb.NewEventStore()
 	// connect the event store
-	_ = eventStore.Connect(ctx)
+	err := eventStore.Connect(ctx)
+	if err != nil {
+		log.Fatalf("failed to connect to the event store: %v", err)
+	}
 	// create the ego engine
 	engine := ego.NewEngine("Sample", eventStore)
 	// start ego engine
