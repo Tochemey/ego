@@ -98,7 +98,7 @@ func (entity *actor) PreStart(ctx context.Context) error {
 }
 
 // Receive processes any message dropped into the actor mailbox.
-func (entity *actor) Receive(ctx actors.ReceiveContext) {
+func (entity *actor) Receive(ctx *actors.ReceiveContext) {
 	_, span := telemetry.SpanContext(ctx.Context(), "Receive")
 	defer span.End()
 
@@ -157,7 +157,7 @@ func (entity *actor) recoverFromSnapshot(ctx context.Context) error {
 }
 
 // sendErrorReply sends an error as a reply message
-func (entity *actor) sendErrorReply(ctx actors.ReceiveContext, err error) {
+func (entity *actor) sendErrorReply(ctx *actors.ReceiveContext, err error) {
 	reply := &egopb.CommandReply{
 		Reply: &egopb.CommandReply_ErrorReply{
 			ErrorReply: &egopb.ErrorReply{
@@ -170,7 +170,7 @@ func (entity *actor) sendErrorReply(ctx actors.ReceiveContext, err error) {
 }
 
 // getStateAndReply returns the current state of the entity
-func (entity *actor) getStateAndReply(ctx actors.ReceiveContext) {
+func (entity *actor) getStateAndReply(ctx *actors.ReceiveContext) {
 	latestEvent, err := entity.eventsStore.GetLatestEvent(ctx.Context(), entity.ID())
 	if err != nil {
 		entity.sendErrorReply(ctx, err)
@@ -193,7 +193,7 @@ func (entity *actor) getStateAndReply(ctx actors.ReceiveContext) {
 }
 
 // processCommandAndReply processes the incoming command
-func (entity *actor) processCommandAndReply(ctx actors.ReceiveContext, command Command) {
+func (entity *actor) processCommandAndReply(ctx *actors.ReceiveContext, command Command) {
 	goCtx := ctx.Context()
 	events, err := entity.HandleCommand(goCtx, command, entity.currentState)
 	if err != nil {

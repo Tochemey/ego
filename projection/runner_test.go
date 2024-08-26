@@ -123,7 +123,7 @@ func TestProjection(t *testing.T) {
 		// free resources
 		assert.NoError(t, journalStore.Disconnect(ctx))
 		assert.NoError(t, offsetStore.Disconnect(ctx))
-		assert.NoError(t, runner.Stop(ctx))
+		assert.NoError(t, runner.Stop())
 	})
 	t.Run("with failed handler with fail strategy", func(t *testing.T) {
 		defer goleak.VerifyNone(t)
@@ -185,7 +185,7 @@ func TestProjection(t *testing.T) {
 		// free resources
 		assert.NoError(t, journalStore.Disconnect(ctx))
 		assert.NoError(t, offsetStore.Disconnect(ctx))
-		assert.NoError(t, runner.Stop(ctx))
+		assert.NoError(t, runner.Stop())
 	})
 	t.Run("with failed handler and retry_fail strategy", func(t *testing.T) {
 		defer goleak.VerifyNone(t)
@@ -253,7 +253,7 @@ func TestProjection(t *testing.T) {
 		// free resources
 		assert.NoError(t, journalStore.Disconnect(ctx))
 		assert.NoError(t, offsetStore.Disconnect(ctx))
-		assert.NoError(t, runner.Stop(ctx))
+		assert.NoError(t, runner.Stop())
 	})
 	t.Run("with failed handler and skip strategy", func(t *testing.T) {
 		defer goleak.VerifyNone(t)
@@ -329,7 +329,7 @@ func TestProjection(t *testing.T) {
 		// free resource
 		assert.NoError(t, journalStore.Disconnect(ctx))
 		assert.NoError(t, offsetStore.Disconnect(ctx))
-		assert.NoError(t, runner.Stop(ctx))
+		assert.NoError(t, runner.Stop())
 	})
 	t.Run("with failed handler and skip retry strategy", func(t *testing.T) {
 		defer goleak.VerifyNone(t)
@@ -405,7 +405,7 @@ func TestProjection(t *testing.T) {
 		// free resource
 		assert.NoError(t, journalStore.Disconnect(ctx))
 		assert.NoError(t, offsetStore.Disconnect(ctx))
-		assert.NoError(t, runner.Stop(ctx))
+		assert.NoError(t, runner.Stop())
 	})
 }
 

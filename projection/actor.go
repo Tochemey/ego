@@ -65,7 +65,7 @@ func (x *Projection) PreStart(ctx context.Context) error {
 }
 
 // Receive handle the message sent to the projection actor
-func (x *Projection) Receive(ctx actors.ReceiveContext) {
+func (x *Projection) Receive(ctx *actors.ReceiveContext) {
 	switch ctx.Message().(type) {
 	case *goaktpb.PostStart:
 		x.runner.Run(ctx.Context())
@@ -75,6 +75,6 @@ func (x *Projection) Receive(ctx actors.ReceiveContext) {
 }
 
 // PostStop prepares the actor to gracefully shutdown
-func (x *Projection) PostStop(ctx context.Context) error {
-	return x.runner.Stop(ctx)
+func (x *Projection) PostStop(context.Context) error {
+	return x.runner.Stop()
 }

@@ -96,7 +96,7 @@ func TestEgo(t *testing.T) {
 		require.NoError(t, err)
 
 		// subscribe to events
-		subscriber, err := engine.Subscribe(ctx)
+		subscriber, err := engine.Subscribe()
 		require.NoError(t, err)
 		require.NotNil(t, subscriber)
 
