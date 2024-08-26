@@ -43,7 +43,6 @@ import (
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/eventstore"
 	"github.com/tochemey/ego/v3/eventstream"
-	egotel "github.com/tochemey/ego/v3/internal/telemetry"
 	"github.com/tochemey/ego/v3/offsetstore"
 	"github.com/tochemey/ego/v3/projection"
 )
@@ -85,7 +84,7 @@ func NewEngine(name string, eventsStore eventstore.EventsStore, opts ...Option) 
 		name:          name,
 		eventsStore:   eventsStore,
 		enableCluster: atomic.NewBool(false),
-		logger:        log.DefaultLogger,
+		logger:        log.New(log.InfoLevel, os.Stderr),
 		telemetry:     telemetry.New(),
 		eventStream:   eventstream.New(),
 		locker:        &sync.Mutex{},
@@ -153,9 +152,6 @@ func (x *Engine) Start(ctx context.Context) error {
 
 // AddProjection add a projection to the running eGo engine and start it
 func (x *Engine) AddProjection(ctx context.Context, name string, handler projection.Handler, offsetStore offsetstore.OffsetStore, opts ...projection.Option) error {
-	spanCtx, span := egotel.SpanContext(ctx, "AddProjection")
-	defer span.End()
-
 	x.locker.Lock()
 	started := x.started.Load()
 	x.locker.Unlock()
@@ -166,7 +162,7 @@ func (x *Engine) AddProjection(ctx context.Context, name string, handler project
 	actor := projection.New(name, handler, x.eventsStore, offsetStore, opts...)
 
 	var (
-		pid actors.PID
+		pid *actors.PID
 		err error
 	)
 
@@ -174,12 +170,12 @@ func (x *Engine) AddProjection(ctx context.Context, name string, handler project
 	actorSystem := x.actorSystem
 	x.locker.Unlock()
 
-	if pid, err = actorSystem.Spawn(spanCtx, name, actor); err != nil {
+	if pid, err = actorSystem.Spawn(ctx, name, actor); err != nil {
 		x.logger.Error(fmt.Errorf("failed to register the projection=(%s): %w", name, err))
 		return err
 	}
 
-	if err := actors.Tell(spanCtx, pid, projection.Start); err != nil {
+	if err := actors.Tell(ctx, pid, projection.Start); err != nil {
 		x.logger.Error(fmt.Errorf("failed to start the projection=(%s): %w", name, err))
 		return err
 	}
@@ -195,10 +191,7 @@ func (x *Engine) Stop(ctx context.Context) error {
 }
 
 // Subscribe creates an events subscriber
-func (x *Engine) Subscribe(ctx context.Context) (eventstream.Subscriber, error) {
-	_, span := egotel.SpanContext(ctx, "Subscribe")
-	defer span.End()
-
+func (x *Engine) Subscribe() (eventstream.Subscriber, error) {
 	x.locker.Lock()
 	started := x.started.Load()
 	x.locker.Unlock()
@@ -251,9 +244,6 @@ func (x *Engine) Entity(ctx context.Context, behavior EntityBehavior) error {
 // 2. nil when there is no resulting state or no event persisted
 // 3. an error in case of error
 func (x *Engine) SendCommand(ctx context.Context, entityID string, cmd Command, timeout time.Duration) (resultingState State, revision uint64, err error) {
-	ctx, span := egotel.SpanContext(ctx, "SendCommand")
-	defer span.End()
-
 	x.locker.Lock()
 	started := x.started.Load()
 	x.locker.Unlock()

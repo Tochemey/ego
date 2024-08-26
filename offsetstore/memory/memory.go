@@ -35,7 +35,6 @@ import (
 	"go.uber.org/atomic"
 
 	"github.com/tochemey/ego/v3/egopb"
-	"github.com/tochemey/ego/v3/internal/telemetry"
 	"github.com/tochemey/ego/v3/offsetstore"
 )
 
@@ -62,11 +61,7 @@ func NewOffsetStore() *OffsetStore {
 }
 
 // Connect connects to the offset store
-func (x *OffsetStore) Connect(ctx context.Context) error {
-	// add a span context
-	_, span := telemetry.SpanContext(ctx, "OffsetStore.Connect")
-	defer span.End()
-
+func (x *OffsetStore) Connect(context.Context) error {
 	// check whether this instance of the journal is connected or not
 	if x.connected.Load() {
 		return nil
@@ -88,11 +83,7 @@ func (x *OffsetStore) Connect(ctx context.Context) error {
 }
 
 // Disconnect disconnects the offset store
-func (x *OffsetStore) Disconnect(ctx context.Context) error {
-	// add a span context
-	_, span := telemetry.SpanContext(ctx, "OffsetStore.Disconnect")
-	defer span.End()
-
+func (x *OffsetStore) Disconnect(context.Context) error {
 	// check whether this instance of the journal is connected or not
 	if !x.connected.Load() {
 		return nil
@@ -118,24 +109,16 @@ func (x *OffsetStore) Disconnect(ctx context.Context) error {
 
 // Ping verifies a connection to the database is still alive, establishing a connection if necessary.
 func (x *OffsetStore) Ping(ctx context.Context) error {
-	// add a span context
-	spanCtx, span := telemetry.SpanContext(ctx, "OffsetStore.Ping")
-	defer span.End()
-
 	// check whether we are connected or not
 	if !x.connected.Load() {
-		return x.Connect(spanCtx)
+		return x.Connect(ctx)
 	}
 
 	return nil
 }
 
 // WriteOffset writes an offset to the offset store
-func (x *OffsetStore) WriteOffset(ctx context.Context, offset *egopb.Offset) error {
-	// add a span context
-	_, span := telemetry.SpanContext(ctx, "OffsetStore.WriteOffset")
-	defer span.End()
-
+func (x *OffsetStore) WriteOffset(_ context.Context, offset *egopb.Offset) error {
 	// check whether this instance of the journal is connected or not
 	if !x.connected.Load() {
 		return errors.New("offset store is not connected")
@@ -167,11 +150,7 @@ func (x *OffsetStore) WriteOffset(ctx context.Context, offset *egopb.Offset) err
 }
 
 // GetCurrentOffset return the offset of a projection
-func (x *OffsetStore) GetCurrentOffset(ctx context.Context, projectionID *egopb.ProjectionId) (current *egopb.Offset, err error) {
-	// add a span context
-	_, span := telemetry.SpanContext(ctx, "OffsetStore.GetCurrentOffset")
-	defer span.End()
-
+func (x *OffsetStore) GetCurrentOffset(_ context.Context, projectionID *egopb.ProjectionId) (current *egopb.Offset, err error) {
 	// check whether this instance of the journal is connected or not
 	if !x.connected.Load() {
 		return nil, errors.New("offset store is not connected")
@@ -215,11 +194,7 @@ func (x *OffsetStore) GetCurrentOffset(ctx context.Context, projectionID *egopb.
 }
 
 // ResetOffset resets the offset of given projection to a given value across all shards
-func (x *OffsetStore) ResetOffset(ctx context.Context, projectionName string, value int64) error {
-	// add a span context
-	_, span := telemetry.SpanContext(ctx, "offsetStore.ResetOffset")
-	defer span.End()
-
+func (x *OffsetStore) ResetOffset(_ context.Context, projectionName string, value int64) error {
 	// check whether this instance of the offset store is connected or not
 	if !x.connected.Load() {
 		return errors.New("offset store is not connected")
