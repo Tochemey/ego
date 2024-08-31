@@ -48,8 +48,6 @@ import (
 )
 
 var (
-	// ErrEngineRequired is returned when the eGo engine is not set
-	ErrEngineRequired = errors.New("eGo engine is not defined")
 	// ErrEngineNotStarted is returned when the eGo engine has not started
 	ErrEngineNotStarted = errors.New("eGo engine has not started")
 	// ErrUndefinedEntityID is returned when sending a command to an undefined entity
