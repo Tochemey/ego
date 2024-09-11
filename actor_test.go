@@ -61,6 +61,8 @@ func TestActor(t *testing.T) {
 		err = actorSystem.Start(ctx)
 		require.NoError(t, err)
 
+		time.Sleep(time.Second)
+
 		// create the event store
 		eventStore := memory.NewEventsStore()
 		// create a persistence id
@@ -72,6 +74,8 @@ func TestActor(t *testing.T) {
 		err = eventStore.Connect(ctx)
 		require.NoError(t, err)
 
+		time.Sleep(time.Second)
+
 		// create an instance of events stream
 		eventStream := eventstream.New()
 
@@ -80,6 +84,8 @@ func TestActor(t *testing.T) {
 		// spawn the actor
 		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), actor)
 		require.NotNil(t, pid)
+
+		time.Sleep(time.Second)
 
 		var command proto.Message
 
@@ -138,6 +144,8 @@ func TestActor(t *testing.T) {
 		err = eventStore.Disconnect(ctx)
 		require.NoError(t, err)
 
+		time.Sleep(time.Second)
+
 		// close the stream
 		eventStream.Close()
 		// stop the actor system
@@ -159,6 +167,8 @@ func TestActor(t *testing.T) {
 		err = actorSystem.Start(ctx)
 		require.NoError(t, err)
 
+		time.Sleep(time.Second)
+
 		// create the event store
 		eventStore := memory.NewEventsStore()
 		// create a persistence id
@@ -170,6 +180,8 @@ func TestActor(t *testing.T) {
 		err = eventStore.Connect(ctx)
 		require.NoError(t, err)
 
+		time.Sleep(time.Second)
+
 		// create an instance of events stream
 		eventStream := eventstream.New()
 
@@ -178,6 +190,8 @@ func TestActor(t *testing.T) {
 		// spawn the actor
 		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), persistentActor)
 		require.NotNil(t, pid)
+
+		time.Sleep(time.Second)
 
 		var command proto.Message
 
@@ -225,6 +239,9 @@ func TestActor(t *testing.T) {
 		require.NoError(t, eventStore.Disconnect(ctx))
 		// close the stream
 		eventStream.Close()
+
+		time.Sleep(time.Second)
+
 		// stop the actor system
 		err = actorSystem.Stop(ctx)
 		assert.NoError(t, err)
@@ -243,6 +260,8 @@ func TestActor(t *testing.T) {
 		// start the actor system
 		err = actorSystem.Start(ctx)
 		require.NoError(t, err)
+
+		time.Sleep(time.Second)
 
 		// create the event store
 		eventStore := memory.NewEventsStore()
@@ -263,6 +282,8 @@ func TestActor(t *testing.T) {
 		// spawn the actor
 		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), persistentActor)
 		require.NotNil(t, pid)
+
+		time.Sleep(time.Second)
 
 		command := &testpb.TestSend{}
 		// send the command to the actor
@@ -302,6 +323,8 @@ func TestActor(t *testing.T) {
 		err = actorSystem.Start(ctx)
 		require.NoError(t, err)
 
+		time.Sleep(time.Second)
+
 		// create the event store
 		var (
 			testDatabase         = "testdb"
@@ -327,6 +350,8 @@ func TestActor(t *testing.T) {
 		eventStore := pgeventstore.NewEventsStore(config)
 		require.NoError(t, eventStore.Connect(ctx))
 
+		time.Sleep(time.Second)
+
 		// create a persistence id
 		persistenceID := uuid.NewString()
 		// create the persistence behavior
@@ -335,6 +360,8 @@ func TestActor(t *testing.T) {
 		// connect the event store
 		err = eventStore.Connect(ctx)
 		require.NoError(t, err)
+
+		time.Sleep(time.Second)
 
 		// create an instance of event stream
 		eventStream := eventstream.New()
@@ -345,6 +372,8 @@ func TestActor(t *testing.T) {
 		pid, err := actorSystem.Spawn(ctx, behavior.ID(), persistentActor)
 		require.NoError(t, err)
 		require.NotNil(t, pid)
+
+		time.Sleep(time.Second)
 
 		var command proto.Message
 
@@ -406,6 +435,8 @@ func TestActor(t *testing.T) {
 		pid, err = actorSystem.ReSpawn(ctx, behavior.ID())
 		require.NoError(t, err)
 
+		time.Sleep(time.Second)
+
 		// fetch the current state
 		command = &egopb.GetStateCommand{}
 		reply, err = actors.Ask(ctx, pid, command, time.Second)
@@ -431,6 +462,9 @@ func TestActor(t *testing.T) {
 		testContainer.Cleanup()
 		// close the stream
 		eventStream.Close()
+
+		time.Sleep(time.Second)
+
 		err = actorSystem.Stop(ctx)
 		assert.NoError(t, err)
 	})
@@ -449,6 +483,8 @@ func TestActor(t *testing.T) {
 		err = actorSystem.Start(ctx)
 		require.NoError(t, err)
 
+		time.Sleep(time.Second)
+
 		// create the event store
 		eventStore := memory.NewEventsStore()
 		// create a persistence id
@@ -460,6 +496,8 @@ func TestActor(t *testing.T) {
 		err = eventStore.Connect(ctx)
 		require.NoError(t, err)
 
+		time.Sleep(time.Second)
+
 		// create an instance of event stream
 		eventStream := eventstream.New()
 
@@ -468,6 +506,8 @@ func TestActor(t *testing.T) {
 		// spawn the actor
 		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), actor)
 		require.NotNil(t, pid)
+
+		time.Sleep(time.Second)
 
 		var command proto.Message
 
@@ -549,6 +589,9 @@ func TestActor(t *testing.T) {
 		assert.NoError(t, eventStore.Disconnect(ctx))
 		// close the stream
 		eventStream.Close()
+
+		time.Sleep(time.Second)
+
 		// stop the actor system
 		err = actorSystem.Stop(ctx)
 		assert.NoError(t, err)
@@ -567,6 +610,8 @@ func TestActor(t *testing.T) {
 		err = actorSystem.Start(ctx)
 		require.NoError(t, err)
 
+		time.Sleep(time.Second)
+
 		// create the event store
 		eventStore := memory.NewEventsStore()
 		// create a persistence id
@@ -578,6 +623,8 @@ func TestActor(t *testing.T) {
 		err = eventStore.Connect(ctx)
 		require.NoError(t, err)
 
+		time.Sleep(time.Second)
+
 		// create an instance of events stream
 		eventStream := eventstream.New()
 
@@ -586,6 +633,8 @@ func TestActor(t *testing.T) {
 		// spawn the actor
 		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), actor)
 		require.NotNil(t, pid)
+
+		time.Sleep(time.Second)
 
 		// send the command to the actor
 		reply, err := actors.Ask(ctx, pid, &testpb.CreateAccount{AccountBalance: 500.00}, 5*time.Second)
@@ -623,6 +672,8 @@ func TestActor(t *testing.T) {
 
 		// disconnect from the event store
 		require.NoError(t, eventStore.Disconnect(ctx))
+
+		time.Sleep(time.Second)
 
 		// close the stream
 		eventStream.Close()
