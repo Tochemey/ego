@@ -61,6 +61,8 @@ func TestActor(t *testing.T) {
 		err = actorSystem.Start(ctx)
 		require.NoError(t, err)
 
+		time.Sleep(time.Second)
+
 		projectionName := "db-writer"
 		persistenceID := uuid.NewString()
 		shardNumber := uint64(9)
@@ -84,6 +86,8 @@ func TestActor(t *testing.T) {
 		pid, err := actorSystem.Spawn(ctx, persistenceID, actor)
 		require.NoError(t, err)
 		require.NotNil(t, pid)
+
+		time.Sleep(time.Second)
 
 		// start the projection
 		require.NoError(t, actors.Tell(ctx, pid, Start))
