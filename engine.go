@@ -120,7 +120,7 @@ func (x *Engine) Start(ctx context.Context) error {
 		clusterConfig := actors.
 			NewClusterConfig().
 			WithDiscovery(x.discoveryProvider).
-			WithGossipPort(x.gossipPort).
+			WithDiscoveryPort(x.gossipPort).
 			WithPeersPort(x.peersPort).
 			WithMinimumPeersQuorum(uint32(x.minimumPeersQuorum)).
 			WithReplicaCount(uint32(replicaCount)).
@@ -265,11 +265,10 @@ func (x *Engine) SendCommand(ctx context.Context, entityID string, cmd Command, 
 	}
 
 	var reply proto.Message
-	if pid != nil {
-		// put the given command to the underlying actor of the entity
+	switch {
+	case pid != nil:
 		reply, err = actors.Ask(ctx, pid, cmd, timeout)
-	} else if addr != nil {
-		// send the command to the given address
+	case addr != nil:
 		res, err := actors.RemoteAsk(ctx, addr, cmd, timeout)
 		if err == nil {
 			// let us unmarshal the response
