@@ -9,7 +9,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-memdb v1.3.4
 	github.com/stretchr/testify v1.9.0
-	github.com/tochemey/goakt/v2 v2.6.2-0.20240911164132-7a457b7834db
+	github.com/tochemey/goakt/v2 v2.6.2-0.20240911181406-5ac03f8ba57f
 	github.com/tochemey/gopack v0.0.0-20240704194040-eaa380774969
 	github.com/travisjeffery/go-dynaport v1.0.0
 	go.opentelemetry.io/otel v1.30.0
