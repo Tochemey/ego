@@ -216,6 +216,16 @@ func (a *AccountBehavior) HandleEvent(_ context.Context, event ego.Event, priorS
 
 ```
 
+## Versioning
+
+The version system adopted in eGo deviates a bit from the standard semantic versioning system.
+The version format is as follows:
+
+- The `MAJOR` part of the version will stay at `v3` for the meantime.
+- The `MINOR` part of the version will cater for any new _features_, _breaking changes_  with a note on the breaking changes.
+- The `PATCH` part of the version will cater for dependencies upgrades, bug fixes, security patches and co.
+
+The versioning will remain like `v3.x.x` until further notice.
 
 ### Contribution
 
