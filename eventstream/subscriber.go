@@ -51,7 +51,7 @@ type subscriber struct {
 	// sem represents a lock
 	sem sync.Mutex
 	// messages of the subscriber
-	messages *queue.Unbounded[*Message]
+	messages *queue.Queue
 	// topics define the topic the subscriber subscribed to
 	topics map[string]bool
 	// states whether the given subscriber is active or not
@@ -70,7 +70,7 @@ func newSubscriber() *subscriber {
 	return &subscriber{
 		id:       id,
 		sem:      sync.Mutex{},
-		messages: queue.NewUnbounded[*Message](),
+		messages: queue.NewQueue(),
 		topics:   make(map[string]bool),
 		active:   true,
 	}
@@ -114,18 +114,17 @@ func (x *subscriber) Shutdown() {
 	// release the lock once done
 	defer x.sem.Unlock()
 	x.active = false
-	x.messages.Close()
 }
 
 func (x *subscriber) Iterator() chan *Message {
-	out := make(chan *Message, x.messages.Len())
+	out := make(chan *Message, x.messages.Length())
 	defer close(out)
 	for {
-		msg, ok := x.messages.Pop()
-		if !ok {
+		msg := x.messages.Dequeue()
+		if msg == nil {
 			break
 		}
-		out <- msg
+		out <- msg.(*Message)
 	}
 	return out
 }
@@ -138,7 +137,7 @@ func (x *subscriber) signal(message *Message) {
 	defer x.sem.Unlock()
 	// only receive message when active
 	if x.active {
-		x.messages.Push(message)
+		x.messages.Enqueue(message)
 	}
 }
 

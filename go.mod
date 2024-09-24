@@ -9,7 +9,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-memdb v1.3.4
 	github.com/stretchr/testify v1.9.0
-	github.com/tochemey/goakt/v2 v2.6.2-0.20240911181406-5ac03f8ba57f
+	github.com/tochemey/goakt/v2 v2.6.2
 	github.com/tochemey/gopack v0.0.0-20240704194040-eaa380774969
 	github.com/travisjeffery/go-dynaport v1.0.0
 	go.opentelemetry.io/otel v1.30.0
@@ -21,7 +21,7 @@ require (
 )
 
 require (
-	connectrpc.com/connect v1.16.2 // indirect
+	connectrpc.com/connect v1.17.0 // indirect
 	connectrpc.com/otelconnect v0.7.1 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
@@ -105,12 +105,12 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/api v0.31.0 // indirect
-	k8s.io/apimachinery v0.31.0 // indirect
-	k8s.io/client-go v0.31.0 // indirect
+	k8s.io/api v0.31.1 // indirect
+	k8s.io/apimachinery v0.31.1 // indirect
+	k8s.io/client-go v0.31.1 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20240903163716-9e1beecbcb38 // indirect
-	k8s.io/utils v0.0.0-20240902221715-702e33fdd3c3 // indirect
+	k8s.io/utils v0.0.0-20240921022957-49e7df575cb6 // indirect
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
