@@ -45,6 +45,7 @@ import (
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/eventstore/memory"
 	samplepb "github.com/tochemey/ego/v3/example/pbs/sample/pb/v1"
+	"github.com/tochemey/ego/v3/internal/lib"
 	offsetstore "github.com/tochemey/ego/v3/offsetstore/memory"
 	"github.com/tochemey/ego/v3/projection"
 )
@@ -81,15 +82,16 @@ func TestEgo(t *testing.T) {
 		provider.EXPECT().Close().Return(nil)
 
 		// create a projection message handler
-		handler := projection.NewDiscardHandler(log.DefaultLogger)
+		handler := projection.NewDiscardHandler(log.DiscardLogger)
 		// create the ego engine
 		engine := NewEngine("Sample", eventStore,
+			WithLogger(log.DiscardLogger),
 			WithCluster(provider, 4, 1, host, remotingPort, gossipPort, clusterPort))
 		// start ego engine
 		err := engine.Start(ctx)
 
 		// wait for the cluster to fully start
-		time.Sleep(time.Second)
+		lib.Pause(time.Second)
 
 		// add projection
 		err = engine.AddProjection(ctx, "discard", handler, offsetStore)
@@ -117,7 +119,7 @@ func TestEgo(t *testing.T) {
 		}
 
 		// wait for the cluster to fully start
-		time.Sleep(time.Second)
+		lib.Pause(time.Second)
 
 		// send the command to the actor. Please don't ignore the error in production grid code
 		resultingState, revision, err := engine.SendCommand(ctx, entityID, command, time.Minute)
@@ -169,7 +171,7 @@ func TestEgo(t *testing.T) {
 		// connect to the event store
 		require.NoError(t, eventStore.Connect(ctx))
 		// create the ego engine
-		engine := NewEngine("Sample", eventStore)
+		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
 		// start ego engine
 		err := engine.Start(ctx)
 		require.NoError(t, err)
@@ -222,7 +224,7 @@ func TestEgo(t *testing.T) {
 		require.NoError(t, eventStore.Connect(ctx))
 
 		// create the ego engine
-		engine := NewEngine("Sample", eventStore)
+		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
 		// create a persistence id
 		entityID := uuid.NewString()
 
@@ -239,7 +241,7 @@ func TestEgo(t *testing.T) {
 		require.NoError(t, eventStore.Connect(ctx))
 
 		// create the ego engine
-		engine := NewEngine("Sample", eventStore)
+		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
 		err := engine.Start(ctx)
 		require.NoError(t, err)
 
@@ -260,7 +262,7 @@ func TestEgo(t *testing.T) {
 		require.NoError(t, eventStore.Connect(ctx))
 
 		// create the ego engine
-		engine := NewEngine("Sample", eventStore)
+		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
 		err := engine.Start(ctx)
 		require.NoError(t, err)
 

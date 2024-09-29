@@ -26,18 +26,17 @@ package postgres
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 
 	sq "github.com/Masterminds/squirrel"
+	"github.com/jackc/pgx/v5"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/tochemey/gopack/postgres"
-
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/eventstore"
+	"github.com/tochemey/ego/v3/internal/postgres"
 )
 
 var (
@@ -76,9 +75,9 @@ type EventsStore struct {
 var _ eventstore.EventsStore = (*EventsStore)(nil)
 
 // NewEventsStore creates a new instance of PostgresEventStore
-func NewEventsStore(config *postgres.Config) *EventsStore {
+func NewEventsStore(config *Config) *EventsStore {
 	// create the underlying db connection
-	db := postgres.New(config)
+	db := postgres.New(postgres.NewConfig(config.DBHost, config.DBPort, config.DBUser, config.DBPassword, config.DBName))
 	return &EventsStore{
 		db:              db,
 		sb:              sq.StatementBuilder.PlaceholderFormat(sq.Dollar),
@@ -197,7 +196,7 @@ func (s *EventsStore) WriteEvents(ctx context.Context, events []*egopb.Event) er
 	}
 
 	// let us begin a database transaction to make sure we atomically write those events into the database
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	// return the error in case we are unable to get a database transaction
 	if err != nil {
 		return fmt.Errorf("failed to obtain a database transaction: %w", err)
@@ -242,10 +241,10 @@ func (s *EventsStore) WriteEvents(ctx context.Context, events []*egopb.Event) er
 				return fmt.Errorf("unable to build sql insert statement: %w", err)
 			}
 			// insert into the table
-			_, execErr := tx.ExecContext(ctx, query, args...)
+			_, execErr := tx.Exec(ctx, query, args...)
 			if execErr != nil {
 				// attempt to roll back the transaction and log the error in case there is an error
-				if err = tx.Rollback(); err != nil {
+				if err = tx.Rollback(ctx); err != nil {
 					return fmt.Errorf("unable to rollback db transaction: %w", err)
 				}
 				// return the main error
@@ -258,7 +257,7 @@ func (s *EventsStore) WriteEvents(ctx context.Context, events []*egopb.Event) er
 	}
 
 	// commit the transaction
-	if commitErr := tx.Commit(); commitErr != nil {
+	if commitErr := tx.Commit(ctx); commitErr != nil {
 		// return the commit error in case there is one
 		return fmt.Errorf("failed to record events: %w", commitErr)
 	}

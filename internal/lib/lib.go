@@ -1,7 +1,7 @@
 /*
  * MIT License
  *
- * Copyright (c) 2022-2024 Tochemey
+ * Copyright (c) 2024 Tochemey
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,18 +22,18 @@
  * SOFTWARE.
  */
 
-package telemetry
+package lib
 
 import (
-	"context"
-
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/trace"
+	"time"
 )
 
-func SpanContext(ctx context.Context, methodName string) (context.Context, trace.Span) {
-	// Create a span
-	tracer := otel.GetTracerProvider()
-	spanCtx, span := tracer.Tracer("").Start(ctx, methodName)
-	return spanCtx, span
+// Pause pauses the running process for some time period
+func Pause(duration time.Duration) {
+	stopCh := make(chan struct{}, 1)
+	timer := time.AfterFunc(duration, func() {
+		stopCh <- struct{}{}
+	})
+	<-stopCh
+	timer.Stop()
 }

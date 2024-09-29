@@ -41,6 +41,7 @@ import (
 
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/eventstore/memory"
+	"github.com/tochemey/ego/v3/internal/lib"
 	memoffsetstore "github.com/tochemey/ego/v3/offsetstore/memory"
 	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
 )
@@ -61,12 +62,12 @@ func TestActor(t *testing.T) {
 		err = actorSystem.Start(ctx)
 		require.NoError(t, err)
 
-		time.Sleep(time.Second)
+		lib.Pause(time.Second)
 
 		projectionName := "db-writer"
 		persistenceID := uuid.NewString()
 		shardNumber := uint64(9)
-		logger := log.DefaultLogger
+		logger := log.DiscardLogger
 
 		// set up the event store
 		journalStore := memory.NewEventsStore()
@@ -87,7 +88,7 @@ func TestActor(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, pid)
 
-		time.Sleep(time.Second)
+		lib.Pause(time.Second)
 
 		// start the projection
 		require.NoError(t, actors.Tell(ctx, pid, Start))
@@ -117,7 +118,7 @@ func TestActor(t *testing.T) {
 		require.NoError(t, journalStore.WriteEvents(ctx, journals))
 
 		// wait for the data to be persisted by the database since this an eventual consistency case
-		time.Sleep(time.Second)
+		lib.Pause(time.Second)
 
 		// create the projection id
 		projectionID := &egopb.ProjectionId{

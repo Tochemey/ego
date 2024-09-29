@@ -32,7 +32,6 @@ import (
 
 	"github.com/tochemey/goakt/v2/discovery/kubernetes"
 	"github.com/tochemey/goakt/v2/log"
-	"github.com/tochemey/goakt/v2/telemetry"
 )
 
 func TestOptions(t *testing.T) {
@@ -40,7 +39,6 @@ func TestOptions(t *testing.T) {
 	logger := log.DefaultLogger
 	// create a discovery provider
 	discoveryProvider := kubernetes.NewDiscovery(&kubernetes.Config{})
-	tel := telemetry.New()
 
 	testCases := []struct {
 		name     string
@@ -65,11 +63,6 @@ func TestOptions(t *testing.T) {
 			name:     "WithLogger",
 			option:   WithLogger(logger),
 			expected: Engine{logger: logger},
-		},
-		{
-			name:     "WithTelemetry",
-			option:   WithTelemetry(tel),
-			expected: Engine{telemetry: tel},
 		},
 	}
 	for _, tc := range testCases {

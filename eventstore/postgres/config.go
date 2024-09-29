@@ -22,48 +22,14 @@
  * SOFTWARE.
  */
 
-package ego
+package postgres
 
-import (
-	"go.uber.org/atomic"
-
-	"github.com/tochemey/goakt/v2/discovery"
-	"github.com/tochemey/goakt/v2/log"
-)
-
-// Option is the interface that applies a configuration option.
-type Option interface {
-	// Apply sets the Option value of a config.
-	Apply(e *Engine)
-}
-
-var _ Option = OptionFunc(nil)
-
-// OptionFunc implements the Option interface.
-type OptionFunc func(e *Engine)
-
-// Apply applies the options to Engine
-func (f OptionFunc) Apply(e *Engine) {
-	f(e)
-}
-
-// WithCluster enables cluster mode
-func WithCluster(provider discovery.Provider, partitionCount uint64, minimumPeersQuorum uint16, host string, remotingPort, gossipPort, peersPort int) Option {
-	return OptionFunc(func(e *Engine) {
-		e.enableCluster = atomic.NewBool(true)
-		e.discoveryProvider = provider
-		e.partitionsCount = partitionCount
-		e.peersPort = peersPort
-		e.minimumPeersQuorum = minimumPeersQuorum
-		e.gossipPort = gossipPort
-		e.hostName = host
-		e.remotingPort = remotingPort
-	})
-}
-
-// WithLogger sets the logger
-func WithLogger(logger log.Logger) Option {
-	return OptionFunc(func(e *Engine) {
-		e.logger = logger
-	})
+// Config defines the postgres events store configuration
+type Config struct {
+	DBHost     string // DBHost represents the database host
+	DBPort     int    // DBPort is the database port
+	DBName     string // DBName is the database name
+	DBUser     string // DBUser is the database user used to connect
+	DBPassword string // DBPassword is the database password
+	DBSchema   string // DBSchema represents the database schema
 }

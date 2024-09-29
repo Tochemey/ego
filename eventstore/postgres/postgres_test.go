@@ -35,8 +35,6 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/tochemey/gopack/postgres"
-
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/eventstore"
 	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
@@ -44,13 +42,13 @@ import (
 
 func TestPostgresEventsStore(t *testing.T) {
 	t.Run("testNewEventsStore", func(t *testing.T) {
-		config := &postgres.Config{
-			DBHost:     testContainer.Host(),
-			DBPort:     testContainer.Port(),
-			DBName:     testDatabase,
-			DBUser:     testUser,
-			DBPassword: testDatabasePassword,
-			DBSchema:   testContainer.Schema(),
+		config := &Config{
+			testContainer.Host(),
+			testContainer.Port(),
+			testDatabase,
+			testUser,
+			testDatabasePassword,
+			testContainer.Schema(),
 		}
 
 		estore := NewEventsStore(config)
@@ -61,7 +59,7 @@ func TestPostgresEventsStore(t *testing.T) {
 	})
 	t.Run("testConnect:happy path", func(t *testing.T) {
 		ctx := context.TODO()
-		config := &postgres.Config{
+		config := &Config{
 			DBHost:     testContainer.Host(),
 			DBPort:     testContainer.Port(),
 			DBName:     testDatabase,
@@ -79,7 +77,7 @@ func TestPostgresEventsStore(t *testing.T) {
 	})
 	t.Run("testConnect:database does not exist", func(t *testing.T) {
 		ctx := context.TODO()
-		config := &postgres.Config{
+		config := &Config{
 			DBHost:     testContainer.Host(),
 			DBPort:     testContainer.Port(),
 			DBName:     "testDatabase",
@@ -92,11 +90,10 @@ func TestPostgresEventsStore(t *testing.T) {
 		assert.NotNil(t, store)
 		err := store.Connect(ctx)
 		assert.Error(t, err)
-		assert.EqualError(t, err, "failed to ping database connection: pq: database \"testDatabase\" does not exist")
 	})
 	t.Run("testWriteAndReplayEvents", func(t *testing.T) {
 		ctx := context.TODO()
-		config := &postgres.Config{
+		config := &Config{
 			DBHost:     testContainer.Host(),
 			DBPort:     testContainer.Port(),
 			DBName:     testDatabase,
@@ -184,13 +181,13 @@ func TestPostgresEventsStore(t *testing.T) {
 	})
 	t.Run("testGetLatestEvent", func(t *testing.T) {
 		ctx := context.TODO()
-		config := &postgres.Config{
-			DBHost:     testContainer.Host(),
-			DBPort:     testContainer.Port(),
-			DBName:     testDatabase,
-			DBUser:     testUser,
-			DBPassword: testDatabasePassword,
-			DBSchema:   testContainer.Schema(),
+		config := &Config{
+			testContainer.Host(),
+			testContainer.Port(),
+			testDatabase,
+			testUser,
+			testDatabasePassword,
+			testContainer.Schema(),
 		}
 
 		store := NewEventsStore(config)
@@ -259,13 +256,13 @@ func TestPostgresEventsStore(t *testing.T) {
 	})
 	t.Run("testDeleteEvents", func(t *testing.T) {
 		ctx := context.TODO()
-		config := &postgres.Config{
-			DBHost:     testContainer.Host(),
-			DBPort:     testContainer.Port(),
-			DBName:     testDatabase,
-			DBUser:     testUser,
-			DBPassword: testDatabasePassword,
-			DBSchema:   testContainer.Schema(),
+		config := &Config{
+			testContainer.Host(),
+			testContainer.Port(),
+			testDatabase,
+			testUser,
+			testDatabasePassword,
+			testContainer.Schema(),
 		}
 
 		store := NewEventsStore(config)
@@ -341,13 +338,13 @@ func TestPostgresEventsStore(t *testing.T) {
 	})
 	t.Run("testShardNumbers", func(t *testing.T) {
 		ctx := context.TODO()
-		config := &postgres.Config{
-			DBHost:     testContainer.Host(),
-			DBPort:     testContainer.Port(),
-			DBName:     testDatabase,
-			DBUser:     testUser,
-			DBPassword: testDatabasePassword,
-			DBSchema:   testContainer.Schema(),
+		config := &Config{
+			testContainer.Host(),
+			testContainer.Port(),
+			testDatabase,
+			testUser,
+			testDatabasePassword,
+			testContainer.Schema(),
 		}
 
 		store := NewEventsStore(config)

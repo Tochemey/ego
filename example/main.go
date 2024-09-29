@@ -69,7 +69,7 @@ func main() {
 	// send the command to the actor. Please don't ignore the error in production grid code
 	reply, _, _ := engine.SendCommand(ctx, entityID, command, time.Minute)
 	account := reply.(*samplepb.Account)
-	log.Printf("current balance: %v", account.GetAccountBalance())
+	log.Printf("current balance on opening: %v", account.GetAccountBalance())
 
 	// send another command to credit the balance
 	command = &samplepb.CreditAccount{
@@ -79,7 +79,7 @@ func main() {
 
 	reply, _, _ = engine.SendCommand(ctx, entityID, command, time.Minute)
 	account = reply.(*samplepb.Account)
-	log.Printf("current balance: %v", account.GetAccountBalance())
+	log.Printf("current balance after a credit of 250: %v", account.GetAccountBalance())
 
 	// capture ctrl+c
 	interruptSignal := make(chan os.Signal, 1)

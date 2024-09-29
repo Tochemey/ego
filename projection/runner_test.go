@@ -42,6 +42,7 @@ import (
 
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/eventstore/memory"
+	"github.com/tochemey/ego/v3/internal/lib"
 	memoffsetstore "github.com/tochemey/ego/v3/offsetstore/memory"
 	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
 )
@@ -104,7 +105,7 @@ func TestProjection(t *testing.T) {
 		require.True(t, runner.started.Load())
 
 		// wait for the data to be persisted by the database since this an eventual consistency case
-		time.Sleep(time.Second)
+		lib.Pause(time.Second)
 
 		// create the projection id
 		projectionID := &egopb.ProjectionId{
@@ -178,7 +179,7 @@ func TestProjection(t *testing.T) {
 		require.True(t, runner.started.Load())
 
 		// wait for the data to be persisted by the database since this an eventual consistency case
-		time.Sleep(time.Second)
+		lib.Pause(time.Second)
 
 		// here due to the default recovery strategy the projection is stopped
 		require.False(t, runner.started.Load())
@@ -245,7 +246,7 @@ func TestProjection(t *testing.T) {
 		require.True(t, runner.started.Load())
 
 		// wait for the data to be persisted by the database since this an eventual consistency case
-		time.Sleep(1 * time.Second)
+		lib.Pause(1 * time.Second)
 
 		// let us grab the current offset
 		require.False(t, runner.started.Load())
@@ -313,7 +314,7 @@ func TestProjection(t *testing.T) {
 		require.True(t, runner.started.Load())
 
 		// wait for the data to be persisted by the database since this an eventual consistency case
-		time.Sleep(time.Second)
+		lib.Pause(time.Second)
 
 		projectionID := &egopb.ProjectionId{
 			ProjectionName: projectionName,
@@ -389,7 +390,7 @@ func TestProjection(t *testing.T) {
 		require.True(t, runner.started.Load())
 
 		// wait for the data to be persisted by the database since this an eventual consistency case
-		time.Sleep(time.Second)
+		lib.Pause(time.Second)
 
 		projectionID := &egopb.ProjectionId{
 			ProjectionName: projectionName,

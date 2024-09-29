@@ -33,21 +33,19 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/tochemey/gopack/postgres"
-
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/offsetstore"
 )
 
 func TestPostgresOffsetStore(t *testing.T) {
 	t.Run("testNewOffsetStore", func(t *testing.T) {
-		config := &postgres.Config{
-			DBHost:     testContainer.Host(),
-			DBPort:     testContainer.Port(),
-			DBName:     testDatabase,
-			DBUser:     testUser,
-			DBPassword: testDatabasePassword,
-			DBSchema:   testContainer.Schema(),
+		config := &Config{
+			testContainer.Host(),
+			testContainer.Port(),
+			testDatabase,
+			testUser,
+			testDatabasePassword,
+			testContainer.Schema(),
 		}
 
 		estore := NewOffsetStore(config)
@@ -58,13 +56,13 @@ func TestPostgresOffsetStore(t *testing.T) {
 	})
 	t.Run("testConnect:happy path", func(t *testing.T) {
 		ctx := context.TODO()
-		config := &postgres.Config{
-			DBHost:     testContainer.Host(),
-			DBPort:     testContainer.Port(),
-			DBName:     testDatabase,
-			DBUser:     testUser,
-			DBPassword: testDatabasePassword,
-			DBSchema:   testContainer.Schema(),
+		config := &Config{
+			testContainer.Host(),
+			testContainer.Port(),
+			testDatabase,
+			testUser,
+			testDatabasePassword,
+			testContainer.Schema(),
 		}
 
 		store := NewOffsetStore(config)
@@ -76,30 +74,29 @@ func TestPostgresOffsetStore(t *testing.T) {
 	})
 	t.Run("testConnect:database does not exist", func(t *testing.T) {
 		ctx := context.TODO()
-		config := &postgres.Config{
-			DBHost:     testContainer.Host(),
-			DBPort:     testContainer.Port(),
-			DBName:     "testDatabase",
-			DBUser:     testUser,
-			DBPassword: testDatabasePassword,
-			DBSchema:   testContainer.Schema(),
+		config := &Config{
+			testContainer.Host(),
+			testContainer.Port(),
+			"testDatabase",
+			testUser,
+			testDatabasePassword,
+			testContainer.Schema(),
 		}
 
 		store := NewOffsetStore(config)
 		assert.NotNil(t, store)
 		err := store.Connect(ctx)
 		assert.Error(t, err)
-		assert.EqualError(t, err, "failed to ping database connection: pq: database \"testDatabase\" does not exist")
 	})
 	t.Run("testWriteOffset", func(t *testing.T) {
 		ctx := context.TODO()
-		config := &postgres.Config{
-			DBHost:     testContainer.Host(),
-			DBPort:     testContainer.Port(),
-			DBName:     testDatabase,
-			DBUser:     testUser,
-			DBPassword: testDatabasePassword,
-			DBSchema:   testContainer.Schema(),
+		config := &Config{
+			testContainer.Host(),
+			testContainer.Port(),
+			testDatabase,
+			testUser,
+			testDatabasePassword,
+			testContainer.Schema(),
 		}
 
 		db, err := dbHandle(ctx)
@@ -139,13 +136,13 @@ func TestPostgresOffsetStore(t *testing.T) {
 	})
 	t.Run("testResetOffset", func(t *testing.T) {
 		ctx := context.TODO()
-		config := &postgres.Config{
-			DBHost:     testContainer.Host(),
-			DBPort:     testContainer.Port(),
-			DBName:     testDatabase,
-			DBUser:     testUser,
-			DBPassword: testDatabasePassword,
-			DBSchema:   testContainer.Schema(),
+		config := &Config{
+			testContainer.Host(),
+			testContainer.Port(),
+			testDatabase,
+			testUser,
+			testDatabasePassword,
+			testContainer.Schema(),
 		}
 
 		db, err := dbHandle(ctx)

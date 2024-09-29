@@ -26,18 +26,17 @@ package postgres
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
+	"github.com/jackc/pgx/v5"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/tochemey/gopack/postgres"
-
 	"github.com/tochemey/ego/v3/egopb"
+	"github.com/tochemey/ego/v3/internal/postgres"
 	"github.com/tochemey/ego/v3/offsetstore"
 )
 
@@ -84,9 +83,9 @@ type OffsetStore struct {
 var _ offsetstore.OffsetStore = (*OffsetStore)(nil)
 
 // NewOffsetStore creates an instance of OffsetStore
-func NewOffsetStore(config *postgres.Config) *OffsetStore {
+func NewOffsetStore(config *Config) *OffsetStore {
 	// create the underlying db connection
-	db := postgres.New(config)
+	db := postgres.New(postgres.NewConfig(config.DBHost, config.DBPort, config.DBUser, config.DBPassword, config.DBName))
 	return &OffsetStore{
 		db:              db,
 		sb:              sq.StatementBuilder.PlaceholderFormat(sq.Dollar),
@@ -143,7 +142,7 @@ func (x *OffsetStore) WriteOffset(ctx context.Context, offset *egopb.Offset) err
 	}
 
 	// let us begin a database transaction to make sure we atomically write those events into the database
-	tx, err := x.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	tx, err := x.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	// return the error in case we are unable to get a database transaction
 	if err != nil {
 		return fmt.Errorf("failed to obtain a database transaction: %w", err)
@@ -168,10 +167,10 @@ func (x *OffsetStore) WriteOffset(ctx context.Context, offset *egopb.Offset) err
 	}
 
 	// execute the query
-	_, execErr := tx.ExecContext(ctx, query, args...)
+	_, execErr := tx.Exec(ctx, query, args...)
 	if execErr != nil {
 		// attempt to roll back the transaction and log the error in case there is an error
-		if err = tx.Rollback(); err != nil {
+		if err = tx.Rollback(ctx); err != nil {
 			return fmt.Errorf("unable to rollback db transaction: %w", err)
 		}
 		// return the main error
@@ -196,10 +195,10 @@ func (x *OffsetStore) WriteOffset(ctx context.Context, offset *egopb.Offset) err
 	}
 
 	// insert into the table
-	_, execErr = tx.ExecContext(ctx, query, args...)
+	_, execErr = tx.Exec(ctx, query, args...)
 	if execErr != nil {
 		// attempt to roll back the transaction and log the error in case there is an error
-		if err = tx.Rollback(); err != nil {
+		if err = tx.Rollback(ctx); err != nil {
 			return fmt.Errorf("unable to rollback db transaction: %w", err)
 		}
 		// return the main error
@@ -207,7 +206,7 @@ func (x *OffsetStore) WriteOffset(ctx context.Context, offset *egopb.Offset) err
 	}
 
 	// commit the transaction
-	if commitErr := tx.Commit(); commitErr != nil {
+	if commitErr := tx.Commit(ctx); commitErr != nil {
 		// return the commit error in case there is one
 		return fmt.Errorf("failed to record events: %w", commitErr)
 	}
@@ -257,7 +256,7 @@ func (x *OffsetStore) ResetOffset(ctx context.Context, projectionName string, va
 	}
 
 	// let us begin a database transaction to make sure we atomically write those events into the database
-	tx, err := x.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	tx, err := x.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	// return the error in case we are unable to get a database transaction
 	if err != nil {
 		return fmt.Errorf("failed to obtain a database transaction: %w", err)
@@ -281,10 +280,10 @@ func (x *OffsetStore) ResetOffset(ctx context.Context, projectionName string, va
 	}
 
 	// insert into the table
-	_, execErr := tx.ExecContext(ctx, query, args...)
+	_, execErr := tx.Exec(ctx, query, args...)
 	if execErr != nil {
 		// attempt to roll back the transaction and log the error in case there is an error
-		if err = tx.Rollback(); err != nil {
+		if err = tx.Rollback(ctx); err != nil {
 			return fmt.Errorf("unable to rollback db transaction: %w", err)
 		}
 		// return the main error
@@ -292,7 +291,7 @@ func (x *OffsetStore) ResetOffset(ctx context.Context, projectionName string, va
 	}
 
 	// commit the transaction
-	if commitErr := tx.Commit(); commitErr != nil {
+	if commitErr := tx.Commit(ctx); commitErr != nil {
 		// return the commit error in case there is one
 		return fmt.Errorf("failed to record events: %w", commitErr)
 	}

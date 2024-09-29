@@ -28,10 +28,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
-	"go.uber.org/atomic"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -42,7 +40,6 @@ import (
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/eventstore"
 	"github.com/tochemey/ego/v3/eventstream"
-	"github.com/tochemey/ego/v3/internal/telemetry"
 )
 
 var (
@@ -57,10 +54,10 @@ type actor struct {
 	// specifies the current state
 	currentState State
 
-	eventsCounter   *atomic.Uint64
+	eventsCounter   uint64
 	lastCommandTime time.Time
-	mu              sync.RWMutex
-	eventsStream    eventstream.Stream
+
+	eventsStream eventstream.Stream
 }
 
 // enforce compilation error
@@ -72,8 +69,6 @@ func newActor(behavior EntityBehavior, eventsStore eventstore.EventsStore, event
 	return &actor{
 		eventsStore:    eventsStore,
 		EntityBehavior: behavior,
-		eventsCounter:  atomic.NewUint64(0),
-		mu:             sync.RWMutex{},
 		eventsStream:   eventsStream,
 	}
 }
@@ -81,16 +76,11 @@ func newActor(behavior EntityBehavior, eventsStore eventstore.EventsStore, event
 // PreStart pre-starts the actor
 // At this stage we connect to the various stores
 func (entity *actor) PreStart(ctx context.Context) error {
-	spanCtx, span := telemetry.SpanContext(ctx, "PreStart")
-	defer span.End()
-	entity.mu.Lock()
-	defer entity.mu.Unlock()
-
 	if entity.eventsStore == nil {
 		return errors.New("events store is not defined")
 	}
 
-	if err := entity.eventsStore.Ping(spanCtx); err != nil {
+	if err := entity.eventsStore.Ping(ctx); err != nil {
 		return fmt.Errorf("failed to connect to the events store: %v", err)
 	}
 
@@ -99,12 +89,6 @@ func (entity *actor) PreStart(ctx context.Context) error {
 
 // Receive processes any message dropped into the actor mailbox.
 func (entity *actor) Receive(ctx *actors.ReceiveContext) {
-	_, span := telemetry.SpanContext(ctx.Context(), "Receive")
-	defer span.End()
-
-	entity.mu.Lock()
-	defer entity.mu.Unlock()
-
 	// grab the command sent
 	switch command := ctx.Message().(type) {
 	case *goaktpb.PostStart:
@@ -119,23 +103,16 @@ func (entity *actor) Receive(ctx *actors.ReceiveContext) {
 }
 
 // PostStop prepares the actor to gracefully shutdown
+// nolint
 func (entity *actor) PostStop(ctx context.Context) error {
-	_, span := telemetry.SpanContext(ctx, "PostStop")
-	defer span.End()
-
-	entity.mu.Lock()
-	defer entity.mu.Unlock()
-
+	entity.eventsCounter = 0
 	return nil
 }
 
 // recoverFromSnapshot reset the persistent actor to the latest snapshot in case there is one
 // this is vital when the entity actor is restarting.
 func (entity *actor) recoverFromSnapshot(ctx context.Context) error {
-	spanCtx, span := telemetry.SpanContext(ctx, "RecoverFromSnapshot")
-	defer span.End()
-
-	event, err := entity.eventsStore.GetLatestEvent(spanCtx, entity.ID())
+	event, err := entity.eventsStore.GetLatestEvent(ctx, entity.ID())
 	if err != nil {
 		return fmt.Errorf("failed to recover the latest journal: %w", err)
 	}
@@ -148,7 +125,7 @@ func (entity *actor) recoverFromSnapshot(ctx context.Context) error {
 		}
 		entity.currentState = currentState
 
-		entity.eventsCounter.Store(event.GetSequenceNumber())
+		entity.eventsCounter = event.GetSequenceNumber()
 		return nil
 	}
 
@@ -209,7 +186,7 @@ func (entity *actor) processCommandAndReply(ctx *actors.ReceiveContext, command 
 				StateReply: &egopb.StateReply{
 					PersistenceId:  entity.ID(),
 					State:          resultingState,
-					SequenceNumber: entity.eventsCounter.Load(),
+					SequenceNumber: entity.eventsCounter,
 					Timestamp:      entity.lastCommandTime.Unix(),
 				},
 			},
@@ -230,7 +207,7 @@ func (entity *actor) processCommandAndReply(ctx *actors.ReceiveContext, command 
 			return
 		}
 
-		entity.eventsCounter.Inc()
+		entity.eventsCounter++
 		entity.currentState = resultingState
 		entity.lastCommandTime = timestamppb.Now().AsTime()
 
@@ -239,7 +216,7 @@ func (entity *actor) processCommandAndReply(ctx *actors.ReceiveContext, command 
 
 		envelope := &egopb.Event{
 			PersistenceId:  entity.ID(),
-			SequenceNumber: entity.eventsCounter.Load(),
+			SequenceNumber: entity.eventsCounter,
 			IsDeleted:      false,
 			Event:          event,
 			ResultingState: state,
@@ -272,7 +249,7 @@ func (entity *actor) processCommandAndReply(ctx *actors.ReceiveContext, command 
 			StateReply: &egopb.StateReply{
 				PersistenceId:  entity.ID(),
 				State:          state,
-				SequenceNumber: entity.eventsCounter.Load(),
+				SequenceNumber: entity.eventsCounter,
 				Timestamp:      entity.lastCommandTime.Unix(),
 			},
 		},

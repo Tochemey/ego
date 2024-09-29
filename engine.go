@@ -38,7 +38,6 @@ import (
 	"github.com/tochemey/goakt/v2/actors"
 	"github.com/tochemey/goakt/v2/discovery"
 	"github.com/tochemey/goakt/v2/log"
-	"github.com/tochemey/goakt/v2/telemetry"
 
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/eventstore"
@@ -64,7 +63,6 @@ type Engine struct {
 	actorSystem        actors.ActorSystem     // actorSystem is the underlying actor system
 	logger             log.Logger             // logger is the logging engine to use
 	discoveryProvider  discovery.Provider     // discoveryProvider is the discovery provider for clustering
-	telemetry          *telemetry.Telemetry   // telemetry is the observability engine
 	partitionsCount    uint64                 // partitionsCount specifies the number of partitions
 	started            atomic.Bool
 	hostName           string
@@ -82,8 +80,7 @@ func NewEngine(name string, eventsStore eventstore.EventsStore, opts ...Option) 
 		name:          name,
 		eventsStore:   eventsStore,
 		enableCluster: atomic.NewBool(false),
-		logger:        log.New(log.InfoLevel, os.Stderr),
-		telemetry:     telemetry.New(),
+		logger:        log.New(log.ErrorLevel, os.Stderr),
 		eventStream:   eventstream.New(),
 		locker:        &sync.Mutex{},
 	}
@@ -103,7 +100,6 @@ func (x *Engine) Start(ctx context.Context) error {
 		actors.WithPassivationDisabled(),
 		actors.WithActorInitMaxRetries(1),
 		actors.WithReplyTimeout(5 * time.Second),
-		actors.WithTelemetry(x.telemetry),
 		actors.WithSupervisorDirective(actors.NewStopDirective()),
 	}
 
