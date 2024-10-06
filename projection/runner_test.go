@@ -545,6 +545,76 @@ func TestRunner(t *testing.T) {
 		offsetStore.AssertExpectations(t)
 		eventsStore.AssertExpectations(t)
 	})
+	t.Run("when fail to write the offset stops the runner", func(t *testing.T) {
+		defer goleak.VerifyNone(t)
+		ctx := context.TODO()
+		projectionName := "db-writer"
+		persistenceID := uuid.NewString()
+		shardNumber := uint64(9)
+		timestamp := timestamppb.Now()
+		logger := log.DiscardLogger
+		handler := NewDiscardHandler(logger)
+
+		// create the projection id
+		projectionID := &egopb.ProjectionId{
+			ProjectionName: projectionName,
+			ShardNumber:    shardNumber,
+		}
+
+		offset := &egopb.Offset{
+			ShardNumber:    shardNumber,
+			ProjectionName: projectionName,
+			Value:          timestamp.AsTime().Unix(),
+			Timestamp:      0,
+		}
+
+		state, err := anypb.New(new(testpb.Account))
+		assert.NoError(t, err)
+		event, err := anypb.New(&testpb.AccountCredited{})
+		assert.NoError(t, err)
+		nextOffsetValue := timestamppb.New(time.Now().Add(time.Minute))
+		events := []*egopb.Event{
+			{
+				PersistenceId:  persistenceID,
+				SequenceNumber: 1,
+				IsDeleted:      false,
+				Event:          event,
+				ResultingState: state,
+				Timestamp:      timestamp.AsTime().Unix(),
+				Shard:          shardNumber,
+			},
+		}
+
+		maxBufferSize := 10
+		resetOffsetTo := time.Now().UTC()
+
+		offsetStore := new(mocksoffsetstore.OffsetStore)
+		offsetStore.EXPECT().Ping(mock.Anything).Return(nil)
+		offsetStore.EXPECT().ResetOffset(mock.Anything, projectionName, resetOffsetTo.UnixMilli()).Return(nil)
+		offsetStore.EXPECT().GetCurrentOffset(mock.Anything, projectionID).Return(offset, nil)
+		offsetStore.EXPECT().WriteOffset(mock.Anything, mock.AnythingOfType("*egopb.Offset")).Return(errors.New("fail to write the offset"))
+
+		eventsStore := new(mockseventstore.EventsStore)
+		eventsStore.EXPECT().Ping(mock.Anything).Return(nil)
+		eventsStore.EXPECT().ShardNumbers(mock.Anything).Return([]uint64{shardNumber}, nil)
+		eventsStore.EXPECT().GetShardEvents(mock.Anything, shardNumber, offset.GetValue(), uint64(maxBufferSize)).Return(events, nextOffsetValue.AsTime().UnixMilli(), nil)
+
+		// create an instance of the projection
+		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithRefreshInterval(time.Millisecond))
+		runner.resetOffsetTo = resetOffsetTo
+		runner.maxBufferSize = maxBufferSize
+
+		// start the projection
+		err = runner.Start(ctx)
+		require.NoError(t, err)
+
+		// run the projection
+		runner.Run(ctx)
+
+		lib.Pause(time.Second)
+
+		assert.False(t, runner.started.Load())
+	})
 }
 
 type testHandler1 struct{}

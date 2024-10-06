@@ -40,6 +40,7 @@ import (
 
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/eventstore"
+	"github.com/tochemey/ego/v3/internal/ticker"
 	"github.com/tochemey/ego/v3/offsetstore"
 )
 
@@ -158,7 +159,6 @@ func (x *runner) Stop() error {
 	}
 
 	x.stopSignal <- struct{}{}
-
 	x.started.Store(false)
 	return nil
 }
@@ -176,15 +176,17 @@ func (x *runner) Run(ctx context.Context) {
 
 // processingLoop is a loop that continuously runs to process events persisted onto the journal store until the projection is stopped
 func (x *runner) processingLoop(ctx context.Context) {
-	ticker := time.NewTicker(x.refreshInterval)
-	tickerStopSig := make(chan struct{}, 1)
+	ticker := ticker.New(x.refreshInterval)
+	ticker.Start()
+	tickerStopSignal := make(chan struct{}, 1)
+
 	go func() {
 		for {
 			select {
 			case <-x.stopSignal:
-				tickerStopSig <- struct{}{}
+				tickerStopSignal <- struct{}{}
 				return
-			case <-ticker.C:
+			case <-ticker.Ticks:
 				g, ctx := errgroup.WithContext(ctx)
 				shardsChan := make(chan uint64, 1)
 
@@ -226,7 +228,7 @@ func (x *runner) processingLoop(ctx context.Context) {
 				if err := g.Wait(); err != nil {
 					x.logger.Error(err)
 					if err := x.Stop(); err != nil {
-						x.logger.Error(err)
+						x.logger.Fatal(err)
 						return
 					}
 				}
@@ -234,7 +236,7 @@ func (x *runner) processingLoop(ctx context.Context) {
 		}
 	}()
 
-	<-tickerStopSig
+	<-tickerStopSignal
 	ticker.Stop()
 }
 

@@ -55,21 +55,21 @@ func New(name string,
 }
 
 // PreStart prepares the projection
-func (x *Projection) PreStart(ctx context.Context) error {
-	return x.runner.Start(ctx)
+func (proj *Projection) PreStart(ctx context.Context) error {
+	return proj.runner.Start(ctx)
 }
 
 // Receive handle the message sent to the projection actor
-func (x *Projection) Receive(ctx *actors.ReceiveContext) {
+func (proj *Projection) Receive(ctx *actors.ReceiveContext) {
 	switch ctx.Message().(type) {
 	case *goaktpb.PostStart:
-		x.runner.Run(ctx.Context())
+		proj.runner.Run(ctx.Context())
 	default:
 		ctx.Unhandled()
 	}
 }
 
 // PostStop prepares the actor to gracefully shutdown
-func (x *Projection) PostStop(context.Context) error {
-	return x.runner.Stop()
+func (proj *Projection) PostStop(context.Context) error {
+	return proj.runner.Stop()
 }
