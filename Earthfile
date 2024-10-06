@@ -82,7 +82,7 @@ local-test:
     FROM +vendor
 
     WITH DOCKER --pull postgres:11
-        RUN go-acc ./... -o coverage.out --ignore egopb,test,example -- -mod=vendor -race -v
+        RUN go-acc ./... -o coverage.out --ignore egopb,test,example,mocks -- -mod=vendor -race -v
     END
 
     SAVE ARTIFACT coverage.out AS LOCAL coverage.out

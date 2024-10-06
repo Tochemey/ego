@@ -12,3 +12,4 @@ ignore:
   - "egopb"
   - "test"
   - "example"
+  - "mocks"
