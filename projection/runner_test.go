@@ -32,6 +32,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/atomic"
 	"go.uber.org/goleak"
@@ -43,11 +44,13 @@ import (
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/eventstore/memory"
 	"github.com/tochemey/ego/v3/internal/lib"
+	mockseventstore "github.com/tochemey/ego/v3/mocks/eventstore"
+	mocksoffsetstore "github.com/tochemey/ego/v3/mocks/offsetstore"
 	memoffsetstore "github.com/tochemey/ego/v3/offsetstore/memory"
 	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
 )
 
-func TestProjection(t *testing.T) {
+func TestRunner(t *testing.T) {
 	t.Run("with happy path", func(t *testing.T) {
 		defer goleak.VerifyNone(t)
 		ctx := context.TODO()
@@ -57,24 +60,26 @@ func TestProjection(t *testing.T) {
 		logger := log.DefaultLogger
 
 		// set up the event store
-		journalStore := memory.NewEventsStore()
-		assert.NotNil(t, journalStore)
-		require.NoError(t, journalStore.Connect(ctx))
+		eventsStore := memory.NewEventsStore()
+		assert.NotNil(t, eventsStore)
+		require.NoError(t, eventsStore.Connect(ctx))
 
 		// set up the offset store
 		offsetStore := memoffsetstore.NewOffsetStore()
 		assert.NotNil(t, offsetStore)
-		require.NoError(t, offsetStore.Disconnect(ctx))
+		require.NoError(t, offsetStore.Connect(ctx))
 
 		// set up the projection
 		// create a handler that return successfully
 		handler := NewDiscardHandler(logger)
 
 		// create an instance of the projection
-		runner := newRunner(projectionName, handler, journalStore, offsetStore, WithRefreshInterval(time.Millisecond))
+		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithRefreshInterval(time.Millisecond))
 		// start the projection
 		err := runner.Start(ctx)
 		require.NoError(t, err)
+
+		require.Equal(t, projectionName, runner.Name())
 
 		// run the projection
 		runner.Run(ctx)
@@ -101,7 +106,7 @@ func TestProjection(t *testing.T) {
 			}
 		}
 
-		require.NoError(t, journalStore.WriteEvents(ctx, journals))
+		require.NoError(t, eventsStore.WriteEvents(ctx, journals))
 		require.True(t, runner.started.Load())
 
 		// wait for the data to be persisted by the database since this an eventual consistency case
@@ -122,7 +127,7 @@ func TestProjection(t *testing.T) {
 		assert.EqualValues(t, 10, handler.EventsCount())
 
 		// free resources
-		assert.NoError(t, journalStore.Disconnect(ctx))
+		assert.NoError(t, eventsStore.Disconnect(ctx))
 		assert.NoError(t, offsetStore.Disconnect(ctx))
 		assert.NoError(t, runner.Stop())
 	})
@@ -407,6 +412,138 @@ func TestProjection(t *testing.T) {
 		assert.NoError(t, journalStore.Disconnect(ctx))
 		assert.NoError(t, offsetStore.Disconnect(ctx))
 		assert.NoError(t, runner.Stop())
+	})
+	t.Run("with events store is not defined", func(t *testing.T) {
+		ctx := context.Background()
+		handler := NewDiscardHandler(log.DiscardLogger)
+		projectionName := "db-writer"
+		// set up the offset store
+		offsetStore := memoffsetstore.NewOffsetStore()
+		assert.NotNil(t, offsetStore)
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		// create an instance of the projection
+		runner := newRunner(projectionName, handler, nil, offsetStore, WithRefreshInterval(time.Millisecond))
+		// start the projection
+		err := runner.Start(ctx)
+		require.Error(t, err)
+		assert.EqualError(t, err, "events store is not defined")
+		assert.NoError(t, offsetStore.Disconnect(ctx))
+	})
+	t.Run("with offset store is not defined", func(t *testing.T) {
+		ctx := context.Background()
+		handler := NewDiscardHandler(log.DiscardLogger)
+		projectionName := "db-writer"
+		// set up the event store
+		eventsStore := memory.NewEventsStore()
+		assert.NotNil(t, eventsStore)
+		require.NoError(t, eventsStore.Connect(ctx))
+
+		// create an instance of the projection
+		runner := newRunner(projectionName, handler, eventsStore, nil, WithRefreshInterval(time.Millisecond))
+		// start the projection
+		err := runner.Start(ctx)
+		require.Error(t, err)
+		assert.EqualError(t, err, "offsets store is not defined")
+		assert.NoError(t, eventsStore.Disconnect(ctx))
+	})
+	t.Run("with start when already started returns nil", func(t *testing.T) {
+		ctx := context.Background()
+		handler := NewDiscardHandler(log.DiscardLogger)
+		projectionName := "db-writer"
+		// set up the event store
+		eventsStore := memory.NewEventsStore()
+		assert.NotNil(t, eventsStore)
+		require.NoError(t, eventsStore.Connect(ctx))
+
+		// set up the offset store
+		offsetStore := memoffsetstore.NewOffsetStore()
+		assert.NotNil(t, offsetStore)
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		// create an instance of the projection
+		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithRefreshInterval(time.Millisecond))
+		// start the projection
+		err := runner.Start(ctx)
+		require.NoError(t, err)
+
+		lib.Pause(time.Second)
+
+		require.NoError(t, runner.Start(ctx))
+
+		// free resources
+		assert.NoError(t, eventsStore.Disconnect(ctx))
+		assert.NoError(t, offsetStore.Disconnect(ctx))
+		assert.NoError(t, runner.Stop())
+	})
+	t.Run("with start when max retry to ping events store fails", func(t *testing.T) {
+		ctx := context.Background()
+		handler := NewDiscardHandler(log.DiscardLogger)
+		projectionName := "db-writer"
+
+		// set up the offset store
+		offsetStore := memoffsetstore.NewOffsetStore()
+		assert.NotNil(t, offsetStore)
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		eventsStore := new(mockseventstore.EventsStore)
+		eventsStore.EXPECT().Ping(mock.Anything).Return(errors.New("fail ping"))
+
+		// create an instance of the projection
+		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithRefreshInterval(time.Millisecond))
+		// start the projection
+		err := runner.Start(ctx)
+		require.Error(t, err)
+		assert.EqualError(t, err, "failed to start the projection: fail ping")
+		eventsStore.AssertExpectations(t)
+		assert.NoError(t, offsetStore.Disconnect(ctx))
+	})
+	t.Run("with start when max retry to ping offsets store store fails", func(t *testing.T) {
+		ctx := context.Background()
+		handler := NewDiscardHandler(log.DiscardLogger)
+		projectionName := "db-writer"
+
+		// set up the event store
+		eventsStore := memory.NewEventsStore()
+		assert.NotNil(t, eventsStore)
+		require.NoError(t, eventsStore.Connect(ctx))
+
+		offsetStore := new(mocksoffsetstore.OffsetStore)
+		offsetStore.EXPECT().Ping(mock.Anything).Return(errors.New("fail ping"))
+
+		// create an instance of the projection
+		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithRefreshInterval(time.Millisecond))
+		// start the projection
+		err := runner.Start(ctx)
+		require.Error(t, err)
+		assert.EqualError(t, err, "failed to start the projection: fail ping")
+		offsetStore.AssertExpectations(t)
+		assert.NoError(t, eventsStore.Disconnect(ctx))
+	})
+	t.Run("with start when ResetOffset fails", func(t *testing.T) {
+		ctx := context.Background()
+		handler := NewDiscardHandler(log.DiscardLogger)
+		projectionName := "db-writer"
+
+		eventsStore := new(mockseventstore.EventsStore)
+		eventsStore.EXPECT().Ping(mock.Anything).Return(nil)
+
+		resetOffsetTo := time.Now().UTC()
+		offsetStore := new(mocksoffsetstore.OffsetStore)
+		offsetStore.EXPECT().Ping(mock.Anything).Return(nil)
+		offsetStore.EXPECT().ResetOffset(ctx, projectionName, resetOffsetTo.UnixMilli()).Return(errors.New("fail to reset offset"))
+
+		// create an instance of the projection
+		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithRefreshInterval(time.Millisecond))
+		// purposefully for test
+		runner.resetOffsetTo = resetOffsetTo
+
+		// start the projection
+		err := runner.Start(ctx)
+		require.Error(t, err)
+		assert.EqualError(t, err, "failed to reset projection=db-writer: fail to reset offset")
+		offsetStore.AssertExpectations(t)
+		eventsStore.AssertExpectations(t)
 	})
 }
 

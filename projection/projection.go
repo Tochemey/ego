@@ -27,17 +27,12 @@ package projection
 import (
 	"context"
 
-	"google.golang.org/protobuf/types/known/emptypb"
-
 	"github.com/tochemey/goakt/v2/actors"
 	"github.com/tochemey/goakt/v2/goaktpb"
 
 	"github.com/tochemey/ego/v3/eventstore"
 	"github.com/tochemey/ego/v3/offsetstore"
 )
-
-// Start is used to start the projection
-var Start = new(emptypb.Empty)
 
 // Projection defines the projection actor
 // Only a single instance of this will run throughout the cluster

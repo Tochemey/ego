@@ -18,15 +18,17 @@ In eGo commands sent the aggregate root are processed in order. When a command i
 and timestamp that can help track it. The aggregate root in eGo is responsible for defining how to handle events that are the result of command handlers. The end result of events handling is to build the new state of the aggregate root.
 When running in cluster mode, aggregate root are sharded.
 
-- Commands handler: The command handlers define how to handle each incoming command,
+- `Commands handler`: The command handlers define how to handle each incoming command,
   which validations must be applied, and finally, which events will be persisted if any. When there is no event to be persisted a nil can
   be returned as a no-op. Command handlers are the meat of the event sourced actor.
   They encode the business rules of your event sourced actor and act as a guardian of the Aggregate consistency.
   The command handler must first validate that the incoming command can be applied to the current model state.
   Any decision should be solely based on the data passed in the commands and the state of the Behavior.
   In case of successful validation, one or more events expressing the mutations are persisted. Once the events are persisted, they are applied to the state producing a new valid state.
-- Events handler: The event handlers are used to mutate the state of the Aggregate by applying the events to it.
+- `Events handler`: The event handlers are used to mutate the state of the Aggregate by applying the events to it.
   Event handlers must be pure functions as they will be used when instantiating the Aggregate and replaying the event store.
+
+#### Howto
 
 To define an Aggregate Root, one needs to:
 1. the state of the aggregate root using google protocol buffers message
@@ -41,7 +43,9 @@ Every event handled by Aggregate Root are pushed to an events stream. That enabl
 #### Projection
 
 One can add a projection to the eGo engine to help build a read model. Projections in eGo rely on an offset store to track how far they have consumed events
-persisted by the write model. The offset used in eGo is a timestamp-based offset.
+persisted by the write model. The offset used in eGo is a timestamp-based offset. One can also:
+- remove a given projection: this will stop the projection and remove it from the system
+- check the status of a given projection
 
 #### Events Store
 
@@ -59,7 +63,11 @@ One can implement a custom offsets store. See [OffsetStore](./offsetstore/iface.
 
 The cluster mode heavily relies on [Go-Akt](https://github.com/Tochemey/goakt#clustering) clustering.
 
-#### Examples
+#### Mocks
+
+eGo ships in some [mocks](./mocks)
+
+### Examples
 
 Check the [examples](./example)
 

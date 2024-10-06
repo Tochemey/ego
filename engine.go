@@ -32,6 +32,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tochemey/goakt/v2/address"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 
@@ -71,7 +72,7 @@ type Engine struct {
 	remotingPort       int
 	minimumPeersQuorum uint16
 	eventStream        eventstream.Stream
-	locker             *sync.Mutex
+	mutex              *sync.Mutex
 }
 
 // NewEngine creates an instance of Engine
@@ -82,7 +83,7 @@ func NewEngine(name string, eventsStore eventstore.EventsStore, opts ...Option) 
 		enableCluster: atomic.NewBool(false),
 		logger:        log.New(log.ErrorLevel, os.Stderr),
 		eventStream:   eventstream.New(),
-		locker:        &sync.Mutex{},
+		mutex:         &sync.Mutex{},
 	}
 
 	for _, opt := range opts {
@@ -94,113 +95,135 @@ func NewEngine(name string, eventsStore eventstore.EventsStore, opts ...Option) 
 }
 
 // Start starts the ego engine
-func (x *Engine) Start(ctx context.Context) error {
+func (engine *Engine) Start(ctx context.Context) error {
 	opts := []actors.Option{
-		actors.WithLogger(x.logger),
+		actors.WithLogger(engine.logger),
 		actors.WithPassivationDisabled(),
 		actors.WithActorInitMaxRetries(1),
 		actors.WithReplyTimeout(5 * time.Second),
 		actors.WithSupervisorDirective(actors.NewStopDirective()),
 	}
 
-	if x.enableCluster.Load() {
-		if x.hostName == "" {
-			x.hostName, _ = os.Hostname()
+	if engine.enableCluster.Load() {
+		if engine.hostName == "" {
+			engine.hostName, _ = os.Hostname()
 		}
 
 		replicaCount := 1
-		if x.minimumPeersQuorum > 1 {
+		if engine.minimumPeersQuorum > 1 {
 			replicaCount = 2
 		}
 
 		clusterConfig := actors.
 			NewClusterConfig().
-			WithDiscovery(x.discoveryProvider).
-			WithDiscoveryPort(x.gossipPort).
-			WithPeersPort(x.peersPort).
-			WithMinimumPeersQuorum(uint32(x.minimumPeersQuorum)).
+			WithDiscovery(engine.discoveryProvider).
+			WithDiscoveryPort(engine.gossipPort).
+			WithPeersPort(engine.peersPort).
+			WithMinimumPeersQuorum(uint32(engine.minimumPeersQuorum)).
 			WithReplicaCount(uint32(replicaCount)).
-			WithPartitionCount(x.partitionsCount).
+			WithPartitionCount(engine.partitionsCount).
 			WithKinds(new(actor))
 
 		opts = append(opts,
 			actors.WithCluster(clusterConfig),
-			actors.WithRemoting(x.hostName, int32(x.remotingPort)))
+			actors.WithRemoting(engine.hostName, int32(engine.remotingPort)))
 	}
 
 	var err error
-	x.actorSystem, err = actors.NewActorSystem(x.name, opts...)
+	engine.actorSystem, err = actors.NewActorSystem(engine.name, opts...)
 	if err != nil {
-		x.logger.Error(fmt.Errorf("failed to create the ego actor system: %w", err))
+		return fmt.Errorf("failed to create the ego actor system: %w", err)
+	}
+
+	if err := engine.actorSystem.Start(ctx); err != nil {
 		return err
 	}
 
-	if err := x.actorSystem.Start(ctx); err != nil {
-		return err
-	}
-
-	x.started.Store(true)
+	engine.started.Store(true)
 
 	return nil
 }
 
-// AddProjection add a projection to the running eGo engine and start it
-func (x *Engine) AddProjection(ctx context.Context, name string, handler projection.Handler, offsetStore offsetstore.OffsetStore, opts ...projection.Option) error {
-	x.locker.Lock()
-	started := x.started.Load()
-	x.locker.Unlock()
-	if !started {
+// AddProjection add a projection to the running eGo engine and starts it
+func (engine *Engine) AddProjection(ctx context.Context, name string, handler projection.Handler, offsetStore offsetstore.OffsetStore, opts ...projection.Option) error {
+	if !engine.Started() {
 		return ErrEngineNotStarted
 	}
 
-	actor := projection.New(name, handler, x.eventsStore, offsetStore, opts...)
+	actor := projection.New(name, handler, engine.eventsStore, offsetStore, opts...)
 
-	var (
-		pid *actors.PID
-		err error
-	)
+	engine.mutex.Lock()
+	actorSystem := engine.actorSystem
+	engine.mutex.Unlock()
 
-	x.locker.Lock()
-	actorSystem := x.actorSystem
-	x.locker.Unlock()
-
-	if pid, err = actorSystem.Spawn(ctx, name, actor); err != nil {
-		x.logger.Error(fmt.Errorf("failed to register the projection=(%s): %w", name, err))
-		return err
-	}
-
-	if err := actors.Tell(ctx, pid, projection.Start); err != nil {
-		x.logger.Error(fmt.Errorf("failed to start the projection=(%s): %w", name, err))
-		return err
+	if _, err := actorSystem.Spawn(ctx, name, actor); err != nil {
+		return fmt.Errorf("failed to register the projection=(%s): %w", name, err)
 	}
 
 	return nil
 }
 
+// RemoveProjection stops and removes a given projection from the engine
+func (engine *Engine) RemoveProjection(ctx context.Context, name string) error {
+	if !engine.Started() {
+		return ErrEngineNotStarted
+	}
+
+	engine.mutex.Lock()
+	actorSystem := engine.actorSystem
+	engine.mutex.Unlock()
+
+	return actorSystem.Kill(ctx, name)
+}
+
+// IsProjectionRunning returns true when the projection is active and running
+// One needs to check the error to see whether this function does not return a false negative
+func (engine *Engine) IsProjectionRunning(ctx context.Context, name string) (bool, error) {
+	if !engine.Started() {
+		return false, ErrEngineNotStarted
+	}
+	engine.mutex.Lock()
+	actorSystem := engine.actorSystem
+	engine.mutex.Unlock()
+
+	addr, pid, err := actorSystem.ActorOf(ctx, name)
+	if err != nil {
+		return false, fmt.Errorf("failed to get projection %s: %w", name, err)
+	}
+
+	if pid != nil {
+		return pid.IsRunning(), nil
+	}
+
+	return addr != nil && proto.Equal(addr.Address, address.NoSender), nil
+}
+
 // Stop stops the ego engine
-func (x *Engine) Stop(ctx context.Context) error {
-	x.started.Store(false)
-	x.eventStream.Close()
-	return x.actorSystem.Stop(ctx)
+func (engine *Engine) Stop(ctx context.Context) error {
+	engine.started.Store(false)
+	engine.eventStream.Close()
+	return engine.actorSystem.Stop(ctx)
+}
+
+// Started returns true when the eGo engine has started
+func (engine *Engine) Started() bool {
+	return engine.started.Load()
 }
 
 // Subscribe creates an events subscriber
-func (x *Engine) Subscribe() (eventstream.Subscriber, error) {
-	x.locker.Lock()
-	started := x.started.Load()
-	x.locker.Unlock()
-	if !started {
+func (engine *Engine) Subscribe() (eventstream.Subscriber, error) {
+	if !engine.Started() {
 		return nil, ErrEngineNotStarted
 	}
 
-	x.locker.Lock()
-	eventStream := x.eventStream
-	x.locker.Unlock()
+	engine.mutex.Lock()
+	eventStream := engine.eventStream
+	engine.mutex.Unlock()
 
 	subscriber := eventStream.AddSubscriber()
-	for i := 0; i < int(x.partitionsCount); i++ {
+	for i := 0; i < int(engine.partitionsCount); i++ {
 		topic := fmt.Sprintf(eventsTopic, i)
-		x.eventStream.Subscribe(subscriber, topic)
+		engine.eventStream.Subscribe(subscriber, topic)
 	}
 
 	return subscriber, nil
@@ -208,19 +231,16 @@ func (x *Engine) Subscribe() (eventstream.Subscriber, error) {
 
 // Entity creates an entity. This will return the entity path
 // that can be used to send command to the entity
-func (x *Engine) Entity(ctx context.Context, behavior EntityBehavior) error {
-	x.locker.Lock()
-	started := x.started.Load()
-	x.locker.Unlock()
-	if !started {
+func (engine *Engine) Entity(ctx context.Context, behavior EntityBehavior) error {
+	if !engine.Started() {
 		return ErrEngineNotStarted
 	}
 
-	x.locker.Lock()
-	actorSystem := x.actorSystem
-	eventsStore := x.eventsStore
-	eventStream := x.eventStream
-	x.locker.Unlock()
+	engine.mutex.Lock()
+	actorSystem := engine.actorSystem
+	eventsStore := engine.eventsStore
+	eventStream := engine.eventStream
+	engine.mutex.Unlock()
 
 	_, err := actorSystem.Spawn(ctx,
 		behavior.ID(),
@@ -237,11 +257,8 @@ func (x *Engine) Entity(ctx context.Context, behavior EntityBehavior) error {
 // 1. the resulting state after the command has been handled and the emitted event persisted
 // 2. nil when there is no resulting state or no event persisted
 // 3. an error in case of error
-func (x *Engine) SendCommand(ctx context.Context, entityID string, cmd Command, timeout time.Duration) (resultingState State, revision uint64, err error) {
-	x.locker.Lock()
-	started := x.started.Load()
-	x.locker.Unlock()
-	if !started {
+func (engine *Engine) SendCommand(ctx context.Context, entityID string, cmd Command, timeout time.Duration) (resultingState State, revision uint64, err error) {
+	if !engine.Started() {
 		return nil, 0, ErrEngineNotStarted
 	}
 
@@ -250,9 +267,9 @@ func (x *Engine) SendCommand(ctx context.Context, entityID string, cmd Command, 
 		return nil, 0, ErrUndefinedEntityID
 	}
 
-	x.locker.Lock()
-	actorSystem := x.actorSystem
-	x.locker.Unlock()
+	engine.mutex.Lock()
+	actorSystem := engine.actorSystem
+	engine.mutex.Unlock()
 
 	// locate the given actor
 	addr, pid, err := actorSystem.ActorOf(ctx, entityID)

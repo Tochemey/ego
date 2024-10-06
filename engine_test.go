@@ -97,6 +97,12 @@ func TestEgo(t *testing.T) {
 		err = engine.AddProjection(ctx, "discard", handler, offsetStore)
 		require.NoError(t, err)
 
+		lib.Pause(time.Second)
+
+		running, err := engine.IsProjectionRunning(ctx, "discard")
+		require.NoError(t, err)
+		require.True(t, running)
+
 		// subscribe to events
 		subscriber, err := engine.Subscribe()
 		require.NoError(t, err)
@@ -275,6 +281,80 @@ func TestEgo(t *testing.T) {
 
 		assert.NoError(t, eventStore.Disconnect(ctx))
 		assert.NoError(t, engine.Stop(ctx))
+	})
+	t.Run("With IsProjectionRunning when not started", func(t *testing.T) {
+		ctx := context.TODO()
+		// create the event store
+		eventStore := memory.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+
+		// create the ego engine
+		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+
+		running, err := engine.IsProjectionRunning(ctx, "isProjectionRunning")
+		require.Error(t, err)
+		assert.EqualError(t, err, ErrEngineNotStarted.Error())
+		assert.False(t, running)
+
+		assert.NoError(t, eventStore.Disconnect(ctx))
+	})
+	t.Run("With RemoveProjection", func(t *testing.T) {
+		ctx := context.TODO()
+		// create the event store
+		eventStore := memory.NewEventsStore()
+		// connect to the event store
+		require.NoError(t, eventStore.Connect(ctx))
+
+		offsetStore := offsetstore.NewOffsetStore()
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		// create the ego engine
+		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		// start ego engine
+		err := engine.Start(ctx)
+		require.NoError(t, err)
+
+		// create a projection message handler
+		handler := projection.NewDiscardHandler(log.DiscardLogger)
+		// add projection
+		projectionName := "projection"
+		err = engine.AddProjection(ctx, projectionName, handler, offsetStore)
+		require.NoError(t, err)
+
+		lib.Pause(time.Second)
+
+		running, err := engine.IsProjectionRunning(ctx, projectionName)
+		require.NoError(t, err)
+		require.True(t, running)
+
+		err = engine.RemoveProjection(ctx, projectionName)
+		require.NoError(t, err)
+
+		lib.Pause(time.Second)
+
+		running, err = engine.IsProjectionRunning(ctx, projectionName)
+		require.Error(t, err)
+		require.False(t, running)
+
+		// free resources
+		assert.NoError(t, offsetStore.Disconnect(ctx))
+		assert.NoError(t, eventStore.Disconnect(ctx))
+		assert.NoError(t, engine.Stop(ctx))
+	})
+	t.Run("With RemoveProjection when not started", func(t *testing.T) {
+		ctx := context.TODO()
+		// create the event store
+		eventStore := memory.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+
+		// create the ego engine
+		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+
+		err := engine.RemoveProjection(ctx, "isProjectionRunning")
+		require.Error(t, err)
+		assert.EqualError(t, err, ErrEngineNotStarted.Error())
+
+		assert.NoError(t, eventStore.Disconnect(ctx))
 	})
 }
 

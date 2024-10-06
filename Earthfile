@@ -66,6 +66,8 @@ code:
 vendor:
     FROM +code
 
+	  COPY +mock/mocks ./mocks
+
     RUN go mod vendor
     SAVE ARTIFACT /app /files
 
@@ -84,3 +86,13 @@ local-test:
     END
 
     SAVE ARTIFACT coverage.out AS LOCAL coverage.out
+
+mock:
+    # copy in the necessary files that need mock generated code
+    FROM +code
+
+    # generate the mocks
+    RUN mockery  --dir eventstore --name EventsStore --keeptree --exported=true --with-expecter=true --inpackage=true --disable-version-string=true --output ./mocks/eventstore --case snake
+    RUN mockery  --dir offsetstore --name OffsetStore --keeptree --exported=true --with-expecter=true --inpackage=true --disable-version-string=true --output ./mocks/offsetstore --case snake
+
+    SAVE ARTIFACT ./mocks mocks AS LOCAL mocks

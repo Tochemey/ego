@@ -46,7 +46,7 @@ import (
 	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
 )
 
-func TestActor(t *testing.T) {
+func TestProjection(t *testing.T) {
 	t.Run("With happy path", func(t *testing.T) {
 		defer goleak.VerifyNone(t)
 		ctx := context.TODO()
@@ -77,7 +77,7 @@ func TestActor(t *testing.T) {
 		// set up the offset store
 		offsetStore := memoffsetstore.NewOffsetStore()
 		assert.NotNil(t, offsetStore)
-		require.NoError(t, offsetStore.Disconnect(ctx))
+		require.NoError(t, offsetStore.Connect(ctx))
 
 		handler := NewDiscardHandler(logger)
 
@@ -89,9 +89,6 @@ func TestActor(t *testing.T) {
 		require.NotNil(t, pid)
 
 		lib.Pause(time.Second)
-
-		// start the projection
-		require.NoError(t, actors.Tell(ctx, pid, Start))
 
 		// persist some events
 		state, err := anypb.New(new(testpb.Account))

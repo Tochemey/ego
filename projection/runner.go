@@ -28,6 +28,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/flowchartsman/retry"
@@ -81,7 +82,7 @@ func newRunner(name string,
 	opts ...Option) *runner {
 	runner := &runner{
 		name:            name,
-		logger:          log.DefaultLogger,
+		logger:          log.New(log.ErrorLevel, os.Stderr),
 		handler:         handler,
 		eventsStore:     eventsStore,
 		offsetsStore:    offsetStore,
@@ -111,16 +112,8 @@ func (x *runner) Start(ctx context.Context) error {
 		return errors.New("offsets store is not defined")
 	}
 
-	if err := x.offsetsStore.Ping(ctx); err != nil {
-		return fmt.Errorf("failed to connect to the offsets store: %ws", err)
-	}
-
 	if x.eventsStore == nil {
 		return errors.New("events store is not defined")
-	}
-
-	if err := x.eventsStore.Ping(ctx); err != nil {
-		return fmt.Errorf("failed to connect to the events store: %w", err)
 	}
 
 	// we will ping the stores 5 times to see whether there have started successfully or not.
@@ -356,8 +349,9 @@ func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 func (x *runner) preStart(ctx context.Context) error {
 	if !x.resetOffsetTo.IsZero() {
 		if err := x.offsetsStore.ResetOffset(ctx, x.name, x.resetOffsetTo.UnixMilli()); err != nil {
-			x.logger.Error(fmt.Errorf("failed to reset projection=%s: %w", x.name, err))
-			return err
+			fmtErr := fmt.Errorf("failed to reset projection=%s: %w", x.name, err)
+			x.logger.Error(fmtErr)
+			return fmtErr
 		}
 	}
 
