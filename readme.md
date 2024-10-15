@@ -5,6 +5,7 @@
 [![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/tochemey/ego)](https://go.dev/doc/install)
 ![GitHub Release](https://img.shields.io/github/v/release/Tochemey/ego)
 [![codecov](https://codecov.io/gh/Tochemey/ego/branch/main/graph/badge.svg?token=Z5b9gM6Mnt)](https://codecov.io/gh/Tochemey/ego)
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FTochemey%2Fego.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2FTochemey%2Fego?ref=badge_shield)
 
 eGo is a minimal library that help build event-sourcing and CQRS application through a simple interface, and it allows developers to describe their **_commands_**, **_events_** and **_states_** **_are defined using google protocol buffers_**.
 Under the hood, ego leverages [Go-Akt](https://github.com/Tochemey/goakt) to scale out and guarantee performant, reliable persistence.
@@ -257,3 +258,7 @@ Prior to submitting a [pull request](https://help.github.com/articles/using-pull
 ```bash
 earthly +test
 ```
+
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FTochemey%2Fego.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2FTochemey%2Fego?ref=badge_large)
