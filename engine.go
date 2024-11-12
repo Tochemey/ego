@@ -73,6 +73,7 @@ type Engine struct {
 	minimumPeersQuorum uint16
 	eventStream        eventstream.Stream
 	mutex              *sync.Mutex
+	remoting           *actors.Remoting
 }
 
 // NewEngine creates an instance of Engine
@@ -84,6 +85,7 @@ func NewEngine(name string, eventsStore eventstore.EventsStore, opts ...Option) 
 		logger:        log.New(log.ErrorLevel, os.Stderr),
 		eventStream:   eventstream.New(),
 		mutex:         &sync.Mutex{},
+		remoting:      actors.NewRemoting(),
 	}
 
 	for _, opt := range opts {
@@ -100,7 +102,6 @@ func (engine *Engine) Start(ctx context.Context) error {
 		actors.WithLogger(engine.logger),
 		actors.WithPassivationDisabled(),
 		actors.WithActorInitMaxRetries(1),
-		actors.WithReplyTimeout(5 * time.Second),
 		actors.WithSupervisorDirective(actors.NewStopDirective()),
 	}
 
@@ -282,7 +283,7 @@ func (engine *Engine) SendCommand(ctx context.Context, entityID string, cmd Comm
 	case pid != nil:
 		reply, err = actors.Ask(ctx, pid, cmd, timeout)
 	case addr != nil:
-		res, err := actors.RemoteAsk(ctx, addr, cmd, timeout)
+		res, err := engine.remoting.RemoteAsk(ctx, addr, cmd, timeout)
 		if err == nil {
 			// let us unmarshal the response
 			reply, err = res.UnmarshalNew()
