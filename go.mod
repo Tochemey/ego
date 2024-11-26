@@ -12,8 +12,8 @@ require (
 	github.com/jackc/pgx/v5 v5.7.1
 	github.com/lib/pq v1.10.9
 	github.com/ory/dockertest/v3 v3.11.0
-	github.com/stretchr/testify v1.9.0
-	github.com/tochemey/goakt/v2 v2.8.1
+	github.com/stretchr/testify v1.10.0
+	github.com/tochemey/goakt/v2 v2.8.2
 	github.com/travisjeffery/go-dynaport v1.0.0
 	go.uber.org/atomic v1.11.0
 	go.uber.org/goleak v1.3.0
