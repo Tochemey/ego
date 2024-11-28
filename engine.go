@@ -196,7 +196,7 @@ func (engine *Engine) IsProjectionRunning(ctx context.Context, name string) (boo
 		return pid.IsRunning(), nil
 	}
 
-	return addr != nil && proto.Equal(addr.Address, address.NoSender), nil
+	return addr.Equals(address.NoSender()), nil
 }
 
 // Stop stops the ego engine
@@ -283,7 +283,7 @@ func (engine *Engine) SendCommand(ctx context.Context, entityID string, cmd Comm
 	case pid != nil:
 		reply, err = actors.Ask(ctx, pid, cmd, timeout)
 	case addr != nil:
-		res, err := engine.remoting.RemoteAsk(ctx, addr, cmd, timeout)
+		res, err := engine.remoting.RemoteAsk(ctx, address.NoSender(), addr, cmd, timeout)
 		if err == nil {
 			// let us unmarshal the response
 			reply, err = res.UnmarshalNew()
