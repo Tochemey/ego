@@ -62,9 +62,6 @@ type postgres struct {
 
 var _ Postgres = (*postgres)(nil)
 
-const postgresDriver = "postgres"
-const instrumentationName = "ego.events_store"
-
 // New returns a store connecting to the given Postgres database.
 func New(config *Config) Postgres {
 	postgres := new(postgres)
@@ -89,18 +86,18 @@ func (pg *postgres) Connect(ctx context.Context) error {
 	config.HealthCheckPeriod = pg.config.HealthCheckPeriod
 
 	// connect to the pool
-	dbpool, err := pgxpool.NewWithConfig(ctx, config)
+	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		return fmt.Errorf("failed to create the connection pool: %w", err)
 	}
 
 	// let us test the connection
-	if err := dbpool.Ping(ctx); err != nil {
+	if err := pool.Ping(ctx); err != nil {
 		return fmt.Errorf("failed to ping the database connection: %w", err)
 	}
 
 	// set the db handle
-	pg.pool = dbpool
+	pg.pool = pool
 	return nil
 }
 
