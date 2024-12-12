@@ -102,7 +102,6 @@ func (engine *Engine) Start(ctx context.Context) error {
 		actors.WithLogger(engine.logger),
 		actors.WithPassivationDisabled(),
 		actors.WithActorInitMaxRetries(1),
-		actors.WithSupervisorDirective(actors.NewStopDirective()),
 	}
 
 	if engine.enableCluster.Load() {
