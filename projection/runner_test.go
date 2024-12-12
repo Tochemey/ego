@@ -429,6 +429,7 @@ func TestRunner(t *testing.T) {
 		require.Error(t, err)
 		assert.EqualError(t, err, "events store is not defined")
 		assert.NoError(t, offsetStore.Disconnect(ctx))
+		require.NoError(t, runner.Stop())
 	})
 	t.Run("with offset store is not defined", func(t *testing.T) {
 		ctx := context.Background()
@@ -446,6 +447,7 @@ func TestRunner(t *testing.T) {
 		require.Error(t, err)
 		assert.EqualError(t, err, "offsets store is not defined")
 		assert.NoError(t, eventsStore.Disconnect(ctx))
+		require.NoError(t, runner.Stop())
 	})
 	t.Run("with start when already started returns nil", func(t *testing.T) {
 		ctx := context.Background()
@@ -497,6 +499,7 @@ func TestRunner(t *testing.T) {
 		assert.EqualError(t, err, "failed to start the projection: fail ping")
 		eventsStore.AssertExpectations(t)
 		assert.NoError(t, offsetStore.Disconnect(ctx))
+		require.NoError(t, runner.Stop())
 	})
 	t.Run("with start when max retry to ping offsets store store fails", func(t *testing.T) {
 		ctx := context.Background()
@@ -519,6 +522,7 @@ func TestRunner(t *testing.T) {
 		assert.EqualError(t, err, "failed to start the projection: fail ping")
 		offsetStore.AssertExpectations(t)
 		assert.NoError(t, eventsStore.Disconnect(ctx))
+		require.NoError(t, runner.Stop())
 	})
 	t.Run("with start when ResetOffset fails", func(t *testing.T) {
 		ctx := context.Background()
@@ -544,6 +548,7 @@ func TestRunner(t *testing.T) {
 		assert.EqualError(t, err, "failed to reset projection=db-writer: fail to reset offset")
 		offsetStore.AssertExpectations(t)
 		eventsStore.AssertExpectations(t)
+		require.NoError(t, runner.Stop())
 	})
 	t.Run("when fail to write the offset stops the runner", func(t *testing.T) {
 		defer goleak.VerifyNone(t)
@@ -613,7 +618,12 @@ func TestRunner(t *testing.T) {
 
 		lib.Pause(time.Second)
 
+		eventsStore.AssertExpectations(t)
+		offsetStore.AssertExpectations(t)
+
 		assert.False(t, runner.started.Load())
+
+		require.NoError(t, runner.Stop())
 	})
 }
 

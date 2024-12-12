@@ -29,16 +29,16 @@ require (
 	github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 // indirect
 	github.com/RoaringBitmap/roaring v1.9.4 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
-	github.com/bits-and-blooms/bitset v1.15.0 // indirect
+	github.com/bits-and-blooms/bitset v1.19.1 // indirect
 	github.com/buraksezer/consistent v0.10.0 // indirect
 	github.com/buraksezer/olric v0.5.6-0.20240925183822-6ca0e20256e0 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/containerd/continuity v0.4.3 // indirect
+	github.com/containerd/continuity v0.4.5 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
-	github.com/docker/cli v27.3.1+incompatible // indirect
-	github.com/docker/docker v27.3.1+incompatible // indirect
+	github.com/docker/cli v27.4.0+incompatible // indirect
+	github.com/docker/docker v27.4.0+incompatible // indirect
 	github.com/docker/go-connections v0.5.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/emicklei/go-restful/v3 v3.12.1 // indirect
@@ -74,6 +74,7 @@ require (
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/miekg/dns v1.1.62 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
+	github.com/moby/sys/user v0.3.0 // indirect
 	github.com/moby/term v0.5.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
@@ -81,7 +82,7 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.0 // indirect
-	github.com/opencontainers/runc v1.1.15 // indirect
+	github.com/opencontainers/runc v1.2.3 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/redis/go-redis/v9 v9.7.0 // indirect
@@ -101,10 +102,10 @@ require (
 	github.com/zeebo/xxh3 v1.0.2 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
-	golang.org/x/crypto v0.30.0 // indirect
+	golang.org/x/crypto v0.31.0 // indirect
 	golang.org/x/mod v0.22.0 // indirect
 	golang.org/x/net v0.32.0 // indirect
-	golang.org/x/oauth2 v0.23.0 // indirect
+	golang.org/x/oauth2 v0.24.0 // indirect
 	golang.org/x/sys v0.28.0 // indirect
 	golang.org/x/term v0.27.0 // indirect
 	golang.org/x/text v0.21.0 // indirect
