@@ -93,13 +93,13 @@ func main() {
 	os.Exit(0)
 }
 
-// AccountBehavior implements EntityBehavior
+// AccountBehavior implements EventSourcedBehavior
 type AccountBehavior struct {
 	id string
 }
 
 // make sure that AccountBehavior is a true persistence behavior
-var _ ego.EntityBehavior = &AccountBehavior{}
+var _ ego.EventSourcedBehavior = &AccountBehavior{}
 
 // NewAccountBehavior creates an instance of AccountBehavior
 func NewAccountBehavior(id string) *AccountBehavior {

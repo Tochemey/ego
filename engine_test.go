@@ -364,7 +364,7 @@ type AccountBehavior struct {
 }
 
 // make sure that AccountBehavior is a true persistence behavior
-var _ EntityBehavior = &AccountBehavior{}
+var _ EventSourcedBehavior = &AccountBehavior{}
 
 // NewAccountBehavior creates an instance of AccountBehavior
 func NewAccountBehavior(id string) *AccountBehavior {

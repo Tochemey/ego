@@ -1,4 +1,4 @@
-## eGo
+# eGo
 
 [![build](https://img.shields.io/github/actions/workflow/status/Tochemey/ego/build.yml?branch=main)](https://github.com/Tochemey/ego/actions/workflows/build.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/tochemey/ego.svg)](https://pkg.go.dev/github.com/tochemey/ego)
@@ -9,36 +9,36 @@
 eGo is a minimal library that help build event-sourcing and CQRS application through a simple interface, and it allows developers to describe their **_commands_**, **_events_** and **_states_** **_are defined using google protocol buffers_**.
 Under the hood, ego leverages [Go-Akt](https://github.com/Tochemey/goakt) to scale out and guarantee performant, reliable persistence.
 
-### Features
+## Features
 
-#### Domain Entity/Aggregate Root
+### Event Sourced Behavior
 
-The aggregate root is crucial for maintaining data consistency, especially in distributed systems. It defines how to handle the various commands (requests to perform actions) that are always directed at the aggregate root.
-In eGo commands sent the aggregate root are processed in order. When a command is processed, it may result in the generation of events, which are then stored in an event store. Every event persisted has a revision number
-and timestamp that can help track it. The aggregate root in eGo is responsible for defining how to handle events that are the result of command handlers. The end result of events handling is to build the new state of the aggregate root.
-When running in cluster mode, aggregate root are sharded.
+The [`EventSourcedBehavior`](./behavior.go) is crucial for maintaining data consistency, especially in distributed systems. It defines how to handle the various commands (requests to perform actions) that are always directed at the event sourced entity.
+In eGo commands sent to the [`EventSourcedBehavior`](./behavior.go) are processed in order. When a command is processed, it may result in the generation of events, which are then stored in an event store. Every event persisted has a revision number
+and timestamp that can help track it. The [`EventSourcedBehavior`](./behavior.go) in eGo is responsible for defining how to handle events that are the result of command handlers. 
+The end result of events handling is to build the new state of the event sourced entity. When running in cluster mode, aggregate root are sharded.
 
 - `Commands handler`: The command handlers define how to handle each incoming command,
   which validations must be applied, and finally, which events will be persisted if any. When there is no event to be persisted a nil can
   be returned as a no-op. Command handlers are the meat of the event sourced actor.
-  They encode the business rules of your event sourced actor and act as a guardian of the Aggregate consistency.
+  They encode the business rules of your event sourced actor and act as a guardian of the event sourced entity consistency.
   The command handler must first validate that the incoming command can be applied to the current model state.
   Any decision should be solely based on the data passed in the commands and the state of the Behavior.
   In case of successful validation, one or more events expressing the mutations are persisted. Once the events are persisted, they are applied to the state producing a new valid state.
-- `Events handler`: The event handlers are used to mutate the state of the Aggregate by applying the events to it.
-  Event handlers must be pure functions as they will be used when instantiating the Aggregate and replaying the event store.
+- `Events handler`: The event handlers are used to mutate the state of the event sourced entity by applying the events to it.
+  Event handlers must be pure functions as they will be used when instantiating the event sourced entity and replaying the event store.
 
 #### Howto
 
-To define an Aggregate Root, one needs to:
-1. the state of the aggregate root using google protocol buffers message
-2. the various commands that will be handled by the aggregate root
-3. the various events that are result of the command handlers and that will be handled by the aggregate root to return the new state of the aggregate root
-2. implements the [`EntityBehavior`](./behavior.go) interface.
+To define an event sourced entity, one needs to:
+1. the state of the event sourced entity using google protocol buffers message
+2. the various commands that will be handled by the event sourced entity
+3. the various events that are result of the command handlers and that will be handled by the event sourced entity to return the new state of the event sourced entity
+2. implements the [`EventSourcedBehavior`](./behavior.go) interface.
 
 #### Events Stream
 
-Every event handled by Aggregate Root are pushed to an events stream. That enables real-time processing of events without having to interact with the events store
+Every event handled by event sourced entity are pushed to an events stream. That enables real-time processing of events without having to interact with the events store
 
 #### Projection
 
@@ -59,11 +59,13 @@ One can implement a custom offsets store. See [OffsetStore](./offsetstore/iface.
 - [Postgres](./offsetstore/postgres/postgres.go): Schema can be found [here](./resources/offsetstore_postgres.sql)
 - [Memory](./offsetstore/memory/memory.go) (for testing purpose only)
 
-#### Cluster
+### Durable State Behavior
+
+### Cluster
 
 The cluster mode heavily relies on [Go-Akt](https://github.com/Tochemey/goakt#clustering) clustering.
 
-#### Mocks
+### Mocks
 
 eGo ships in some [mocks](./mocks)
 

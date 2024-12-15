@@ -46,9 +46,9 @@ var (
 	eventsTopic = "topic.events.%d"
 )
 
-// actor is an event sourced based actor
-type actor struct {
-	EntityBehavior
+// eventSourcedActor is an event sourced based actor
+type eventSourcedActor struct {
+	EventSourcedBehavior
 	// specifies the events store
 	eventsStore eventstore.EventsStore
 	// specifies the current state
@@ -60,35 +60,34 @@ type actor struct {
 	eventsStream eventstream.Stream
 }
 
-// enforce compilation error
-var _ actors.Actor = (*actor)(nil)
+// implements the actors.Actor interface
+var _ actors.Actor = (*eventSourcedActor)(nil)
 
-// newActor creates an instance of actor provided the eventSourcedHandler and the events store
-func newActor(behavior EntityBehavior, eventsStore eventstore.EventsStore, eventsStream eventstream.Stream) *actor {
+// newEventSourcedActor creates an instance of actor provided the eventSourcedHandler and the events store
+func newEventSourcedActor(behavior EventSourcedBehavior, eventsStore eventstore.EventsStore, eventsStream eventstream.Stream) *eventSourcedActor {
 	// create an instance of entity and return it
-	return &actor{
-		eventsStore:    eventsStore,
-		EntityBehavior: behavior,
-		eventsStream:   eventsStream,
+	return &eventSourcedActor{
+		eventsStore:          eventsStore,
+		EventSourcedBehavior: behavior,
+		eventsStream:         eventsStream,
 	}
 }
 
 // PreStart pre-starts the actor
-// At this stage we connect to the various stores
-func (entity *actor) PreStart(ctx context.Context) error {
+func (entity *eventSourcedActor) PreStart(ctx context.Context) error {
 	if entity.eventsStore == nil {
 		return errors.New("events store is not defined")
 	}
 
 	if err := entity.eventsStore.Ping(ctx); err != nil {
-		return fmt.Errorf("failed to connect to the events store: %v", err)
+		return fmt.Errorf("failed to connect to the events store: %w", err)
 	}
 
 	return nil
 }
 
 // Receive processes any message dropped into the actor mailbox.
-func (entity *actor) Receive(ctx *actors.ReceiveContext) {
+func (entity *eventSourcedActor) Receive(ctx *actors.ReceiveContext) {
 	// grab the command sent
 	switch command := ctx.Message().(type) {
 	case *goaktpb.PostStart:
@@ -104,14 +103,14 @@ func (entity *actor) Receive(ctx *actors.ReceiveContext) {
 
 // PostStop prepares the actor to gracefully shutdown
 // nolint
-func (entity *actor) PostStop(ctx context.Context) error {
+func (entity *eventSourcedActor) PostStop(ctx context.Context) error {
 	entity.eventsCounter = 0
 	return nil
 }
 
 // recoverFromSnapshot reset the persistent actor to the latest snapshot in case there is one
 // this is vital when the entity actor is restarting.
-func (entity *actor) recoverFromSnapshot(ctx context.Context) error {
+func (entity *eventSourcedActor) recoverFromSnapshot(ctx context.Context) error {
 	event, err := entity.eventsStore.GetLatestEvent(ctx, entity.ID())
 	if err != nil {
 		return fmt.Errorf("failed to recover the latest journal: %w", err)
@@ -124,7 +123,6 @@ func (entity *actor) recoverFromSnapshot(ctx context.Context) error {
 			return fmt.Errorf("failed unmarshal the latest state: %w", err)
 		}
 		entity.currentState = currentState
-
 		entity.eventsCounter = event.GetSequenceNumber()
 		return nil
 	}
@@ -134,7 +132,7 @@ func (entity *actor) recoverFromSnapshot(ctx context.Context) error {
 }
 
 // sendErrorReply sends an error as a reply message
-func (entity *actor) sendErrorReply(ctx *actors.ReceiveContext, err error) {
+func (entity *eventSourcedActor) sendErrorReply(ctx *actors.ReceiveContext, err error) {
 	reply := &egopb.CommandReply{
 		Reply: &egopb.CommandReply_ErrorReply{
 			ErrorReply: &egopb.ErrorReply{
@@ -147,7 +145,7 @@ func (entity *actor) sendErrorReply(ctx *actors.ReceiveContext, err error) {
 }
 
 // getStateAndReply returns the current state of the entity
-func (entity *actor) getStateAndReply(ctx *actors.ReceiveContext) {
+func (entity *eventSourcedActor) getStateAndReply(ctx *actors.ReceiveContext) {
 	latestEvent, err := entity.eventsStore.GetLatestEvent(ctx.Context(), entity.ID())
 	if err != nil {
 		entity.sendErrorReply(ctx, err)
@@ -170,7 +168,7 @@ func (entity *actor) getStateAndReply(ctx *actors.ReceiveContext) {
 }
 
 // processCommandAndReply processes the incoming command
-func (entity *actor) processCommandAndReply(ctx *actors.ReceiveContext, command Command) {
+func (entity *eventSourcedActor) processCommandAndReply(ctx *actors.ReceiveContext, command Command) {
 	goCtx := ctx.Context()
 	events, err := entity.HandleCommand(goCtx, command, entity.currentState)
 	if err != nil {
