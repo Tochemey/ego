@@ -55,6 +55,7 @@ func NewStateStore() *StateStore {
 }
 
 // Connect connects the durable store
+// nolint
 func (d *StateStore) Connect(ctx context.Context) error {
 	if d.connected.Load() {
 		return nil
@@ -64,6 +65,7 @@ func (d *StateStore) Connect(ctx context.Context) error {
 }
 
 // Disconnect disconnect the durable store
+// nolint
 func (d *StateStore) Disconnect(ctx context.Context) error {
 	if !d.connected.Load() {
 		return nil
@@ -85,6 +87,7 @@ func (d *StateStore) Ping(ctx context.Context) error {
 }
 
 // WriteState persist durable state for a given persistenceID.
+// nolint
 func (d *StateStore) WriteState(ctx context.Context, state *egopb.DurableState) error {
 	if !d.connected.Load() {
 		return errors.New("durable store is not connected")
@@ -94,6 +97,7 @@ func (d *StateStore) WriteState(ctx context.Context, state *egopb.DurableState) 
 }
 
 // GetLatestState fetches the latest durable state
+// nolint
 func (d *StateStore) GetLatestState(ctx context.Context, persistenceID string) (*egopb.DurableState, error) {
 	if !d.connected.Load() {
 		return nil, errors.New("durable store is not connected")
