@@ -18,7 +18,7 @@ Under the hood, ego leverages [Go-Akt](https://github.com/Tochemey/goakt) to sca
     - [Projection](#projection)
     - [Events Store](#events-store)
     - [Offset Store](#offsets-store)
-  - [Durable Behavior](#durable-state-behavior)
+  - [Durable State Behavior](#durable-state-behavior)
     - [State Store](#state-store)
     - [Howto](#howto-1)
     - [State Stream](#events-stream-1)
