@@ -9,6 +9,20 @@
 eGo is a minimal library that help build event-sourcing and CQRS application through a simple interface, and it allows developers to describe their **_commands_**, **_events_** and **_states_** **_are defined using google protocol buffers_**.
 Under the hood, ego leverages [Go-Akt](https://github.com/Tochemey/goakt) to scale out and guarantee performant, reliable persistence.
 
+## Table of Content
+
+- [Features](#features)
+  - [Event Sourced Behavior](#event-sourced-behavior)
+    - [Howto](#howto)
+    - [Events Stream](#events-stream)
+    - [Projection](#projection)
+    - [Events Store](#events-store)
+    - [Offset Store](#offsets-store)
+  - [Durable Behavior](#durable-state-behavior)
+    - [State Store](#state-store)
+    - [Howto](#howto-1)
+    - [State Stream](#events-stream-1)
+
 ## Features
 
 ### Event Sourced Behavior
@@ -39,7 +53,8 @@ To define an event sourced entity, one needs to:
 
 #### Events Stream
 
-Every event handled by event sourced entity are pushed to an events stream. That enables real-time processing of events without having to interact with the events store
+Every event handled by event sourced entity are pushed to an events stream. That enables real-time processing of events without having to interact with the events store.
+Just use `Subscribe` method of [Engine](./engine.go) and start iterating through the messages and cast every message to the [Event](./protos/ego/v3/ego.proto).
 
 #### Projection
 
@@ -83,12 +98,15 @@ One can implement a custom state store. See [StateStore](persistence/state_store
 To define a durable state entity, one needs to:
 1. define the state of the entity using google protocol buffers message
 2. define the various commands that will be handled by the entity
-3. implements the [`DurableStateBehavior`](./behavior.go) interface.
-4. call the `DurableStateEntity` method of eGo [engine](./engine.go)
+3. implements the [`DurableStateBehavior`](./behavior.go) interface
+4. start eGo engine with the option durable store using `WithStateStore`
+5. call the `DurableStateEntity` method of eGo [engine](./engine.go)
 
 #### Events Stream
 
-[`DurableStateBehavior`](./behavior.go) full state is pushed to an events stream. That enables real-time processing of events without having to interact with the events store
+[`DurableStateBehavior`](./behavior.go) full state is pushed to an events stream. 
+That enables real-time processing of state without having to interact with the state store.
+Just use `Subscribe` method of [Engine](./engine.go) and start iterating through the messages and cast every message to the [DurableState](./protos/ego/v3/ego.proto).
 
 ### Cluster
 
