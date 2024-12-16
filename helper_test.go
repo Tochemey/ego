@@ -131,16 +131,15 @@ func (x *AccountDurableStateBehavior) InitialState() State {
 func (x *AccountDurableStateBehavior) HandleCommand(ctx context.Context, command Command, priorVersion uint64, priorState State) (newState State, newVersion uint64, err error) {
 	switch cmd := command.(type) {
 	case *testpb.CreateAccount:
-		account := priorState.(*testpb.Account)
 		return &testpb.Account{
-			AccountId:      account.GetAccountId(),
+			AccountId:      x.id,
 			AccountBalance: cmd.GetAccountBalance(),
 		}, priorVersion + 1, nil
 
 	case *testpb.CreditAccount:
 		if cmd.GetAccountId() == x.id {
 			account := priorState.(*testpb.Account)
-			bal := account.GetAccountBalance() + account.GetAccountBalance()
+			bal := account.GetAccountBalance() + cmd.GetBalance()
 
 			return &testpb.Account{
 				AccountId:      cmd.GetAccountId(),

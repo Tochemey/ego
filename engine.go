@@ -40,11 +40,10 @@ import (
 	"github.com/tochemey/goakt/v2/discovery"
 	"github.com/tochemey/goakt/v2/log"
 
-	"github.com/tochemey/ego/v3/durablestore"
 	"github.com/tochemey/ego/v3/egopb"
-	"github.com/tochemey/ego/v3/eventstore"
 	"github.com/tochemey/ego/v3/eventstream"
 	"github.com/tochemey/ego/v3/offsetstore"
+	"github.com/tochemey/ego/v3/persistence"
 	"github.com/tochemey/ego/v3/projection"
 )
 
@@ -61,14 +60,14 @@ var (
 
 // Engine represents the engine that empowers the various entities
 type Engine struct {
-	name               string                    // name is the application name
-	eventsStore        eventstore.EventsStore    // eventsStore is the events store
-	durableStore       durablestore.DurableStore // durableStore is the durable state store
-	enableCluster      *atomic.Bool              // enableCluster enable/disable cluster mode
-	actorSystem        actors.ActorSystem        // actorSystem is the underlying actor system
-	logger             log.Logger                // logger is the logging engine to use
-	discoveryProvider  discovery.Provider        // discoveryProvider is the discovery provider for clustering
-	partitionsCount    uint64                    // partitionsCount specifies the number of partitions
+	name               string                  // name is the application name
+	eventsStore        persistence.EventsStore // eventsStore is the events store
+	stateStore         persistence.StateStore  // stateStore is the durable state store
+	enableCluster      *atomic.Bool            // enableCluster enable/disable cluster mode
+	actorSystem        actors.ActorSystem      // actorSystem is the underlying actor system
+	logger             log.Logger              // logger is the logging engine to use
+	discoveryProvider  discovery.Provider      // discoveryProvider is the discovery provider for clustering
+	partitionsCount    uint64                  // partitionsCount specifies the number of partitions
 	started            atomic.Bool
 	hostName           string
 	peersPort          int
@@ -81,7 +80,7 @@ type Engine struct {
 }
 
 // NewEngine creates an instance of Engine
-func NewEngine(name string, eventsStore eventstore.EventsStore, opts ...Option) *Engine {
+func NewEngine(name string, eventsStore persistence.EventsStore, opts ...Option) *Engine {
 	e := &Engine{
 		name:          name,
 		eventsStore:   eventsStore,
@@ -231,6 +230,8 @@ func (engine *Engine) Subscribe() (eventstream.Subscriber, error) {
 	for i := 0; i < int(engine.partitionsCount); i++ {
 		topic := fmt.Sprintf(eventsTopic, i)
 		engine.eventStream.Subscribe(subscriber, topic)
+		topic = fmt.Sprintf(statesTopic, i)
+		engine.eventStream.Subscribe(subscriber, topic)
 	}
 
 	return subscriber, nil
@@ -282,7 +283,7 @@ func (engine *Engine) DurableStateEntity(ctx context.Context, behavior DurableSt
 
 	engine.mutex.Lock()
 	actorSystem := engine.actorSystem
-	durableStateStore := engine.durableStore
+	durableStateStore := engine.stateStore
 	eventStream := engine.eventStream
 	engine.mutex.Unlock()
 

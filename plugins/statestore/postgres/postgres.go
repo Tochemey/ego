@@ -34,9 +34,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"go.uber.org/atomic"
 
-	"github.com/tochemey/ego/v3/durablestore"
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/internal/postgres"
+	"github.com/tochemey/ego/v3/persistence"
 )
 
 var (
@@ -69,7 +69,7 @@ type DurableStore struct {
 }
 
 // enforce interface implementation
-var _ durablestore.DurableStore = (*DurableStore)(nil)
+var _ persistence.StateStore = (*DurableStore)(nil)
 
 // NewEventsStore creates a new instance of PostgresEventStore
 func NewEventsStore(config *Config) *DurableStore {

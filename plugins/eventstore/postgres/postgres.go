@@ -35,8 +35,8 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/tochemey/ego/v3/egopb"
-	"github.com/tochemey/ego/v3/eventstore"
 	"github.com/tochemey/ego/v3/internal/postgres"
+	"github.com/tochemey/ego/v3/persistence"
 )
 
 var (
@@ -72,7 +72,7 @@ type EventsStore struct {
 }
 
 // enforce interface implementation
-var _ eventstore.EventsStore = (*EventsStore)(nil)
+var _ persistence.EventsStore = (*EventsStore)(nil)
 
 // NewEventsStore creates a new instance of PostgresEventStore
 func NewEventsStore(config *Config) *EventsStore {

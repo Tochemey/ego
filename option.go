@@ -30,7 +30,7 @@ import (
 	"github.com/tochemey/goakt/v2/discovery"
 	"github.com/tochemey/goakt/v2/log"
 
-	"github.com/tochemey/ego/v3/durablestore"
+	"github.com/tochemey/ego/v3/persistence"
 )
 
 // Option is the interface that applies a configuration option.
@@ -70,9 +70,9 @@ func WithLogger(logger log.Logger) Option {
 	})
 }
 
-// WithDurableSore sets the durable store. This is necessary when creating a durable state entity
-func WithDurableSore(durableSore durablestore.DurableStore) Option {
+// WithStateStore sets the durable store. This is necessary when creating a durable state entity
+func WithStateStore(stateStore persistence.StateStore) Option {
 	return OptionFunc(func(e *Engine) {
-		e.durableStore = durableSore
+		e.stateStore = stateStore
 	})
 }

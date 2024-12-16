@@ -31,31 +31,31 @@ import (
 
 	"go.uber.org/atomic"
 
-	"github.com/tochemey/ego/v3/durablestore"
 	"github.com/tochemey/ego/v3/egopb"
+	"github.com/tochemey/ego/v3/persistence"
 )
 
-// DurableStore keep in memory every durable state actor
+// StateStore keep in memory every durable state actor
 // NOTE: NOT RECOMMENDED FOR PRODUCTION CODE because all records are in memory and there is no durability.
 // This is recommended for tests or PoC
-type DurableStore struct {
+type StateStore struct {
 	db        *sync.Map
 	connected *atomic.Bool
 }
 
 // enforce compilation error
-var _ durablestore.DurableStore = (*DurableStore)(nil)
+var _ persistence.StateStore = (*StateStore)(nil)
 
-// NewDurableStore creates an instance DurableStore
-func NewDurableStore() *DurableStore {
-	return &DurableStore{
+// NewStateStore creates an instance StateStore
+func NewStateStore() *StateStore {
+	return &StateStore{
 		db:        &sync.Map{},
 		connected: atomic.NewBool(false),
 	}
 }
 
 // Connect connects the durable store
-func (d *DurableStore) Connect(ctx context.Context) error {
+func (d *StateStore) Connect(ctx context.Context) error {
 	if d.connected.Load() {
 		return nil
 	}
@@ -64,17 +64,20 @@ func (d *DurableStore) Connect(ctx context.Context) error {
 }
 
 // Disconnect disconnect the durable store
-func (d *DurableStore) Disconnect(ctx context.Context) error {
+func (d *StateStore) Disconnect(ctx context.Context) error {
 	if !d.connected.Load() {
 		return nil
 	}
-	d.db.Clear()
+	d.db.Range(func(key interface{}, value interface{}) bool {
+		d.db.Delete(key)
+		return true
+	})
 	d.connected.Store(false)
 	return nil
 }
 
 // Ping verifies a connection to the database is still alive, establishing a connection if necessary.
-func (d *DurableStore) Ping(ctx context.Context) error {
+func (d *StateStore) Ping(ctx context.Context) error {
 	if !d.connected.Load() {
 		return d.Connect(ctx)
 	}
@@ -82,7 +85,7 @@ func (d *DurableStore) Ping(ctx context.Context) error {
 }
 
 // WriteState persist durable state for a given persistenceID.
-func (d *DurableStore) WriteState(ctx context.Context, state *egopb.DurableState) error {
+func (d *StateStore) WriteState(ctx context.Context, state *egopb.DurableState) error {
 	if !d.connected.Load() {
 		return errors.New("durable store is not connected")
 	}
@@ -91,7 +94,7 @@ func (d *DurableStore) WriteState(ctx context.Context, state *egopb.DurableState
 }
 
 // GetLatestState fetches the latest durable state
-func (d *DurableStore) GetLatestState(ctx context.Context, persistenceID string) (*egopb.DurableState, error) {
+func (d *StateStore) GetLatestState(ctx context.Context, persistenceID string) (*egopb.DurableState, error) {
 	if !d.connected.Load() {
 		return nil, errors.New("durable store is not connected")
 	}

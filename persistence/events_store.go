@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-package eventstore
+package persistence
 
 import (
 	"context"

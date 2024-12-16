@@ -36,7 +36,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/tochemey/ego/v3/egopb"
-	"github.com/tochemey/ego/v3/eventstore"
+	"github.com/tochemey/ego/v3/persistence"
 	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
 )
 
@@ -54,7 +54,7 @@ func TestPostgresEventsStore(t *testing.T) {
 		estore := NewEventsStore(config)
 		assert.NotNil(t, estore)
 		var p interface{} = estore
-		_, ok := p.(eventstore.EventsStore)
+		_, ok := p.(persistence.EventsStore)
 		assert.True(t, ok)
 	})
 	t.Run("testConnect:happy path", func(t *testing.T) {

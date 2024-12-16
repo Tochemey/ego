@@ -43,10 +43,10 @@ import (
 	mockdisco "github.com/tochemey/goakt/v2/mocks/discovery"
 
 	"github.com/tochemey/ego/v3/egopb"
-	"github.com/tochemey/ego/v3/eventstore/memory"
 	samplepb "github.com/tochemey/ego/v3/example/pbs/sample/pb/v1"
 	"github.com/tochemey/ego/v3/internal/lib"
 	offsetstore "github.com/tochemey/ego/v3/offsetstore/memory"
+	"github.com/tochemey/ego/v3/plugins/eventstore/memory"
 	"github.com/tochemey/ego/v3/projection"
 )
 

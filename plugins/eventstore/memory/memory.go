@@ -40,7 +40,7 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 
 	"github.com/tochemey/ego/v3/egopb"
-	"github.com/tochemey/ego/v3/eventstore"
+	"github.com/tochemey/ego/v3/persistence"
 )
 
 // EventsStore keep in memory every journal
@@ -56,7 +56,7 @@ type EventsStore struct {
 }
 
 // enforce interface implementation
-var _ eventstore.EventsStore = (*EventsStore)(nil)
+var _ persistence.EventsStore = (*EventsStore)(nil)
 
 // NewEventsStore creates a new instance of EventsStore
 func NewEventsStore() *EventsStore {

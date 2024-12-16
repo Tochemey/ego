@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-package durablestore
+package persistence
 
 import (
 	"context"
@@ -30,8 +30,8 @@ import (
 	"github.com/tochemey/ego/v3/egopb"
 )
 
-// DurableStore defines the API to interact with the durable state store
-type DurableStore interface {
+// StateStore defines the API to interact with the durable state store
+type StateStore interface {
 	// Connect connects to the journal store
 	Connect(ctx context.Context) error
 	// Disconnect disconnect the journal store

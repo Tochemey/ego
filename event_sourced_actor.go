@@ -38,8 +38,8 @@ import (
 	"github.com/tochemey/goakt/v2/goaktpb"
 
 	"github.com/tochemey/ego/v3/egopb"
-	"github.com/tochemey/ego/v3/eventstore"
 	"github.com/tochemey/ego/v3/eventstream"
+	"github.com/tochemey/ego/v3/persistence"
 )
 
 var (
@@ -49,23 +49,18 @@ var (
 // eventSourcedActor is an event sourced based actor
 type eventSourcedActor struct {
 	EventSourcedBehavior
-	// specifies the events store
-	eventsStore eventstore.EventsStore
-	// specifies the current state
-	currentState State
-
+	eventsStore     persistence.EventsStore
+	currentState    State
 	eventsCounter   uint64
 	lastCommandTime time.Time
-
-	eventsStream eventstream.Stream
+	eventsStream    eventstream.Stream
 }
 
 // implements the actors.Actor interface
 var _ actors.Actor = (*eventSourcedActor)(nil)
 
 // newEventSourcedActor creates an instance of actor provided the eventSourcedHandler and the events store
-func newEventSourcedActor(behavior EventSourcedBehavior, eventsStore eventstore.EventsStore, eventsStream eventstream.Stream) *eventSourcedActor {
-	// create an instance of entity and return it
+func newEventSourcedActor(behavior EventSourcedBehavior, eventsStore persistence.EventsStore, eventsStream eventstream.Stream) *eventSourcedActor {
 	return &eventSourcedActor{
 		eventsStore:          eventsStore,
 		EventSourcedBehavior: behavior,
@@ -88,7 +83,6 @@ func (entity *eventSourcedActor) PreStart(ctx context.Context) error {
 
 // Receive processes any message dropped into the actor mailbox.
 func (entity *eventSourcedActor) Receive(ctx *actors.ReceiveContext) {
-	// grab the command sent
 	switch command := ctx.Message().(type) {
 	case *goaktpb.PostStart:
 		if err := entity.recoverFromSnapshot(ctx.Context()); err != nil {
