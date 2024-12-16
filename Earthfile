@@ -92,8 +92,8 @@ mock:
     FROM +code
 
     # generate the mocks
-    RUN mockery  --dir eventstore --name EventsStore --keeptree --exported=true --with-expecter=true --inpackage=true --disable-version-string=true --output ./mocks/eventstore --case snake
+    RUN mockery  --dir persistence --all --keeptree --exported=true --with-expecter=true --inpackage=true --disable-version-string=true --output ./mocks/persistence --case snake
     RUN mockery  --dir offsetstore --name OffsetStore --keeptree --exported=true --with-expecter=true --inpackage=true --disable-version-string=true --output ./mocks/offsetstore --case snake
-    RUN mockery  --dir durablestore --name DurableStore --keeptree --exported=true --with-expecter=true --inpackage=true --disable-version-string=true --output ./mocks/durablestore --case snake
+
 
     SAVE ARTIFACT ./mocks mocks AS LOCAL mocks

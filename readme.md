@@ -31,10 +31,11 @@ The end result of events handling is to build the new state of the event sourced
 #### Howto
 
 To define an event sourced entity, one needs to:
-1. the state of the event sourced entity using google protocol buffers message
-2. the various commands that will be handled by the event sourced entity
-3. the various events that are result of the command handlers and that will be handled by the event sourced entity to return the new state of the event sourced entity
-2. implements the [`EventSourcedBehavior`](./behavior.go) interface.
+1. define the state of the event sourced entity using google protocol buffers message
+2. define the various commands that will be handled by the event sourced entity
+3. define the various events that are result of the command handlers and that will be handled by the event sourced entity to return the new state of the event sourced entity
+4. implement the [`EventSourcedBehavior`](./behavior.go) interface.
+5. call the `Entity` method of eGo [engine](./engine.go)
 
 #### Events Stream
 
@@ -49,7 +50,7 @@ persisted by the write model. The offset used in eGo is a timestamp-based offset
 
 #### Events Store
 
-One can implement a custom events store. See [EventsStore](plugins/eventstore/iface.go). eGo comes packaged with two events store:
+One can implement a custom events store. See [EventsStore](persistence/events_store.go). eGo comes packaged with two events store:
 - [Postgres](plugins/eventstore/postgres/postgres.go): Schema can be found [here](./resources/eventstore_postgres.sql)
 - [Memory](plugins/eventstore/memory/memory.go) (for testing purpose only)
 
@@ -60,6 +61,34 @@ One can implement a custom offsets store. See [OffsetStore](./offsetstore/iface.
 - [Memory](./offsetstore/memory/memory.go) (for testing purpose only)
 
 ### Durable State Behavior
+
+The [`DurableStateBehavior`](./behavior.go) represents a type of Actor that persists its full state after processing each command instead of using event sourcing.
+This type of Actor keeps its current state in memory during command handling and based upon the command response persists its full state into a durable store. The store can be a SQL or NoSQL database.
+The whole concept is given the current state of the actor and a command produce a new state with a higher version as shown in this diagram: (State, Command) => State
+[`DurableStateBehavior`](./behavior.go) reacts to commands which result in a new version of the actor state. Only the latest version of the actor state is persisted to the durable store. 
+There is no concept of history regarding the actor state since this is not an event sourced actor.
+However, one can rely on the _version number_ of the actor state and exactly know how the actor state has evolved overtime.
+[`DurableStateBehavior`](./behavior.go) version number are numerically incremented by the command handler which means it is imperative that the newer version of the state is greater than the current version by one.
+[`DurableStateBehavior`](./behavior.go) will attempt to recover its state whenever available from the durable state.
+During a normal shutdown process, it will persist its current state to the durable store prior to shutting down. This behavior help maintain some consistency across the actor state evolution.
+
+#### State Store
+
+One can implement a custom state store. See [StateStore](persistence/state_store.go). eGo comes packaged with two state stores:
+- [Postgres](plugins/statestore/postgres/postgres.go): Schema can be found [here](./resources/durablestore_postgres.sql)
+- [Memory](plugins/statestore/memory/memory.go) (for testing purpose only)
+
+#### Howto
+
+To define a durable state entity, one needs to:
+1. define the state of the entity using google protocol buffers message
+2. define the various commands that will be handled by the entity
+3. implements the [`DurableStateBehavior`](./behavior.go) interface.
+4. call the `DurableStateEntity` method of eGo [engine](./engine.go)
+
+#### Events Stream
+
+[`DurableStateBehavior`](./behavior.go) full state is pushed to an events stream. That enables real-time processing of events without having to interact with the events store
 
 ### Cluster
 

@@ -68,7 +68,7 @@ type EventSourcedBehavior interface {
 // However, one can rely on the version number of the actor state and exactly know how the actor state has evolved overtime.
 // State actor version number are numerically incremented by the command handler which means it is imperative that the newer version of the state is greater than the current version by one.
 //
-// DurableStateBehavior contrary to normal actor during a restart procedure will attempt to recover its state whenever available from the durable state.
+// DurableStateBehavior will attempt to recover its state whenever available from the durable state.
 // During a normal shutdown process, it will persist its current state to the durable store prior to shutting down.
 // This behavior help maintain some consistency across the actor state evolution.
 type DurableStateBehavior interface {
