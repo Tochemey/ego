@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-package eventstore
+package persistence
 
 import (
 	"context"
@@ -36,7 +36,7 @@ type EventsStore interface {
 	Connect(ctx context.Context) error
 	// Disconnect disconnect the journal store
 	Disconnect(ctx context.Context) error
-	// WriteEvents persist store in batches for a given persistenceID.
+	// WriteEvents persist event in batches for a given persistenceID.
 	// Note: persistence id and the sequence number make a record in the journal store unique. Failure to ensure that
 	// can lead to some un-wanted behaviors and data inconsistency
 	WriteEvents(ctx context.Context, events []*egopb.Event) error

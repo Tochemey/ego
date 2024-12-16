@@ -39,15 +39,15 @@ import (
 	"github.com/tochemey/goakt/v2/log"
 
 	"github.com/tochemey/ego/v3/egopb"
-	"github.com/tochemey/ego/v3/eventstore/memory"
-	pgeventstore "github.com/tochemey/ego/v3/eventstore/postgres"
 	"github.com/tochemey/ego/v3/eventstream"
 	"github.com/tochemey/ego/v3/internal/lib"
 	"github.com/tochemey/ego/v3/internal/postgres"
+	"github.com/tochemey/ego/v3/plugins/eventstore/memory"
+	pgstore "github.com/tochemey/ego/v3/plugins/eventstore/postgres"
 	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
 )
 
-func TestActor(t *testing.T) {
+func TestEventSourcedActor(t *testing.T) {
 	t.Run("with state reply", func(t *testing.T) {
 		ctx := context.TODO()
 		// create an actor system
@@ -69,7 +69,7 @@ func TestActor(t *testing.T) {
 		// create a persistence id
 		persistenceID := uuid.NewString()
 		// create the persistence behavior
-		behavior := NewAccountEntityBehavior(persistenceID)
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
 
 		// connect the event store
 		err = eventStore.Connect(ctx)
@@ -81,7 +81,7 @@ func TestActor(t *testing.T) {
 		eventStream := eventstream.New()
 
 		// create the persistence actor using the behavior previously created
-		actor := newActor(behavior, eventStore, eventStream)
+		actor := newEventSourcedActor(behavior, eventStore, eventStream)
 		// spawn the actor
 		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), actor)
 		require.NotNil(t, pid)
@@ -175,7 +175,7 @@ func TestActor(t *testing.T) {
 		// create a persistence id
 		persistenceID := uuid.NewString()
 		// create the persistence behavior
-		behavior := NewAccountEntityBehavior(persistenceID)
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
 
 		// connect the event store
 		err = eventStore.Connect(ctx)
@@ -187,7 +187,7 @@ func TestActor(t *testing.T) {
 		eventStream := eventstream.New()
 
 		// create the persistence actor using the behavior previously created
-		persistentActor := newActor(behavior, eventStore, eventStream)
+		persistentActor := newEventSourcedActor(behavior, eventStore, eventStream)
 		// spawn the actor
 		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), persistentActor)
 		require.NotNil(t, pid)
@@ -269,7 +269,7 @@ func TestActor(t *testing.T) {
 		// create a persistence id
 		persistenceID := uuid.NewString()
 		// create the persistence behavior
-		behavior := NewAccountEntityBehavior(persistenceID)
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
 
 		// connect the event store
 		err = eventStore.Connect(ctx)
@@ -279,7 +279,7 @@ func TestActor(t *testing.T) {
 		eventStream := eventstream.New()
 
 		// create the persistence actor using the behavior previously created
-		persistentActor := newActor(behavior, eventStore, eventStream)
+		persistentActor := newEventSourcedActor(behavior, eventStore, eventStream)
 		// spawn the actor
 		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), persistentActor)
 		require.NotNil(t, pid)
@@ -337,10 +337,10 @@ func TestActor(t *testing.T) {
 		db := testContainer.GetTestDB()
 		// create the event store table
 		require.NoError(t, db.Connect(ctx))
-		schemaUtils := pgeventstore.NewSchemaUtils(db)
+		schemaUtils := pgstore.NewSchemaUtils(db)
 		require.NoError(t, schemaUtils.CreateTable(ctx))
 
-		config := &pgeventstore.Config{
+		config := &pgstore.Config{
 			DBHost:     testContainer.Host(),
 			DBPort:     testContainer.Port(),
 			DBName:     testDatabase,
@@ -348,7 +348,7 @@ func TestActor(t *testing.T) {
 			DBPassword: testDatabasePassword,
 			DBSchema:   testContainer.Schema(),
 		}
-		eventStore := pgeventstore.NewEventsStore(config)
+		eventStore := pgstore.NewEventsStore(config)
 		require.NoError(t, eventStore.Connect(ctx))
 
 		lib.Pause(time.Second)
@@ -356,7 +356,7 @@ func TestActor(t *testing.T) {
 		// create a persistence id
 		persistenceID := uuid.NewString()
 		// create the persistence behavior
-		behavior := NewAccountEntityBehavior(persistenceID)
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
 
 		// connect the event store
 		err = eventStore.Connect(ctx)
@@ -368,7 +368,7 @@ func TestActor(t *testing.T) {
 		eventStream := eventstream.New()
 
 		// create the persistence actor using the behavior previously created
-		persistentActor := newActor(behavior, eventStore, eventStream)
+		persistentActor := newEventSourcedActor(behavior, eventStore, eventStream)
 		// spawn the actor
 		pid, err := actorSystem.Spawn(ctx, behavior.ID(), persistentActor)
 		require.NoError(t, err)
@@ -491,7 +491,7 @@ func TestActor(t *testing.T) {
 		// create a persistence id
 		persistenceID := uuid.NewString()
 		// create the persistence behavior
-		behavior := NewAccountEntityBehavior(persistenceID)
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
 
 		// connect the event store
 		err = eventStore.Connect(ctx)
@@ -503,7 +503,7 @@ func TestActor(t *testing.T) {
 		eventStream := eventstream.New()
 
 		// create the persistence actor using the behavior previously created
-		actor := newActor(behavior, eventStore, eventStream)
+		actor := newEventSourcedActor(behavior, eventStore, eventStream)
 		// spawn the actor
 		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), actor)
 		require.NotNil(t, pid)
@@ -618,7 +618,7 @@ func TestActor(t *testing.T) {
 		// create a persistence id
 		persistenceID := uuid.NewString()
 		// create the persistence behavior
-		behavior := NewAccountEntityBehavior(persistenceID)
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
 
 		// connect the event store
 		err = eventStore.Connect(ctx)
@@ -630,7 +630,7 @@ func TestActor(t *testing.T) {
 		eventStream := eventstream.New()
 
 		// create the persistence actor using the behavior previously created
-		actor := newActor(behavior, eventStore, eventStream)
+		actor := newEventSourcedActor(behavior, eventStore, eventStream)
 		// spawn the actor
 		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), actor)
 		require.NotNil(t, pid)

@@ -41,9 +41,9 @@ import (
 	"github.com/tochemey/goakt/v2/log"
 
 	"github.com/tochemey/ego/v3/egopb"
-	"github.com/tochemey/ego/v3/eventstore"
 	"github.com/tochemey/ego/v3/eventstream"
 	"github.com/tochemey/ego/v3/offsetstore"
+	"github.com/tochemey/ego/v3/persistence"
 	"github.com/tochemey/ego/v3/projection"
 )
 
@@ -54,17 +54,20 @@ var (
 	ErrUndefinedEntityID = errors.New("eGo entity id is not defined")
 	// ErrCommandReplyUnmarshalling is returned when unmarshalling command reply failed
 	ErrCommandReplyUnmarshalling = errors.New("failed to parse command reply")
+	// ErrDurableStateStoreRequired is returned when the eGo engine durable store is not set
+	ErrDurableStateStoreRequired = errors.New("durable state store is required")
 )
 
 // Engine represents the engine that empowers the various entities
 type Engine struct {
-	name               string                 // name is the application name
-	eventsStore        eventstore.EventsStore // eventsStore is the events store
-	enableCluster      *atomic.Bool           // enableCluster enable/disable cluster mode
-	actorSystem        actors.ActorSystem     // actorSystem is the underlying actor system
-	logger             log.Logger             // logger is the logging engine to use
-	discoveryProvider  discovery.Provider     // discoveryProvider is the discovery provider for clustering
-	partitionsCount    uint64                 // partitionsCount specifies the number of partitions
+	name               string                  // name is the application name
+	eventsStore        persistence.EventsStore // eventsStore is the events store
+	stateStore         persistence.StateStore  // stateStore is the durable state store
+	enableCluster      *atomic.Bool            // enableCluster enable/disable cluster mode
+	actorSystem        actors.ActorSystem      // actorSystem is the underlying actor system
+	logger             log.Logger              // logger is the logging engine to use
+	discoveryProvider  discovery.Provider      // discoveryProvider is the discovery provider for clustering
+	partitionsCount    uint64                  // partitionsCount specifies the number of partitions
 	started            atomic.Bool
 	hostName           string
 	peersPort          int
@@ -77,7 +80,7 @@ type Engine struct {
 }
 
 // NewEngine creates an instance of Engine
-func NewEngine(name string, eventsStore eventstore.EventsStore, opts ...Option) *Engine {
+func NewEngine(name string, eventsStore persistence.EventsStore, opts ...Option) *Engine {
 	e := &Engine{
 		name:          name,
 		eventsStore:   eventsStore,
@@ -122,7 +125,10 @@ func (engine *Engine) Start(ctx context.Context) error {
 			WithMinimumPeersQuorum(uint32(engine.minimumPeersQuorum)).
 			WithReplicaCount(uint32(replicaCount)).
 			WithPartitionCount(engine.partitionsCount).
-			WithKinds(new(actor))
+			WithKinds(
+				new(eventSourcedActor),
+				new(durableStateActor),
+			)
 
 		opts = append(opts,
 			actors.WithCluster(clusterConfig),
@@ -224,14 +230,24 @@ func (engine *Engine) Subscribe() (eventstream.Subscriber, error) {
 	for i := 0; i < int(engine.partitionsCount); i++ {
 		topic := fmt.Sprintf(eventsTopic, i)
 		engine.eventStream.Subscribe(subscriber, topic)
+		topic = fmt.Sprintf(statesTopic, i)
+		engine.eventStream.Subscribe(subscriber, topic)
 	}
 
 	return subscriber, nil
 }
 
-// Entity creates an entity. This will return the entity path
-// that can be used to send command to the entity
-func (engine *Engine) Entity(ctx context.Context, behavior EntityBehavior) error {
+// Entity creates an event sourced entity.
+// Entity persists its full state into an events store that tracks the history based upon events that occurred.
+// An event sourced entity receives a (non-persistent) command which is first validated if it can be applied to the current state.
+// Here validation can mean anything, from simple inspection of a command message’s fields up to a conversation with several external services, for instance.
+// If validation succeeds, events are generated from the command, representing the outcome of the command.
+// These events are then persisted and, after successful persistence, used to change the actor’s state.
+// When the event sourced entity needs to be recovered, only the persisted events are replayed of which we know that they can be successfully applied.
+// In other words, events cannot fail when being replayed to a persistent actor, in contrast to commands.
+// When there are no events to persist the event sourced entity will return the current state of the entity.
+// One can use the SendCommand to send a command a durable state entity.
+func (engine *Engine) Entity(ctx context.Context, behavior EventSourcedBehavior) error {
 	if !engine.Started() {
 		return ErrEngineNotStarted
 	}
@@ -244,7 +260,40 @@ func (engine *Engine) Entity(ctx context.Context, behavior EntityBehavior) error
 
 	_, err := actorSystem.Spawn(ctx,
 		behavior.ID(),
-		newActor(behavior, eventsStore, eventStream))
+		newEventSourcedActor(behavior, eventsStore, eventStream))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// DurableStateEntity creates a durable state entity.
+// A DurableStateEntity persists its full state into a durable store without any history of the state evolution.
+// A durable state entity receives a (non-persistent) command which is first validated if it can be applied to the current state.
+// Here validation can mean anything, from simple inspection of a command message’s fields up to a conversation with several external services, for instance.
+// If validation succeeds, a new state is generated from the command, representing the outcome of the command.
+// The new state is persisted and, after successful persistence, used to change the actor’s state.
+// During a normal shutdown process, it will persist its current state to the durable store prior to shutting down.
+// One can use the SendCommand to send a command a durable state entity.
+func (engine *Engine) DurableStateEntity(ctx context.Context, behavior DurableStateBehavior) error {
+	if !engine.Started() {
+		return ErrEngineNotStarted
+	}
+
+	engine.mutex.Lock()
+	actorSystem := engine.actorSystem
+	durableStateStore := engine.stateStore
+	eventStream := engine.eventStream
+	engine.mutex.Unlock()
+
+	if durableStateStore == nil {
+		return ErrDurableStateStoreRequired
+	}
+
+	_, err := actorSystem.Spawn(ctx,
+		behavior.ID(),
+		newDurableStateActor(behavior, durableStateStore, eventStream))
 	if err != nil {
 		return err
 	}
@@ -254,7 +303,7 @@ func (engine *Engine) Entity(ctx context.Context, behavior EntityBehavior) error
 
 // SendCommand sends command to a given entity ref.
 // This will return:
-// 1. the resulting state after the command has been handled and the emitted event persisted
+// 1. the resulting state after the command has been handled and the emitted event/durable state persisted
 // 2. nil when there is no resulting state or no event persisted
 // 3. an error in case of error
 func (engine *Engine) SendCommand(ctx context.Context, entityID string, cmd Command, timeout time.Duration) (resultingState State, revision uint64, err error) {

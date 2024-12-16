@@ -37,8 +37,8 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/tochemey/ego/v3"
-	"github.com/tochemey/ego/v3/eventstore/memory"
 	samplepb "github.com/tochemey/ego/v3/example/pbs/sample/pb/v1"
+	"github.com/tochemey/ego/v3/plugins/eventstore/memory"
 )
 
 func main() {
@@ -93,13 +93,13 @@ func main() {
 	os.Exit(0)
 }
 
-// AccountBehavior implements EntityBehavior
+// AccountBehavior implements EventSourcedBehavior
 type AccountBehavior struct {
 	id string
 }
 
 // make sure that AccountBehavior is a true persistence behavior
-var _ ego.EntityBehavior = &AccountBehavior{}
+var _ ego.EventSourcedBehavior = &AccountBehavior{}
 
 // NewAccountBehavior creates an instance of AccountBehavior
 func NewAccountBehavior(id string) *AccountBehavior {

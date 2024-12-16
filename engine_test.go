@@ -43,15 +43,17 @@ import (
 	mockdisco "github.com/tochemey/goakt/v2/mocks/discovery"
 
 	"github.com/tochemey/ego/v3/egopb"
-	"github.com/tochemey/ego/v3/eventstore/memory"
 	samplepb "github.com/tochemey/ego/v3/example/pbs/sample/pb/v1"
 	"github.com/tochemey/ego/v3/internal/lib"
 	offsetstore "github.com/tochemey/ego/v3/offsetstore/memory"
+	"github.com/tochemey/ego/v3/plugins/eventstore/memory"
+	memstore "github.com/tochemey/ego/v3/plugins/statestore/memory"
 	"github.com/tochemey/ego/v3/projection"
+	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
 )
 
 func TestEgo(t *testing.T) {
-	t.Run("With single node cluster enabled", func(t *testing.T) {
+	t.Run("EventSourced entity With single node cluster enabled", func(t *testing.T) {
 		ctx := context.TODO()
 		// create the event store
 		eventStore := memory.NewEventsStore()
@@ -112,7 +114,7 @@ func TestEgo(t *testing.T) {
 		// create a persistence id
 		entityID := uuid.NewString()
 		// create an entity behavior with a given id
-		behavior := NewAccountBehavior(entityID)
+		behavior := NewEventSourcedEntity(entityID)
 		// create an entity
 		err = engine.Entity(ctx, behavior)
 		require.NoError(t, err)
@@ -170,7 +172,7 @@ func TestEgo(t *testing.T) {
 		assert.NoError(t, offsetStore.Disconnect(ctx))
 		assert.NoError(t, engine.Stop(ctx))
 	})
-	t.Run("With no cluster enabled", func(t *testing.T) {
+	t.Run("EventSourced entity With no cluster enabled", func(t *testing.T) {
 		ctx := context.TODO()
 		// create the event store
 		eventStore := memory.NewEventsStore()
@@ -184,7 +186,7 @@ func TestEgo(t *testing.T) {
 		// create a persistence id
 		entityID := uuid.NewString()
 		// create an entity behavior with a given id
-		behavior := NewAccountBehavior(entityID)
+		behavior := NewEventSourcedEntity(entityID)
 		// create an entity
 		err = engine.Entity(ctx, behavior)
 		require.NoError(t, err)
@@ -223,7 +225,7 @@ func TestEgo(t *testing.T) {
 		assert.NoError(t, eventStore.Disconnect(ctx))
 		assert.NoError(t, engine.Stop(ctx))
 	})
-	t.Run("With SendCommand when not started", func(t *testing.T) {
+	t.Run("EventSourced entity With SendCommand when not started", func(t *testing.T) {
 		ctx := context.TODO()
 		// create the event store
 		eventStore := memory.NewEventsStore()
@@ -240,7 +242,7 @@ func TestEgo(t *testing.T) {
 
 		assert.NoError(t, eventStore.Disconnect(ctx))
 	})
-	t.Run("With SendCommand when entityID is not set", func(t *testing.T) {
+	t.Run("EventSourced entity With SendCommand when entityID is not set", func(t *testing.T) {
 		ctx := context.TODO()
 		// create the event store
 		eventStore := memory.NewEventsStore()
@@ -261,7 +263,7 @@ func TestEgo(t *testing.T) {
 		assert.NoError(t, eventStore.Disconnect(ctx))
 		assert.NoError(t, engine.Stop(ctx))
 	})
-	t.Run("With SendCommand when entity is not found", func(t *testing.T) {
+	t.Run("EventSourced entity With SendCommand when entity is not found", func(t *testing.T) {
 		ctx := context.TODO()
 		// create the event store
 		eventStore := memory.NewEventsStore()
@@ -282,7 +284,7 @@ func TestEgo(t *testing.T) {
 		assert.NoError(t, eventStore.Disconnect(ctx))
 		assert.NoError(t, engine.Stop(ctx))
 	})
-	t.Run("With IsProjectionRunning when not started", func(t *testing.T) {
+	t.Run("EventSourced entity With IsProjectionRunning when not started", func(t *testing.T) {
 		ctx := context.TODO()
 		// create the event store
 		eventStore := memory.NewEventsStore()
@@ -298,7 +300,7 @@ func TestEgo(t *testing.T) {
 
 		assert.NoError(t, eventStore.Disconnect(ctx))
 	})
-	t.Run("With RemoveProjection", func(t *testing.T) {
+	t.Run("EventSourced entity With RemoveProjection", func(t *testing.T) {
 		ctx := context.TODO()
 		// create the event store
 		eventStore := memory.NewEventsStore()
@@ -341,7 +343,7 @@ func TestEgo(t *testing.T) {
 		assert.NoError(t, eventStore.Disconnect(ctx))
 		assert.NoError(t, engine.Stop(ctx))
 	})
-	t.Run("With RemoveProjection when not started", func(t *testing.T) {
+	t.Run("EventSourced entity With RemoveProjection when not started", func(t *testing.T) {
 		ctx := context.TODO()
 		// create the event store
 		eventStore := memory.NewEventsStore()
@@ -356,33 +358,243 @@ func TestEgo(t *testing.T) {
 
 		assert.NoError(t, eventStore.Disconnect(ctx))
 	})
+
+	t.Run("DurableStore entity With single node cluster enabled", func(t *testing.T) {
+		ctx := context.TODO()
+		stateStore := memstore.NewStateStore()
+		require.NoError(t, stateStore.Connect(ctx))
+
+		nodePorts := dynaport.Get(3)
+		gossipPort := nodePorts[0]
+		clusterPort := nodePorts[1]
+		remotingPort := nodePorts[2]
+
+		host := "127.0.0.1"
+
+		// define discovered addresses
+		addrs := []string{
+			net.JoinHostPort(host, strconv.Itoa(gossipPort)),
+		}
+
+		// mock the discovery provider
+		provider := new(mockdisco.Provider)
+
+		provider.EXPECT().ID().Return("testDisco")
+		provider.EXPECT().Initialize().Return(nil)
+		provider.EXPECT().Register().Return(nil)
+		provider.EXPECT().Deregister().Return(nil)
+		provider.EXPECT().DiscoverPeers().Return(addrs, nil)
+		provider.EXPECT().Close().Return(nil)
+
+		// create the ego engine
+		engine := NewEngine("Sample", nil,
+			WithLogger(log.DiscardLogger),
+			WithStateStore(stateStore),
+			WithCluster(provider, 4, 1, host, remotingPort, gossipPort, clusterPort))
+
+		err := engine.Start(ctx)
+
+		// wait for the cluster to fully start
+		lib.Pause(time.Second)
+
+		// subscribe to events
+		subscriber, err := engine.Subscribe()
+		require.NoError(t, err)
+		require.NotNil(t, subscriber)
+
+		require.NoError(t, err)
+		// create a persistence id
+		entityID := uuid.NewString()
+
+		behavior := NewAccountDurableStateBehavior(entityID)
+		// create an entity
+		err = engine.DurableStateEntity(ctx, behavior)
+		require.NoError(t, err)
+		// send some commands to the pid
+		var command proto.Message
+		command = &testpb.CreateAccount{
+			AccountBalance: 500.00,
+		}
+
+		// wait for the cluster to fully start
+		lib.Pause(time.Second)
+
+		// send the command to the actor. Please don't ignore the error in production grid code
+		resultingState, revision, err := engine.SendCommand(ctx, entityID, command, time.Minute)
+		require.NoError(t, err)
+		account, ok := resultingState.(*testpb.Account)
+		require.True(t, ok)
+
+		assert.EqualValues(t, 500.00, account.GetAccountBalance())
+		assert.Equal(t, entityID, account.GetAccountId())
+		assert.EqualValues(t, 1, revision)
+
+		command = &testpb.CreditAccount{
+			AccountId: entityID,
+			Balance:   250,
+		}
+
+		newState, revision, err := engine.SendCommand(ctx, entityID, command, time.Minute)
+		require.NoError(t, err)
+		newAccount, ok := newState.(*testpb.Account)
+		require.True(t, ok)
+
+		assert.EqualValues(t, 750.00, newAccount.GetAccountBalance())
+		assert.Equal(t, entityID, newAccount.GetAccountId())
+		assert.EqualValues(t, 2, revision)
+
+		for message := range subscriber.Iterator() {
+			payload := message.Payload()
+			envelope, ok := payload.(*egopb.DurableState)
+			require.True(t, ok)
+			require.NotZero(t, envelope.GetVersionNumber())
+		}
+
+		// free resources
+		require.NoError(t, engine.Stop(ctx))
+		lib.Pause(time.Second)
+		require.NoError(t, stateStore.Disconnect(ctx))
+	})
+	t.Run("DurableStore entity With no cluster enabled", func(t *testing.T) {
+		ctx := context.TODO()
+		stateStore := memstore.NewStateStore()
+		require.NoError(t, stateStore.Connect(ctx))
+
+		// create the ego engine
+		engine := NewEngine("Sample", nil,
+			WithStateStore(stateStore),
+			WithLogger(log.DiscardLogger))
+
+		err := engine.Start(ctx)
+		require.NoError(t, err)
+
+		entityID := uuid.NewString()
+		behavior := NewAccountDurableStateBehavior(entityID)
+
+		err = engine.DurableStateEntity(ctx, behavior)
+		require.NoError(t, err)
+		var command proto.Message
+
+		command = &testpb.CreateAccount{
+			AccountBalance: 500.00,
+		}
+
+		resultingState, revision, err := engine.SendCommand(ctx, entityID, command, time.Minute)
+		require.NoError(t, err)
+		account, ok := resultingState.(*testpb.Account)
+		require.True(t, ok)
+
+		assert.EqualValues(t, 500.00, account.GetAccountBalance())
+		assert.Equal(t, entityID, account.GetAccountId())
+		assert.EqualValues(t, 1, revision)
+
+		// send another command to credit the balance
+		command = &testpb.CreditAccount{
+			AccountId: entityID,
+			Balance:   250,
+		}
+		newState, revision, err := engine.SendCommand(ctx, entityID, command, time.Minute)
+		require.NoError(t, err)
+		newAccount, ok := newState.(*testpb.Account)
+		require.True(t, ok)
+
+		assert.EqualValues(t, 750.00, newAccount.GetAccountBalance())
+		assert.Equal(t, entityID, newAccount.GetAccountId())
+		assert.EqualValues(t, 2, revision)
+
+		assert.NoError(t, engine.Stop(ctx))
+		lib.Pause(time.Second)
+		assert.NoError(t, stateStore.Disconnect(ctx))
+	})
+	t.Run("DurableStore entity With SendCommand when not started", func(t *testing.T) {
+		ctx := context.TODO()
+
+		stateStore := memstore.NewStateStore()
+		require.NoError(t, stateStore.Connect(ctx))
+
+		// create the ego engine
+		engine := NewEngine("Sample", nil,
+			WithStateStore(stateStore),
+			WithLogger(log.DiscardLogger))
+
+		entityID := uuid.NewString()
+
+		_, _, err := engine.SendCommand(ctx, entityID, new(testpb.CreateAccount), time.Minute)
+		require.Error(t, err)
+		assert.EqualError(t, err, ErrEngineNotStarted.Error())
+
+		assert.NoError(t, stateStore.Disconnect(ctx))
+	})
+	t.Run("DurableStore entity With SendCommand when entityID is not set", func(t *testing.T) {
+		ctx := context.TODO()
+		stateStore := memstore.NewStateStore()
+		require.NoError(t, stateStore.Connect(ctx))
+
+		// create the ego engine
+		engine := NewEngine("Sample", nil,
+			WithStateStore(stateStore),
+			WithLogger(log.DiscardLogger))
+		err := engine.Start(ctx)
+		require.NoError(t, err)
+
+		// create a persistence id
+		entityID := ""
+
+		_, _, err = engine.SendCommand(ctx, entityID, new(testpb.CreateAccount), time.Minute)
+		require.Error(t, err)
+		assert.EqualError(t, err, ErrUndefinedEntityID.Error())
+		assert.NoError(t, engine.Stop(ctx))
+		assert.NoError(t, stateStore.Disconnect(ctx))
+	})
+	t.Run("DurableStore entity With SendCommand when entity is not found", func(t *testing.T) {
+		ctx := context.TODO()
+
+		stateStore := memstore.NewStateStore()
+		require.NoError(t, stateStore.Connect(ctx))
+
+		// create the ego engine
+		engine := NewEngine("Sample", nil,
+			WithStateStore(stateStore),
+			WithLogger(log.DiscardLogger))
+		err := engine.Start(ctx)
+		require.NoError(t, err)
+
+		// create a persistence id
+		entityID := uuid.NewString()
+
+		_, _, err = engine.SendCommand(ctx, entityID, new(testpb.CreateAccount), time.Minute)
+		require.Error(t, err)
+		assert.EqualError(t, err, actors.ErrActorNotFound(entityID).Error())
+		assert.NoError(t, engine.Stop(ctx))
+		assert.NoError(t, stateStore.Disconnect(ctx))
+	})
 }
 
-// AccountBehavior implements persistence.Behavior
-type AccountBehavior struct {
+// EventSourcedEntity implements persistence.Behavior
+type EventSourcedEntity struct {
 	id string
 }
 
-// make sure that AccountBehavior is a true persistence behavior
-var _ EntityBehavior = &AccountBehavior{}
+// make sure that EventSourcedEntity is a true persistence behavior
+var _ EventSourcedBehavior = &EventSourcedEntity{}
 
-// NewAccountBehavior creates an instance of AccountBehavior
-func NewAccountBehavior(id string) *AccountBehavior {
-	return &AccountBehavior{id: id}
+// NewEventSourcedEntity creates an instance of EventSourcedEntity
+func NewEventSourcedEntity(id string) *EventSourcedEntity {
+	return &EventSourcedEntity{id: id}
 }
 
 // ID returns the id
-func (a *AccountBehavior) ID() string {
+func (a *EventSourcedEntity) ID() string {
 	return a.id
 }
 
 // InitialState returns the initial state
-func (a *AccountBehavior) InitialState() State {
+func (a *EventSourcedEntity) InitialState() State {
 	return State(new(samplepb.Account))
 }
 
 // HandleCommand handles every command that is sent to the persistent behavior
-func (a *AccountBehavior) HandleCommand(_ context.Context, command Command, _ State) (events []Event, err error) {
+func (a *EventSourcedEntity) HandleCommand(_ context.Context, command Command, _ State) (events []Event, err error) {
 	switch cmd := command.(type) {
 	case *samplepb.CreateAccount:
 		// TODO in production grid app validate the command using the prior state
@@ -408,7 +620,7 @@ func (a *AccountBehavior) HandleCommand(_ context.Context, command Command, _ St
 }
 
 // HandleEvent handles every event emitted
-func (a *AccountBehavior) HandleEvent(_ context.Context, event Event, priorState State) (state State, err error) {
+func (a *EventSourcedEntity) HandleEvent(_ context.Context, event Event, priorState State) (state State, err error) {
 	switch evt := event.(type) {
 	case *samplepb.AccountCreated:
 		return &samplepb.Account{

@@ -39,9 +39,9 @@ import (
 	"github.com/tochemey/goakt/v2/log"
 
 	"github.com/tochemey/ego/v3/egopb"
-	"github.com/tochemey/ego/v3/eventstore"
 	"github.com/tochemey/ego/v3/internal/ticker"
 	"github.com/tochemey/ego/v3/offsetstore"
+	"github.com/tochemey/ego/v3/persistence"
 )
 
 // runner defines the projection runner
@@ -53,7 +53,7 @@ type runner struct {
 	// Handler specifies the projection handler
 	handler Handler
 	// JournalStore specifies the journal store for reading events
-	eventsStore eventstore.EventsStore
+	eventsStore persistence.EventsStore
 	// OffsetStore specifies the offset store to commit offsets
 	offsetsStore offsetstore.OffsetStore
 	// Specifies the recovery setting
@@ -78,7 +78,7 @@ type runner struct {
 // The name of the projection should be unique
 func newRunner(name string,
 	handler Handler,
-	eventsStore eventstore.EventsStore,
+	eventsStore persistence.EventsStore,
 	offsetStore offsetstore.OffsetStore,
 	opts ...Option) *runner {
 	runner := &runner{

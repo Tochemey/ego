@@ -82,3 +82,18 @@ message ProjectionId {
   // Specifies the shard number
   uint64 shard_number = 2;
 }
+
+// DurableState defines the durable state behavior
+// actor
+message DurableState {
+  // Specifies the persistence unique identifier
+  string persistence_id = 1;
+  // Specifies the version number
+  uint64 version_number = 2;
+  // the state obtained from processing a command
+  google.protobuf.Any resulting_state = 3;
+  // Specifies the timestamp
+  int64 timestamp = 5;
+  // Specifies the shard number
+  uint64 shard = 6;
+}

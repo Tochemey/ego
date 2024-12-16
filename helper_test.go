@@ -33,30 +33,28 @@ import (
 	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
 )
 
-// AccountEntityBehavior implement EntityBehavior
-type AccountEntityBehavior struct {
+// AccountEventSourcedBehavior implements EventSourcedBehavior
+type AccountEventSourcedBehavior struct {
 	id string
 }
 
-// make sure that testAccountBehavior is a true persistence behavior
-var _ EntityBehavior = (*AccountEntityBehavior)(nil)
+// enforces compilation error
+var _ EventSourcedBehavior = (*AccountEventSourcedBehavior)(nil)
 
-// NewAccountEntityBehavior creates an instance of AccountEntityBehavior
-func NewAccountEntityBehavior(id string) *AccountEntityBehavior {
-	return &AccountEntityBehavior{id: id}
+func NewAccountEventSourcedBehavior(id string) *AccountEventSourcedBehavior {
+	return &AccountEventSourcedBehavior{id: id}
 }
-func (t *AccountEntityBehavior) ID() string {
+func (t *AccountEventSourcedBehavior) ID() string {
 	return t.id
 }
 
-func (t *AccountEntityBehavior) InitialState() State {
+func (t *AccountEventSourcedBehavior) InitialState() State {
 	return new(testpb.Account)
 }
 
-func (t *AccountEntityBehavior) HandleCommand(_ context.Context, command Command, _ State) (events []Event, err error) {
+func (t *AccountEventSourcedBehavior) HandleCommand(_ context.Context, command Command, _ State) (events []Event, err error) {
 	switch cmd := command.(type) {
 	case *testpb.CreateAccount:
-		// TODO in production grid app validate the command using the prior state
 		return []Event{
 			&testpb.AccountCreated{
 				AccountId:      t.id,
@@ -87,7 +85,7 @@ func (t *AccountEntityBehavior) HandleCommand(_ context.Context, command Command
 	}
 }
 
-func (t *AccountEntityBehavior) HandleEvent(_ context.Context, event Event, priorState State) (state State, err error) {
+func (t *AccountEventSourcedBehavior) HandleEvent(_ context.Context, event Event, priorState State) (state State, err error) {
 	switch evt := event.(type) {
 	case *testpb.AccountCreated:
 		return &testpb.Account{
@@ -96,7 +94,6 @@ func (t *AccountEntityBehavior) HandleEvent(_ context.Context, event Event, prio
 		}, nil
 
 	case *testpb.AccountCredited:
-		// we can safely cast the prior state to Account
 		account := priorState.(*testpb.Account)
 		bal := account.GetAccountBalance() + evt.GetAccountBalance()
 		return &testpb.Account{
@@ -106,5 +103,51 @@ func (t *AccountEntityBehavior) HandleEvent(_ context.Context, event Event, prio
 
 	default:
 		return nil, errors.New("unhandled event")
+	}
+}
+
+type AccountDurableStateBehavior struct {
+	id string
+}
+
+// enforces compilation error
+var _ DurableStateBehavior = (*AccountDurableStateBehavior)(nil)
+
+func NewAccountDurableStateBehavior(id string) *AccountDurableStateBehavior {
+	return &AccountDurableStateBehavior{id: id}
+}
+
+func (x *AccountDurableStateBehavior) ID() string {
+	return x.id
+}
+
+func (x *AccountDurableStateBehavior) InitialState() State {
+	return new(testpb.Account)
+}
+
+// nolint
+func (x *AccountDurableStateBehavior) HandleCommand(ctx context.Context, command Command, priorVersion uint64, priorState State) (newState State, newVersion uint64, err error) {
+	switch cmd := command.(type) {
+	case *testpb.CreateAccount:
+		return &testpb.Account{
+			AccountId:      x.id,
+			AccountBalance: cmd.GetAccountBalance(),
+		}, priorVersion + 1, nil
+
+	case *testpb.CreditAccount:
+		if cmd.GetAccountId() == x.id {
+			account := priorState.(*testpb.Account)
+			bal := account.GetAccountBalance() + cmd.GetBalance()
+
+			return &testpb.Account{
+				AccountId:      cmd.GetAccountId(),
+				AccountBalance: bal,
+			}, priorVersion + 1, nil
+		}
+
+		return nil, 0, errors.New("command sent to the wrong entity")
+
+	default:
+		return nil, 0, errors.New("unhandled command")
 	}
 }

@@ -42,11 +42,11 @@ import (
 	"github.com/tochemey/goakt/v2/log"
 
 	"github.com/tochemey/ego/v3/egopb"
-	"github.com/tochemey/ego/v3/eventstore/memory"
 	"github.com/tochemey/ego/v3/internal/lib"
-	mockseventstore "github.com/tochemey/ego/v3/mocks/eventstore"
 	mocksoffsetstore "github.com/tochemey/ego/v3/mocks/offsetstore"
+	mockseventstore "github.com/tochemey/ego/v3/mocks/persistence"
 	memoffsetstore "github.com/tochemey/ego/v3/offsetstore/memory"
+	"github.com/tochemey/ego/v3/plugins/eventstore/memory"
 	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
 )
 

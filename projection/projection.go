@@ -30,8 +30,8 @@ import (
 	"github.com/tochemey/goakt/v2/actors"
 	"github.com/tochemey/goakt/v2/goaktpb"
 
-	"github.com/tochemey/ego/v3/eventstore"
 	"github.com/tochemey/ego/v3/offsetstore"
+	"github.com/tochemey/ego/v3/persistence"
 )
 
 // Projection defines the projection actor
@@ -46,7 +46,7 @@ var _ actors.Actor = (*Projection)(nil)
 // New creates an instance of Projection
 func New(name string,
 	handler Handler,
-	eventsStore eventstore.EventsStore,
+	eventsStore persistence.EventsStore,
 	offsetStore offsetstore.OffsetStore,
 	opts ...Option) *Projection {
 	// create the instance of the runner

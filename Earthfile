@@ -82,7 +82,7 @@ local-test:
     FROM +vendor
 
     WITH DOCKER --pull postgres:11
-        RUN go-acc ./... -o coverage.out --ignore egopb,test,example,mocks -- -mod=vendor -race -v
+        RUN go-acc ./... -o coverage.out --ignore egopb,test,example,mocks -- -mod=vendor -timeout 0 -race -v
     END
 
     SAVE ARTIFACT coverage.out AS LOCAL coverage.out
@@ -92,7 +92,8 @@ mock:
     FROM +code
 
     # generate the mocks
-    RUN mockery  --dir eventstore --name EventsStore --keeptree --exported=true --with-expecter=true --inpackage=true --disable-version-string=true --output ./mocks/eventstore --case snake
+    RUN mockery  --dir persistence --all --keeptree --exported=true --with-expecter=true --inpackage=true --disable-version-string=true --output ./mocks/persistence --case snake
     RUN mockery  --dir offsetstore --name OffsetStore --keeptree --exported=true --with-expecter=true --inpackage=true --disable-version-string=true --output ./mocks/offsetstore --case snake
+
 
     SAVE ARTIFACT ./mocks mocks AS LOCAL mocks
