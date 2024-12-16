@@ -303,7 +303,7 @@ func (engine *Engine) DurableStateEntity(ctx context.Context, behavior DurableSt
 
 // SendCommand sends command to a given entity ref.
 // This will return:
-// 1. the resulting state after the command has been handled and the emitted event persisted
+// 1. the resulting state after the command has been handled and the emitted event/durable state persisted
 // 2. nil when there is no resulting state or no event persisted
 // 3. an error in case of error
 func (engine *Engine) SendCommand(ctx context.Context, entityID string, cmd Command, timeout time.Duration) (resultingState State, revision uint64, err error) {

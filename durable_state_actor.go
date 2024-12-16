@@ -85,6 +85,8 @@ func (entity *durableStateActor) Receive(ctx *actors.ReceiveContext) {
 	switch command := ctx.Message().(type) {
 	case *goaktpb.PostStart:
 		entity.actorSystem = ctx.ActorSystem()
+	case *egopb.GetStateCommand:
+		entity.sendStateReply(ctx)
 	default:
 		entity.processCommand(ctx, command)
 	}

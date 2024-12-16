@@ -39,7 +39,9 @@ import (
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/eventstream"
 	"github.com/tochemey/ego/v3/internal/lib"
+	"github.com/tochemey/ego/v3/internal/postgres"
 	"github.com/tochemey/ego/v3/plugins/statestore/memory"
+	pgstore "github.com/tochemey/ego/v3/plugins/statestore/postgres"
 	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
 )
 
@@ -227,6 +229,156 @@ func TestDurableStateBehavior(t *testing.T) {
 		require.NoError(t, err)
 
 		lib.Pause(time.Second)
+		eventStream.Close()
+	})
+	t.Run("with state recovery from state store", func(t *testing.T) {
+		ctx := context.TODO()
+		actorSystem, err := actors.NewActorSystem("TestActorSystem",
+			actors.WithPassivationDisabled(),
+			actors.WithLogger(log.DiscardLogger),
+			actors.WithActorInitMaxRetries(3),
+		)
+		require.NoError(t, err)
+		assert.NotNil(t, actorSystem)
+
+		// start the actor system
+		err = actorSystem.Start(ctx)
+		require.NoError(t, err)
+
+		lib.Pause(time.Second)
+
+		var (
+			testDatabase         = "testdb"
+			testUser             = "testUser"
+			testDatabasePassword = "testPass"
+		)
+
+		testContainer := postgres.NewTestContainer(testDatabase, testUser, testDatabasePassword)
+		db := testContainer.GetTestDB()
+		require.NoError(t, db.Connect(ctx))
+		schemaUtils := pgstore.NewSchemaUtils(db)
+		require.NoError(t, schemaUtils.CreateTable(ctx))
+
+		config := &pgstore.Config{
+			DBHost:     testContainer.Host(),
+			DBPort:     testContainer.Port(),
+			DBName:     testDatabase,
+			DBUser:     testUser,
+			DBPassword: testDatabasePassword,
+			DBSchema:   testContainer.Schema(),
+		}
+		durableStore := pgstore.NewStateStore(config)
+		require.NoError(t, durableStore.Connect(ctx))
+
+		lib.Pause(time.Second)
+
+		persistenceID := uuid.NewString()
+		behavior := NewAccountDurableStateBehavior(persistenceID)
+
+		err = durableStore.Connect(ctx)
+		require.NoError(t, err)
+
+		lib.Pause(time.Second)
+
+		eventStream := eventstream.New()
+
+		persistentActor := newDurableStateActor(behavior, durableStore, eventStream)
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), persistentActor)
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		lib.Pause(time.Second)
+
+		var command proto.Message
+
+		command = &testpb.CreateAccount{AccountBalance: 500.00}
+
+		reply, err := actors.Ask(ctx, pid, command, time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+		require.IsType(t, new(egopb.CommandReply), reply)
+
+		commandReply := reply.(*egopb.CommandReply)
+		require.IsType(t, new(egopb.CommandReply_StateReply), commandReply.GetReply())
+
+		state := commandReply.GetReply().(*egopb.CommandReply_StateReply)
+		assert.EqualValues(t, 1, state.StateReply.GetSequenceNumber())
+
+		// marshal the resulting state
+		resultingState := new(testpb.Account)
+		err = state.StateReply.GetState().UnmarshalTo(resultingState)
+		require.NoError(t, err)
+
+		expected := &testpb.Account{
+			AccountId:      persistenceID,
+			AccountBalance: 500.00,
+		}
+		assert.True(t, proto.Equal(expected, resultingState))
+
+		// send another command to credit the balance
+		command = &testpb.CreditAccount{
+			AccountId: persistenceID,
+			Balance:   250,
+		}
+		reply, err = actors.Ask(ctx, pid, command, time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+		require.IsType(t, new(egopb.CommandReply), reply)
+
+		commandReply = reply.(*egopb.CommandReply)
+		require.IsType(t, new(egopb.CommandReply_StateReply), commandReply.GetReply())
+
+		state = commandReply.GetReply().(*egopb.CommandReply_StateReply)
+		assert.EqualValues(t, 2, state.StateReply.GetSequenceNumber())
+
+		// marshal the resulting state
+		resultingState = new(testpb.Account)
+		err = state.StateReply.GetState().UnmarshalTo(resultingState)
+		require.NoError(t, err)
+
+		expected = &testpb.Account{
+			AccountId:      persistenceID,
+			AccountBalance: 750.00,
+		}
+
+		assert.True(t, proto.Equal(expected, resultingState))
+		// wait a while
+		lib.Pause(time.Second)
+
+		// restart the actor
+		pid, err = actorSystem.ReSpawn(ctx, behavior.ID())
+		require.NoError(t, err)
+
+		lib.Pause(time.Second)
+
+		// fetch the current state
+		command = &egopb.GetStateCommand{}
+		reply, err = actors.Ask(ctx, pid, command, time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+		require.IsType(t, new(egopb.CommandReply), reply)
+
+		commandReply = reply.(*egopb.CommandReply)
+		require.IsType(t, new(egopb.CommandReply_StateReply), commandReply.GetReply())
+
+		resultingState = new(testpb.Account)
+		err = state.StateReply.GetState().UnmarshalTo(resultingState)
+		require.NoError(t, err)
+		expected = &testpb.Account{
+			AccountId:      persistenceID,
+			AccountBalance: 750.00,
+		}
+		assert.True(t, proto.Equal(expected, resultingState))
+
+		err = actorSystem.Stop(ctx)
+		assert.NoError(t, err)
+
+		lib.Pause(time.Second)
+
+		// free resources
+		assert.NoError(t, schemaUtils.DropTable(ctx))
+		assert.NoError(t, durableStore.Disconnect(ctx))
+		testContainer.Cleanup()
 		eventStream.Close()
 	})
 }

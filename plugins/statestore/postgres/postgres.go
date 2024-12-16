@@ -71,8 +71,8 @@ type DurableStore struct {
 // enforce interface implementation
 var _ persistence.StateStore = (*DurableStore)(nil)
 
-// NewEventsStore creates a new instance of PostgresEventStore
-func NewEventsStore(config *Config) *DurableStore {
+// NewStateStore creates a new instance of StateStore
+func NewStateStore(config *Config) *DurableStore {
 	// create the underlying db connection
 	db := postgres.New(postgres.NewConfig(config.DBHost, config.DBPort, config.DBUser, config.DBPassword, config.DBName))
 	return &DurableStore{

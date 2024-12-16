@@ -55,7 +55,6 @@ func (t *AccountEventSourcedBehavior) InitialState() State {
 func (t *AccountEventSourcedBehavior) HandleCommand(_ context.Context, command Command, _ State) (events []Event, err error) {
 	switch cmd := command.(type) {
 	case *testpb.CreateAccount:
-		// TODO in production grid app validate the command using the prior state
 		return []Event{
 			&testpb.AccountCreated{
 				AccountId:      t.id,
@@ -95,7 +94,6 @@ func (t *AccountEventSourcedBehavior) HandleEvent(_ context.Context, event Event
 		}, nil
 
 	case *testpb.AccountCredited:
-		// we can safely cast the prior state to Account
 		account := priorState.(*testpb.Account)
 		bal := account.GetAccountBalance() + evt.GetAccountBalance()
 		return &testpb.Account{
