@@ -1,6 +1,7 @@
 # Contributions are welcome
 
-The project adheres to [Semantic Versioning](https://semver.org) and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
+The project adheres to [Semantic Versioning](https://semver.org)
+and [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/).
 This repo uses [Earthly](https://earthly.dev/get-earthly).
 
 There are two ways you can become a contributor:

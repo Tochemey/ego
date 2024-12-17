@@ -69,9 +69,9 @@ func NewStateStore(config *Config) *DurableStore {
 	// create the underlying db connection
 	db := postgres.New(postgres.NewConfig(config.DBHost, config.DBPort, config.DBUser, config.DBPassword, config.DBName))
 	return &DurableStore{
-		db:              db,
-		sb:              sq.StatementBuilder.PlaceholderFormat(sq.Dollar),
-		connected:       atomic.NewBool(false),
+		db:        db,
+		sb:        sq.StatementBuilder.PlaceholderFormat(sq.Dollar),
+		connected: atomic.NewBool(false),
 	}
 }
 

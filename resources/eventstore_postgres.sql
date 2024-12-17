@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS events_store
     PRIMARY KEY (persistence_id, sequence_number)
 );
 
---- create an index on the is_deleted column
+--- create an indexes
 CREATE INDEX IF NOT EXISTS idx_events_store_persistence_id ON events_store(persistence_id);
 CREATE INDEX IF NOT EXISTS idx_events_store_seqnumber ON events_store(sequence_number);
 CREATE INDEX IF NOT EXISTS idx_events_store_timestamp ON events_store (timestamp);
