@@ -143,15 +143,6 @@ func (s *DurableStore) WriteState(ctx context.Context, state *egopb.DurableState
 		return fmt.Errorf("failed to obtain a database transaction: %w", err)
 	}
 
-	query, args, err := s.sb.Delete(tableName).Where(sq.Eq{"persistence_id": state.GetPersistenceId()}).ToSql()
-	if err != nil {
-		return fmt.Errorf("failed to build the delete sql statement: %w", err)
-	}
-
-	if _, err := s.db.Exec(ctx, query, args...); err != nil {
-		return fmt.Errorf("failed to delete durable state from the database: %w", err)
-	}
-
 	bytea, _ := proto.Marshal(state.GetResultingState())
 	manifest := string(state.GetResultingState().ProtoReflect().Descriptor().FullName())
 
@@ -165,9 +156,15 @@ func (s *DurableStore) WriteState(ctx context.Context, state *egopb.DurableState
 			manifest,
 			state.GetTimestamp(),
 			state.GetShard(),
-		)
+		).Suffix("ON CONFLICT (persistence_id) " +
+		"DO UPDATE SET " +
+		"version_number = excluded.version_number," +
+		"state_payload = excluded.state_payload, " +
+		"state_manifest = excluded.state_manifest," +
+		"timestamp = excluded.timestamp",
+	)
 
-	query, args, err = statement.ToSql()
+	query, args, err := statement.ToSql()
 	if err != nil {
 		return fmt.Errorf("unable to build sql insert statement: %w", err)
 	}

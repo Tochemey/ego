@@ -32,4 +32,5 @@ CREATE TABLE IF NOT EXISTS states_store
     shard_number    BIGINT                NOT NULL,
 
     PRIMARY KEY (persistence_id, version_number)
+    CONSTRAINT unique_persistence_id UNIQUE (persistence_id)
 );
