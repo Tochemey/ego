@@ -46,14 +46,12 @@ func (d SchemaUtils) CreateTable(ctx context.Context) error {
 	DROP TABLE IF EXISTS states_store;
 	CREATE TABLE IF NOT EXISTS states_store
 	(
-	    persistence_id  VARCHAR(255)          NOT NULL,
-	    version_number BIGINT                NOT NULL,
+	    persistence_id  VARCHAR(255)          PRIMARY KEY,
+	    version_number BIGINT                 NOT NULL,
 	    state_payload   BYTEA                 NOT NULL,
 	    state_manifest  VARCHAR(255)          NOT NULL,
 	    timestamp       BIGINT                NOT NULL,
-	    shard_number BIGINT NOT NULL ,
-	
-	    PRIMARY KEY (persistence_id, version_number)
+	    shard_number BIGINT NOT NULL
 	);
 	`
 	_, err := d.db.Exec(ctx, schemaDDL)

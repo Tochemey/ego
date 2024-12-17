@@ -24,16 +24,13 @@
 
 CREATE TABLE IF NOT EXISTS states_store
 (
-    persistence_id  VARCHAR(255)          NOT NULL,
+    persistence_id  VARCHAR(255)          PRIMARY KEY,
     version_number BIGINT                 NOT NULL,
     state_payload   BYTEA                 NOT NULL,
     state_manifest  VARCHAR(255)          NOT NULL,
     timestamp       BIGINT                NOT NULL,
-    shard_number    BIGINT                NOT NULL,
-
-    PRIMARY KEY (persistence_id, version_number)
+    shard_number    BIGINT                NOT NULL
 );
 
 --- create an indexes
-CREATE INDEX IF NOT EXISTS idx_states_store_persistence_id ON states_store(persistence_id);
 CREATE INDEX IF NOT EXISTS idx_states_store_version_number ON states_store(version_number);
