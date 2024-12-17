@@ -64,8 +64,9 @@ To define an event sourced entity, one needs to:
 2. define the various commands that will be handled by the event sourced entity
 3. define the various events that are result of the command handlers and that will be handled by the event sourced
    entity to return the new state of the event sourced entity
-4. implement the [`EventSourcedBehavior`](./behavior.go) interface.
-5. call the `Entity` method of eGo [engine](./engine.go)
+4. define and make sure the [`events store`](./persistence/events_store.go) is properly implemented.
+5. implement the [`EventSourcedBehavior`](./behavior.go) interface.
+6. call the `Entity` method of eGo [engine](./engine.go)
 
 #### Events Stream
 
@@ -76,9 +77,9 @@ the [Event](./protos/ego/v3/ego.proto).
 
 #### Projection
 
-One can add a projection to the eGo engine to help build a read model. Projections in eGo rely on an offset store to
+One can add a projection to the eGo engine to help build a read model. Projections in eGo rely on an [offset store](#offsets-store) to
 track how far they have consumed events
-persisted by the write model. The offset used in eGo is a timestamp-based offset. One can also:
+persisted by the write model. The offset used in eGo is a _timestamp-based offset_. One can also:
 
 - remove a given projection: this will stop the projection and remove it from the system
 - check the status of a given projection
@@ -132,9 +133,10 @@ To define a durable state entity, one needs to:
 
 1. define the state of the entity using google protocol buffers message
 2. define the various commands that will be handled by the entity
-3. implements the [`DurableStateBehavior`](./behavior.go) interface
-4. start eGo engine with the option durable store using `WithStateStore`
-5. call the `DurableStateEntity` method of eGo [engine](./engine.go)
+3. define and make sure the [`durable state store`](./persistence/state_store.go) is properly implemented.
+4. implements the [`DurableStateBehavior`](./behavior.go) interface
+5. start eGo engine with the option durable store using `WithStateStore`
+6. call the `DurableStateEntity` method of eGo [engine](./engine.go)
 
 #### Events Stream
 
