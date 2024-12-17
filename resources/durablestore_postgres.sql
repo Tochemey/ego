@@ -32,4 +32,6 @@ CREATE TABLE IF NOT EXISTS states_store
     shard_number    BIGINT                NOT NULL,
 
     PRIMARY KEY (persistence_id, version_number)
+   CREATE INDEX IF NOT EXISTS idx_states_store_persistence_id ON events_store(persistence_id);
+   CREATE INDEX IF NOT EXISTS idx_states_store_version_number ON events_store(version_number);
 );
