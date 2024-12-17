@@ -57,13 +57,6 @@ var (
 type DurableStore struct {
 	db postgres.Postgres
 	sb sq.StatementBuilderType
-	// insertBatchSize represents the chunk of data to bulk insert.
-	// This helps avoid the postgres 65535 parameter limit.
-	// This is necessary because Postgres uses a 32-bit int for binding input parameters and
-	// is not able to track anything larger.
-	// Note: Change this value when you know the size of data to bulk insert at once. Otherwise, you
-	// might encounter the postgres 65535 parameter limit error.
-	insertBatchSize int
 	// hold the connection state to avoid multiple connection of the same instance
 	connected *atomic.Bool
 }
@@ -78,7 +71,6 @@ func NewStateStore(config *Config) *DurableStore {
 	return &DurableStore{
 		db:              db,
 		sb:              sq.StatementBuilder.PlaceholderFormat(sq.Dollar),
-		insertBatchSize: 500,
 		connected:       atomic.NewBool(false),
 	}
 }
