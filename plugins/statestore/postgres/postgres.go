@@ -30,9 +30,9 @@ import (
 	"fmt"
 
 	sq "github.com/Masterminds/squirrel"
-	"github.com/golang/protobuf/proto"
 	"github.com/jackc/pgx/v5"
 	"go.uber.org/atomic"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/internal/postgres"
