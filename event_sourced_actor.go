@@ -213,7 +213,7 @@ func (entity *eventSourcedActor) processCommandAndReply(ctx *actors.ReceiveConte
 			Event:          event,
 			ResultingState: state,
 			Timestamp:      entity.lastCommandTime.Unix(),
-			Shard:          shardNumber,
+			Shard:          uint64(shardNumber),
 		}
 		envelopes = append(envelopes, envelope)
 	}

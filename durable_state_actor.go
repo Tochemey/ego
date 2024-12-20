@@ -216,7 +216,7 @@ func (entity *durableStateActor) persistStateAndPublish(ctx context.Context) err
 		VersionNumber:  entity.currentVersion,
 		ResultingState: resultingState,
 		Timestamp:      entity.lastCommandTime.Unix(),
-		Shard:          shardNumber,
+		Shard:          uint64(shardNumber),
 	}
 
 	eg, ctx := errgroup.WithContext(ctx)
