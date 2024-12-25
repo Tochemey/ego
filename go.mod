@@ -9,17 +9,17 @@ require (
 	github.com/georgysavva/scany/v2 v2.1.3
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-memdb v1.3.4
-	github.com/jackc/pgx/v5 v5.7.1
+	github.com/jackc/pgx/v5 v5.7.2
 	github.com/lib/pq v1.10.9
 	github.com/ory/dockertest/v3 v3.11.0
 	github.com/stretchr/testify v1.10.0
-	github.com/tochemey/goakt/v2 v2.10.2
+	github.com/tochemey/goakt/v2 v2.11.0
 	github.com/travisjeffery/go-dynaport v1.0.0
 	go.uber.org/atomic v1.11.0
 	go.uber.org/goleak v1.3.0
 	go.uber.org/multierr v1.11.0
 	golang.org/x/sync v0.10.0
-	google.golang.org/protobuf v1.36.0
+	google.golang.org/protobuf v1.36.1
 )
 
 require (
