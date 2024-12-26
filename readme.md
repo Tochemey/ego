@@ -86,19 +86,13 @@ persisted by the write model. The offset used in eGo is a _timestamp-based offse
 
 #### Events Store
 
-One can implement a custom events store. See [EventsStore](persistence/events_store.go). eGo comes packaged with two
-events store:
-
-- [Postgres](plugins/eventstore/postgres/postgres.go): Schema can be found [here](./resources/eventstore_postgres.sql)
-- [Memory](plugins/eventstore/memory/memory.go) (for testing purpose only)
+One can implement a custom events store. See [EventsStore](persistence/events_store.go).
+There are some pre-built events stores one can use out of the box. See [Contrib](https://github.com/Tochemey/ego-contrib/tree/main/eventstore)
 
 #### Offsets Store
 
-One can implement a custom offsets store. See [OffsetStore](./offsetstore/iface.go). eGo comes packaged with two offset
-store:
-
-- [Postgres](./offsetstore/postgres/postgres.go): Schema can be found [here](./resources/offsetstore_postgres.sql)
-- [Memory](./offsetstore/memory/memory.go) (for testing purpose only)
+One can implement a custom offsets store. See [OffsetStore](./offsetstore/iface.go).
+There are some pre-built offsets stores one can use out of the box. See [Contrib](https://github.com/Tochemey/ego-contrib/tree/main/offsetstore)
 
 ### Durable State Behavior
 
@@ -119,13 +113,10 @@ is imperative that the newer version of the state is greater than the current ve
 During a normal shutdown process, it will persist its current state to the durable store prior to shutting down. This
 behavior help maintain some consistency across the actor state evolution.
 
-#### State Store
+#### Durable Store
 
-One can implement a custom state store. See [StateStore](persistence/state_store.go). eGo comes packaged with two state
-stores:
-
-- [Postgres](plugins/statestore/postgres/postgres.go): Schema can be found [here](./resources/durablestore_postgres.sql)
-- [Memory](plugins/statestore/memory/memory.go) (for testing purpose only)
+One can implement a custom state store. See [Durable Store](persistence/state_store.go).
+There are some pre-built durable stores one can use out of the box. See [Contrib](https://github.com/Tochemey/ego-contrib/tree/main/durablestore)
 
 #### Howto
 

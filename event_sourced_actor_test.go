@@ -35,15 +35,14 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 
+	memory "github.com/tochemey/ego-contrib/eventstore/memory"
+	pgstore "github.com/tochemey/ego-contrib/eventstore/postgres"
 	"github.com/tochemey/goakt/v2/actors"
 	"github.com/tochemey/goakt/v2/log"
 
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/eventstream"
 	"github.com/tochemey/ego/v3/internal/lib"
-	"github.com/tochemey/ego/v3/internal/postgres"
-	"github.com/tochemey/ego/v3/plugins/eventstore/memory"
-	pgstore "github.com/tochemey/ego/v3/plugins/eventstore/postgres"
 	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
 )
 
@@ -333,7 +332,7 @@ func TestEventSourcedActor(t *testing.T) {
 			testDatabasePassword = "testPass"
 		)
 
-		testContainer := postgres.NewTestContainer(testDatabase, testUser, testDatabasePassword)
+		testContainer := pgstore.NewTestContainer(testDatabase, testUser, testDatabasePassword)
 		db := testContainer.GetTestDB()
 		// create the event store table
 		require.NoError(t, db.Connect(ctx))

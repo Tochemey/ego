@@ -36,13 +36,13 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	memory "github.com/tochemey/ego-contrib/eventstore/memory"
+	memoffsetstore "github.com/tochemey/ego-contrib/offsetstore/memory"
 	"github.com/tochemey/goakt/v2/actors"
 	"github.com/tochemey/goakt/v2/log"
 
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/internal/lib"
-	memoffsetstore "github.com/tochemey/ego/v3/offsetstore/memory"
-	"github.com/tochemey/ego/v3/plugins/eventstore/memory"
 	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
 )
 

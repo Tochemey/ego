@@ -39,15 +39,15 @@ import (
 	"github.com/travisjeffery/go-dynaport"
 	"google.golang.org/protobuf/proto"
 
+	memstore "github.com/tochemey/ego-contrib/durablestore/memory"
+	memory "github.com/tochemey/ego-contrib/eventstore/memory"
+	offsetstore "github.com/tochemey/ego-contrib/offsetstore/memory"
 	"github.com/tochemey/goakt/v2/log"
 	mockdisco "github.com/tochemey/goakt/v2/mocks/discovery"
 
 	"github.com/tochemey/ego/v3/egopb"
 	samplepb "github.com/tochemey/ego/v3/example/pbs/sample/pb/v1"
 	"github.com/tochemey/ego/v3/internal/lib"
-	offsetstore "github.com/tochemey/ego/v3/offsetstore/memory"
-	"github.com/tochemey/ego/v3/plugins/eventstore/memory"
-	memstore "github.com/tochemey/ego/v3/plugins/statestore/memory"
 	"github.com/tochemey/ego/v3/projection"
 	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
 )
