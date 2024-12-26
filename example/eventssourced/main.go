@@ -34,11 +34,11 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	memory "github.com/tochemey/ego-contrib/eventstore/memory"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/tochemey/ego/v3"
 	samplepb "github.com/tochemey/ego/v3/example/pbs/sample/pb/v1"
-	"github.com/tochemey/ego/v3/plugins/eventstore/memory"
 )
 
 func main() {

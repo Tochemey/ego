@@ -32,6 +32,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	memory "github.com/tochemey/ego-contrib/durablestore/memory"
+	pgstore "github.com/tochemey/ego-contrib/durablestore/postgres"
 	"github.com/tochemey/goakt/v2/actors"
 	"github.com/tochemey/goakt/v2/log"
 	"google.golang.org/protobuf/proto"
@@ -39,9 +41,6 @@ import (
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/eventstream"
 	"github.com/tochemey/ego/v3/internal/lib"
-	"github.com/tochemey/ego/v3/internal/postgres"
-	"github.com/tochemey/ego/v3/plugins/statestore/memory"
-	pgstore "github.com/tochemey/ego/v3/plugins/statestore/postgres"
 	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
 )
 
@@ -253,7 +252,7 @@ func TestDurableStateBehavior(t *testing.T) {
 			testDatabasePassword = "testPass"
 		)
 
-		testContainer := postgres.NewTestContainer(testDatabase, testUser, testDatabasePassword)
+		testContainer := pgstore.NewTestContainer(testDatabase, testUser, testDatabasePassword)
 		db := testContainer.GetTestDB()
 		require.NoError(t, db.Connect(ctx))
 		schemaUtils := pgstore.NewSchemaUtils(db)
@@ -267,7 +266,7 @@ func TestDurableStateBehavior(t *testing.T) {
 			DBPassword: testDatabasePassword,
 			DBSchema:   testContainer.Schema(),
 		}
-		durableStore := pgstore.NewStateStore(config)
+		durableStore := pgstore.NewDurableStore(config)
 		require.NoError(t, durableStore.Connect(ctx))
 
 		lib.Pause(time.Second)
