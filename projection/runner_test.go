@@ -34,20 +34,18 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/tochemey/goakt/v2/log"
 	"go.uber.org/atomic"
 	"go.uber.org/goleak"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
-
-	memory "github.com/tochemey/ego-contrib/eventstore/memory"
-	memoffsetstore "github.com/tochemey/ego-contrib/offsetstore/memory"
-	"github.com/tochemey/goakt/v2/log"
 
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/internal/lib"
 	mocksoffsetstore "github.com/tochemey/ego/v3/mocks/offsetstore"
 	mockseventstore "github.com/tochemey/ego/v3/mocks/persistence"
 	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
+	testkit2 "github.com/tochemey/ego/v3/testkit"
 )
 
 func TestRunner(t *testing.T) {
@@ -57,15 +55,15 @@ func TestRunner(t *testing.T) {
 		projectionName := "db-writer"
 		persistenceID := uuid.NewString()
 		shardNumber := uint64(9)
-		logger := log.DefaultLogger
+		logger := log.DiscardLogger
 
 		// set up the event store
-		eventsStore := memory.NewEventsStore()
+		eventsStore := testkit2.NewEventsStore()
 		assert.NotNil(t, eventsStore)
 		require.NoError(t, eventsStore.Connect(ctx))
 
 		// set up the offset store
-		offsetStore := memoffsetstore.NewOffsetStore()
+		offsetStore := testkit2.NewOffsetStore()
 		assert.NotNil(t, offsetStore)
 		require.NoError(t, offsetStore.Connect(ctx))
 
@@ -74,7 +72,7 @@ func TestRunner(t *testing.T) {
 		handler := NewDiscardHandler(logger)
 
 		// create an instance of the projection
-		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithRefreshInterval(time.Millisecond))
+		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithRefreshInterval(time.Millisecond), WithLogger(logger))
 		// start the projection
 		err := runner.Start(ctx)
 		require.NoError(t, err)
@@ -138,12 +136,12 @@ func TestRunner(t *testing.T) {
 		persistenceID := uuid.NewString()
 
 		// set up the event store
-		journalStore := memory.NewEventsStore()
+		journalStore := testkit2.NewEventsStore()
 		assert.NotNil(t, journalStore)
 		require.NoError(t, journalStore.Connect(ctx))
 
 		// set up the offset store
-		offsetStore := memoffsetstore.NewOffsetStore()
+		offsetStore := testkit2.NewOffsetStore()
 		assert.NotNil(t, offsetStore)
 		require.NoError(t, offsetStore.Disconnect(ctx))
 
@@ -200,12 +198,12 @@ func TestRunner(t *testing.T) {
 		persistenceID := uuid.NewString()
 
 		// set up the event store
-		journalStore := memory.NewEventsStore()
+		journalStore := testkit2.NewEventsStore()
 		assert.NotNil(t, journalStore)
 		require.NoError(t, journalStore.Connect(ctx))
 
 		// set up the offset store
-		offsetStore := memoffsetstore.NewOffsetStore()
+		offsetStore := testkit2.NewOffsetStore()
 		assert.NotNil(t, offsetStore)
 		require.NoError(t, offsetStore.Disconnect(ctx))
 
@@ -269,12 +267,12 @@ func TestRunner(t *testing.T) {
 		shard := uint64(8)
 
 		// set up the event store
-		journalStore := memory.NewEventsStore()
+		journalStore := testkit2.NewEventsStore()
 		assert.NotNil(t, journalStore)
 		require.NoError(t, journalStore.Connect(ctx))
 
 		// set up the offset store
-		offsetStore := memoffsetstore.NewOffsetStore()
+		offsetStore := testkit2.NewOffsetStore()
 		assert.NotNil(t, offsetStore)
 		require.NoError(t, offsetStore.Connect(ctx))
 
@@ -345,12 +343,12 @@ func TestRunner(t *testing.T) {
 		shard := uint64(7)
 
 		// set up the event store
-		journalStore := memory.NewEventsStore()
+		journalStore := testkit2.NewEventsStore()
 		assert.NotNil(t, journalStore)
 		require.NoError(t, journalStore.Connect(ctx))
 
 		// set up the offset store
-		offsetStore := memoffsetstore.NewOffsetStore()
+		offsetStore := testkit2.NewOffsetStore()
 		assert.NotNil(t, offsetStore)
 		require.NoError(t, offsetStore.Connect(ctx))
 
@@ -418,7 +416,7 @@ func TestRunner(t *testing.T) {
 		handler := NewDiscardHandler(log.DiscardLogger)
 		projectionName := "db-writer"
 		// set up the offset store
-		offsetStore := memoffsetstore.NewOffsetStore()
+		offsetStore := testkit2.NewOffsetStore()
 		assert.NotNil(t, offsetStore)
 		require.NoError(t, offsetStore.Connect(ctx))
 
@@ -436,7 +434,7 @@ func TestRunner(t *testing.T) {
 		handler := NewDiscardHandler(log.DiscardLogger)
 		projectionName := "db-writer"
 		// set up the event store
-		eventsStore := memory.NewEventsStore()
+		eventsStore := testkit2.NewEventsStore()
 		assert.NotNil(t, eventsStore)
 		require.NoError(t, eventsStore.Connect(ctx))
 
@@ -454,12 +452,12 @@ func TestRunner(t *testing.T) {
 		handler := NewDiscardHandler(log.DiscardLogger)
 		projectionName := "db-writer"
 		// set up the event store
-		eventsStore := memory.NewEventsStore()
+		eventsStore := testkit2.NewEventsStore()
 		assert.NotNil(t, eventsStore)
 		require.NoError(t, eventsStore.Connect(ctx))
 
 		// set up the offset store
-		offsetStore := memoffsetstore.NewOffsetStore()
+		offsetStore := testkit2.NewOffsetStore()
 		assert.NotNil(t, offsetStore)
 		require.NoError(t, offsetStore.Connect(ctx))
 
@@ -484,7 +482,7 @@ func TestRunner(t *testing.T) {
 		projectionName := "db-writer"
 
 		// set up the offset store
-		offsetStore := memoffsetstore.NewOffsetStore()
+		offsetStore := testkit2.NewOffsetStore()
 		assert.NotNil(t, offsetStore)
 		require.NoError(t, offsetStore.Connect(ctx))
 
@@ -507,7 +505,7 @@ func TestRunner(t *testing.T) {
 		projectionName := "db-writer"
 
 		// set up the event store
-		eventsStore := memory.NewEventsStore()
+		eventsStore := testkit2.NewEventsStore()
 		assert.NotNil(t, eventsStore)
 		require.NoError(t, eventsStore.Connect(ctx))
 

@@ -34,18 +34,18 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	memory "github.com/tochemey/ego-contrib/eventstore/memory"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/tochemey/ego/v3"
 	samplepb "github.com/tochemey/ego/v3/example/pbs/sample/pb/v1"
+	"github.com/tochemey/ego/v3/testkit"
 )
 
 func main() {
 	// create the go context
 	ctx := context.Background()
 	// create the event store
-	eventStore := memory.NewEventsStore()
+	eventStore := testkit.NewEventsStore()
 	// connect the event store
 	_ = eventStore.Connect(ctx)
 	// create the ego engine

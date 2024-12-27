@@ -36,29 +36,26 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tochemey/goakt/v2/actors"
-	"github.com/travisjeffery/go-dynaport"
-	"google.golang.org/protobuf/proto"
-
-	memstore "github.com/tochemey/ego-contrib/durablestore/memory"
-	memory "github.com/tochemey/ego-contrib/eventstore/memory"
-	offsetstore "github.com/tochemey/ego-contrib/offsetstore/memory"
 	"github.com/tochemey/goakt/v2/log"
 	mockdisco "github.com/tochemey/goakt/v2/mocks/discovery"
+	"github.com/travisjeffery/go-dynaport"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/tochemey/ego/v3/egopb"
 	samplepb "github.com/tochemey/ego/v3/example/pbs/sample/pb/v1"
 	"github.com/tochemey/ego/v3/internal/lib"
 	"github.com/tochemey/ego/v3/projection"
 	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
+	testkit2 "github.com/tochemey/ego/v3/testkit"
 )
 
 func TestEgo(t *testing.T) {
 	t.Run("EventSourced entity With single node cluster enabled", func(t *testing.T) {
 		ctx := context.TODO()
 		// create the event store
-		eventStore := memory.NewEventsStore()
+		eventStore := testkit2.NewEventsStore()
 		require.NoError(t, eventStore.Connect(ctx))
-		offsetStore := offsetstore.NewOffsetStore()
+		offsetStore := testkit2.NewOffsetStore()
 		require.NoError(t, offsetStore.Connect(ctx))
 
 		nodePorts := dynaport.Get(3)
@@ -175,7 +172,7 @@ func TestEgo(t *testing.T) {
 	t.Run("EventSourced entity With no cluster enabled", func(t *testing.T) {
 		ctx := context.TODO()
 		// create the event store
-		eventStore := memory.NewEventsStore()
+		eventStore := testkit2.NewEventsStore()
 		// connect to the event store
 		require.NoError(t, eventStore.Connect(ctx))
 		// create the ego engine
@@ -228,7 +225,7 @@ func TestEgo(t *testing.T) {
 	t.Run("EventSourced entity With SendCommand when not started", func(t *testing.T) {
 		ctx := context.TODO()
 		// create the event store
-		eventStore := memory.NewEventsStore()
+		eventStore := testkit2.NewEventsStore()
 		require.NoError(t, eventStore.Connect(ctx))
 
 		// create the ego engine
@@ -245,7 +242,7 @@ func TestEgo(t *testing.T) {
 	t.Run("EventSourced entity With SendCommand when entityID is not set", func(t *testing.T) {
 		ctx := context.TODO()
 		// create the event store
-		eventStore := memory.NewEventsStore()
+		eventStore := testkit2.NewEventsStore()
 		require.NoError(t, eventStore.Connect(ctx))
 
 		// create the ego engine
@@ -266,7 +263,7 @@ func TestEgo(t *testing.T) {
 	t.Run("EventSourced entity With SendCommand when entity is not found", func(t *testing.T) {
 		ctx := context.TODO()
 		// create the event store
-		eventStore := memory.NewEventsStore()
+		eventStore := testkit2.NewEventsStore()
 		require.NoError(t, eventStore.Connect(ctx))
 
 		// create the ego engine
@@ -287,7 +284,7 @@ func TestEgo(t *testing.T) {
 	t.Run("EventSourced entity With IsProjectionRunning when not started", func(t *testing.T) {
 		ctx := context.TODO()
 		// create the event store
-		eventStore := memory.NewEventsStore()
+		eventStore := testkit2.NewEventsStore()
 		require.NoError(t, eventStore.Connect(ctx))
 
 		// create the ego engine
@@ -303,11 +300,11 @@ func TestEgo(t *testing.T) {
 	t.Run("EventSourced entity With RemoveProjection", func(t *testing.T) {
 		ctx := context.TODO()
 		// create the event store
-		eventStore := memory.NewEventsStore()
+		eventStore := testkit2.NewEventsStore()
 		// connect to the event store
 		require.NoError(t, eventStore.Connect(ctx))
 
-		offsetStore := offsetstore.NewOffsetStore()
+		offsetStore := testkit2.NewOffsetStore()
 		require.NoError(t, offsetStore.Connect(ctx))
 
 		// create the ego engine
@@ -346,7 +343,7 @@ func TestEgo(t *testing.T) {
 	t.Run("EventSourced entity With RemoveProjection when not started", func(t *testing.T) {
 		ctx := context.TODO()
 		// create the event store
-		eventStore := memory.NewEventsStore()
+		eventStore := testkit2.NewEventsStore()
 		require.NoError(t, eventStore.Connect(ctx))
 
 		// create the ego engine
@@ -361,7 +358,7 @@ func TestEgo(t *testing.T) {
 
 	t.Run("DurableStore entity With single node cluster enabled", func(t *testing.T) {
 		ctx := context.TODO()
-		stateStore := memstore.NewStateStore()
+		stateStore := testkit2.NewDurableStore()
 		require.NoError(t, stateStore.Connect(ctx))
 
 		nodePorts := dynaport.Get(3)
@@ -457,7 +454,7 @@ func TestEgo(t *testing.T) {
 	})
 	t.Run("DurableStore entity With no cluster enabled", func(t *testing.T) {
 		ctx := context.TODO()
-		stateStore := memstore.NewStateStore()
+		stateStore := testkit2.NewDurableStore()
 		require.NoError(t, stateStore.Connect(ctx))
 
 		// create the ego engine
@@ -509,7 +506,7 @@ func TestEgo(t *testing.T) {
 	t.Run("DurableStore entity With SendCommand when not started", func(t *testing.T) {
 		ctx := context.TODO()
 
-		stateStore := memstore.NewStateStore()
+		stateStore := testkit2.NewDurableStore()
 		require.NoError(t, stateStore.Connect(ctx))
 
 		// create the ego engine
@@ -527,7 +524,7 @@ func TestEgo(t *testing.T) {
 	})
 	t.Run("DurableStore entity With SendCommand when entityID is not set", func(t *testing.T) {
 		ctx := context.TODO()
-		stateStore := memstore.NewStateStore()
+		stateStore := testkit2.NewDurableStore()
 		require.NoError(t, stateStore.Connect(ctx))
 
 		// create the ego engine
@@ -549,7 +546,7 @@ func TestEgo(t *testing.T) {
 	t.Run("DurableStore entity With SendCommand when entity is not found", func(t *testing.T) {
 		ctx := context.TODO()
 
-		stateStore := memstore.NewStateStore()
+		stateStore := testkit2.NewDurableStore()
 		require.NoError(t, stateStore.Connect(ctx))
 
 		// create the ego engine

@@ -32,18 +32,16 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/emptypb"
-
-	memory "github.com/tochemey/ego-contrib/eventstore/memory"
-	pgstore "github.com/tochemey/ego-contrib/eventstore/postgres"
 	"github.com/tochemey/goakt/v2/actors"
 	"github.com/tochemey/goakt/v2/log"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/eventstream"
 	"github.com/tochemey/ego/v3/internal/lib"
 	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
+	"github.com/tochemey/ego/v3/testkit"
 )
 
 func TestEventSourcedActor(t *testing.T) {
@@ -64,7 +62,7 @@ func TestEventSourcedActor(t *testing.T) {
 		lib.Pause(time.Second)
 
 		// create the event store
-		eventStore := memory.NewEventsStore()
+		eventStore := testkit.NewEventsStore()
 		// create a persistence id
 		persistenceID := uuid.NewString()
 		// create the persistence behavior
@@ -170,7 +168,7 @@ func TestEventSourcedActor(t *testing.T) {
 		lib.Pause(time.Second)
 
 		// create the event store
-		eventStore := memory.NewEventsStore()
+		eventStore := testkit.NewEventsStore()
 		// create a persistence id
 		persistenceID := uuid.NewString()
 		// create the persistence behavior
@@ -264,7 +262,7 @@ func TestEventSourcedActor(t *testing.T) {
 		lib.Pause(time.Second)
 
 		// create the event store
-		eventStore := memory.NewEventsStore()
+		eventStore := testkit.NewEventsStore()
 		// create a persistence id
 		persistenceID := uuid.NewString()
 		// create the persistence behavior
@@ -325,29 +323,7 @@ func TestEventSourcedActor(t *testing.T) {
 
 		lib.Pause(time.Second)
 
-		// create the event store
-		var (
-			testDatabase         = "testdb"
-			testUser             = "testUser"
-			testDatabasePassword = "testPass"
-		)
-
-		testContainer := pgstore.NewTestContainer(testDatabase, testUser, testDatabasePassword)
-		db := testContainer.GetTestDB()
-		// create the event store table
-		require.NoError(t, db.Connect(ctx))
-		schemaUtils := pgstore.NewSchemaUtils(db)
-		require.NoError(t, schemaUtils.CreateTable(ctx))
-
-		config := &pgstore.Config{
-			DBHost:     testContainer.Host(),
-			DBPort:     testContainer.Port(),
-			DBName:     testDatabase,
-			DBUser:     testUser,
-			DBPassword: testDatabasePassword,
-			DBSchema:   testContainer.Schema(),
-		}
-		eventStore := pgstore.NewEventsStore(config)
+		eventStore := testkit.NewEventsStore()
 		require.NoError(t, eventStore.Connect(ctx))
 
 		lib.Pause(time.Second)
@@ -457,9 +433,7 @@ func TestEventSourcedActor(t *testing.T) {
 		assert.True(t, proto.Equal(expected, resultingState))
 
 		// free resources
-		assert.NoError(t, schemaUtils.DropTable(ctx))
 		assert.NoError(t, eventStore.Disconnect(ctx))
-		testContainer.Cleanup()
 		// close the stream
 		eventStream.Close()
 
@@ -486,7 +460,7 @@ func TestEventSourcedActor(t *testing.T) {
 		lib.Pause(time.Second)
 
 		// create the event store
-		eventStore := memory.NewEventsStore()
+		eventStore := testkit.NewEventsStore()
 		// create a persistence id
 		persistenceID := uuid.NewString()
 		// create the persistence behavior
@@ -613,7 +587,7 @@ func TestEventSourcedActor(t *testing.T) {
 		lib.Pause(time.Second)
 
 		// create the event store
-		eventStore := memory.NewEventsStore()
+		eventStore := testkit.NewEventsStore()
 		// create a persistence id
 		persistenceID := uuid.NewString()
 		// create the persistence behavior

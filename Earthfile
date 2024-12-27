@@ -81,9 +81,7 @@ lint:
 local-test:
     FROM +vendor
 
-    WITH DOCKER --pull postgres:11
-        RUN go-acc ./... -o coverage.out --ignore egopb,test,example,mocks -- -mod=vendor -timeout 0 -race -v
-    END
+    RUN go-acc ./... -o coverage.out --ignore egopb,test,example,mocks -- -mod=vendor -timeout 0 -race -v
 
     SAVE ARTIFACT coverage.out AS LOCAL coverage.out
 

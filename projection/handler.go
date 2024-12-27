@@ -67,6 +67,6 @@ func (x *DiscardHandler) Handle(_ context.Context, persistenceID string, event *
 }
 
 // EventsCount returns the number of events processed
-func (x *DiscardHandler) EventsCount() int {
-	return int(x.eventsCounter.Load())
+func (x *DiscardHandler) EventsCount() int64 {
+	return x.eventsCounter.Load()
 }

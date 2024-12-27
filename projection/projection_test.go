@@ -32,28 +32,27 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tochemey/goakt/v2/actors"
+	"github.com/tochemey/goakt/v2/log"
 	"go.uber.org/goleak"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	memory "github.com/tochemey/ego-contrib/eventstore/memory"
-	memoffsetstore "github.com/tochemey/ego-contrib/offsetstore/memory"
-	"github.com/tochemey/goakt/v2/actors"
-	"github.com/tochemey/goakt/v2/log"
-
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/internal/lib"
 	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
+	testkit2 "github.com/tochemey/ego/v3/testkit"
 )
 
 func TestProjection(t *testing.T) {
 	t.Run("With happy path", func(t *testing.T) {
 		defer goleak.VerifyNone(t)
 		ctx := context.TODO()
+		logger := log.DiscardLogger
 		// create an actor system
 		actorSystem, err := actors.NewActorSystem("TestActorSystem",
 			actors.WithPassivationDisabled(),
-			actors.WithLogger(log.DiscardLogger),
+			actors.WithLogger(logger),
 			actors.WithActorInitMaxRetries(3))
 		require.NoError(t, err)
 		assert.NotNil(t, actorSystem)
@@ -67,15 +66,14 @@ func TestProjection(t *testing.T) {
 		projectionName := "db-writer"
 		persistenceID := uuid.NewString()
 		shardNumber := uint64(9)
-		logger := log.DiscardLogger
 
 		// set up the event store
-		journalStore := memory.NewEventsStore()
+		journalStore := testkit2.NewEventsStore()
 		assert.NotNil(t, journalStore)
 		require.NoError(t, journalStore.Connect(ctx))
 
 		// set up the offset store
-		offsetStore := memoffsetstore.NewOffsetStore()
+		offsetStore := testkit2.NewOffsetStore()
 		assert.NotNil(t, offsetStore)
 		require.NoError(t, offsetStore.Connect(ctx))
 
@@ -125,11 +123,11 @@ func TestProjection(t *testing.T) {
 
 		// let us grab the current offset
 		actual, err := offsetStore.GetCurrentOffset(ctx, projectionID)
-		assert.NoError(t, err)
-		assert.NotNil(t, actual)
-		assert.EqualValues(t, journals[9].GetTimestamp(), actual.GetValue())
+		require.NoError(t, err)
+		require.NotNil(t, actual)
+		require.EqualValues(t, journals[9].GetTimestamp(), actual.GetValue())
 
-		assert.EqualValues(t, 10, handler.EventsCount())
+		require.EqualValues(t, 10, handler.EventsCount())
 
 		// free resources
 		assert.NoError(t, journalStore.Disconnect(ctx))

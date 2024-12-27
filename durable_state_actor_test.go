@@ -32,8 +32,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	memory "github.com/tochemey/ego-contrib/durablestore/memory"
-	pgstore "github.com/tochemey/ego-contrib/durablestore/postgres"
 	"github.com/tochemey/goakt/v2/actors"
 	"github.com/tochemey/goakt/v2/log"
 	"google.golang.org/protobuf/proto"
@@ -42,6 +40,7 @@ import (
 	"github.com/tochemey/ego/v3/eventstream"
 	"github.com/tochemey/ego/v3/internal/lib"
 	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
+	"github.com/tochemey/ego/v3/testkit"
 )
 
 func TestDurableStateBehavior(t *testing.T) {
@@ -61,7 +60,7 @@ func TestDurableStateBehavior(t *testing.T) {
 
 		lib.Pause(time.Second)
 
-		durableStore := memory.NewStateStore()
+		durableStore := testkit.NewDurableStore()
 		// create a persistence id
 		persistenceID := uuid.NewString()
 		behavior := NewAccountDurableStateBehavior(persistenceID)
@@ -157,7 +156,7 @@ func TestDurableStateBehavior(t *testing.T) {
 
 		lib.Pause(time.Second)
 
-		durableStore := memory.NewStateStore()
+		durableStore := testkit.NewDurableStore()
 		// create a persistence id
 		persistenceID := uuid.NewString()
 		// create the persistence behavior
@@ -246,27 +245,7 @@ func TestDurableStateBehavior(t *testing.T) {
 
 		lib.Pause(time.Second)
 
-		var (
-			testDatabase         = "testdb"
-			testUser             = "testUser"
-			testDatabasePassword = "testPass"
-		)
-
-		testContainer := pgstore.NewTestContainer(testDatabase, testUser, testDatabasePassword)
-		db := testContainer.GetTestDB()
-		require.NoError(t, db.Connect(ctx))
-		schemaUtils := pgstore.NewSchemaUtils(db)
-		require.NoError(t, schemaUtils.CreateTable(ctx))
-
-		config := &pgstore.Config{
-			DBHost:     testContainer.Host(),
-			DBPort:     testContainer.Port(),
-			DBName:     testDatabase,
-			DBUser:     testUser,
-			DBPassword: testDatabasePassword,
-			DBSchema:   testContainer.Schema(),
-		}
-		durableStore := pgstore.NewDurableStore(config)
+		durableStore := testkit.NewDurableStore()
 		require.NoError(t, durableStore.Connect(ctx))
 
 		lib.Pause(time.Second)
@@ -375,9 +354,7 @@ func TestDurableStateBehavior(t *testing.T) {
 		lib.Pause(time.Second)
 
 		// free resources
-		assert.NoError(t, schemaUtils.DropTable(ctx))
 		assert.NoError(t, durableStore.Disconnect(ctx))
-		testContainer.Cleanup()
 		eventStream.Close()
 	})
 }
