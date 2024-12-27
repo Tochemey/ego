@@ -14,6 +14,8 @@ reliable persistence.
 
 ## Table of Content
 
+- [Installation](#installation)
+- [Versioning](#versioning)
 - [Features](#features)
     - [Event Sourced Behavior](#event-sourced-behavior)
         - [Howto](#howto)
@@ -25,6 +27,30 @@ reliable persistence.
         - [State Store](#state-store)
         - [Howto](#howto-1)
         - [State Stream](#events-stream-1)
+- [Cluster](#cluster)
+- [Testkit](#testkit)
+- [Mocks](#mocks)
+- [Examples](#examples)
+- [Sample](#sample)
+
+## Installation
+
+```bash
+go get github.com/tochemey/ego
+```
+
+## Versioning
+
+The version system adopted in eGo deviates a bit from the standard semantic versioning system.
+The version format is as follows:
+
+- The `MAJOR` part of the version will stay at `v3` for the meantime.
+- The `MINOR` part of the version will cater for any new _features_, _breaking changes_  with a note on the breaking
+  changes.
+- The `PATCH` part of the version will cater for dependencies upgrades, bug fixes, security patches and co.
+
+The versioning will remain like `v3.x.x` until further notice.
+
 
 ## Features
 
@@ -136,25 +162,23 @@ That enables real-time processing of state without having to interact with the s
 Just use `Subscribe` method of [Engine](./engine.go) and start iterating through the messages and cast every message to
 the [DurableState](./protos/ego/v3/ego.proto).
 
-### Cluster
+## Cluster
 
 The cluster mode heavily relies on [Go-Akt](https://github.com/Tochemey/goakt#clustering) clustering.
 
-### Mocks
+## Testkit
+
+eGo comes bundle with in-memory datastore that can be found in the [testkit](./testkit) package. This can help play with eGo
+
+## Mocks
 
 eGo ships in some [mocks](./mocks)
 
-### Examples
+## Examples
 
 Check the [examples](./example)
 
-### Installation
-
-```bash
-go get github.com/tochemey/ego
-```
-
-### Sample
+## Sample
 
 ```go
 package main
@@ -172,15 +196,15 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/tochemey/ego/v3"
-	"github.com/tochemey/ego/v3/plugins/eventstore/memory"
 	samplepb "github.com/tochemey/ego/v3/example/pbs/sample/pb/v1"
+	"github.com/tochemey/ego/v3/testkit"
 )
 
 func main() {
 	// create the go context
 	ctx := context.Background()
 	// create the event store
-	eventStore := memory.NewEventsStore()
+	eventStore := testkit.NewEventsStore()
 	// connect the event store
 	_ = eventStore.Connect(ctx)
 	// create the ego engine
@@ -204,7 +228,7 @@ func main() {
 	// send the command to the actor. Please don't ignore the error in production grid code
 	reply, _, _ := engine.SendCommand(ctx, entityID, command, time.Minute)
 	account := reply.(*samplepb.Account)
-	log.Printf("current balance: %v", account.GetAccountBalance())
+	log.Printf("current balance on opening: %v", account.GetAccountBalance())
 
 	// send another command to credit the balance
 	command = &samplepb.CreditAccount{
@@ -214,7 +238,7 @@ func main() {
 
 	reply, _, _ = engine.SendCommand(ctx, entityID, command, time.Minute)
 	account = reply.(*samplepb.Account)
-	log.Printf("current balance: %v", account.GetAccountBalance())
+	log.Printf("current balance after a credit of 250: %v", account.GetAccountBalance())
 
 	// capture ctrl+c
 	interruptSignal := make(chan os.Signal, 1)
@@ -228,13 +252,13 @@ func main() {
 	os.Exit(0)
 }
 
-// AccountBehavior implements EntityBehavior
+// AccountBehavior implements EventSourcedBehavior
 type AccountBehavior struct {
 	id string
 }
 
 // make sure that AccountBehavior is a true persistence behavior
-var _ ego.EntityBehavior = (*AccountBehavior)(nil)
+var _ ego.EventSourcedBehavior = &AccountBehavior{}
 
 // NewAccountBehavior creates an instance of AccountBehavior
 func NewAccountBehavior(id string) *AccountBehavior {
@@ -300,18 +324,6 @@ func (a *AccountBehavior) HandleEvent(_ context.Context, event ego.Event, priorS
 }
 
 ```
-
-## Versioning
-
-The version system adopted in eGo deviates a bit from the standard semantic versioning system.
-The version format is as follows:
-
-- The `MAJOR` part of the version will stay at `v3` for the meantime.
-- The `MINOR` part of the version will cater for any new _features_, _breaking changes_  with a note on the breaking
-  changes.
-- The `PATCH` part of the version will cater for dependencies upgrades, bug fixes, security patches and co.
-
-The versioning will remain like `v3.x.x` until further notice.
 
 ### Contribution
 
