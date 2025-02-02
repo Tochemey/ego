@@ -93,7 +93,7 @@ func main() {
 	os.Exit(0)
 }
 
-// AccountBehavior implements EventSourcedBehavior
+// AccountBehavior implements DurableStateBehavior
 type AccountBehavior struct {
 	id string
 }
