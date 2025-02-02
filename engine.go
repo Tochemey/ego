@@ -276,7 +276,7 @@ func (engine *Engine) Entity(ctx context.Context, behavior EventSourcedBehavior)
 // The new state is persisted and, after successful persistence, used to change the actor’s state.
 // During a normal shutdown process, it will persist its current state to the durable store prior to shutting down.
 // One can use the SendCommand to send a command a durable state entity.
-func (engine *Engine) DurableStateEntity(ctx context.Context, behavior DurableStateBehavior) error {
+func (engine *Engine) DurableStateEntity(ctx context.Context, behavior DurableStateBehavior, bufferedWrites *int32) error {
 	if !engine.Started() {
 		return ErrEngineNotStarted
 	}
@@ -293,7 +293,9 @@ func (engine *Engine) DurableStateEntity(ctx context.Context, behavior DurableSt
 
 	_, err := actorSystem.Spawn(ctx,
 		behavior.ID(),
-		newDurableStateActor(behavior, durableStateStore, eventStream))
+		newDurableStateActor(behavior, durableStateStore, eventStream).
+			WithBufferedWrites(bufferedWrites),
+	)
 	if err != nil {
 		return err
 	}

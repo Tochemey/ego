@@ -30,9 +30,9 @@ import (
 	"math"
 	"time"
 
+	"github.com/tochemey/ego/v3/internal/ticker"
 	"github.com/tochemey/goakt/v2/actors"
 	"github.com/tochemey/goakt/v2/goaktpb"
-	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -52,10 +52,12 @@ type durableStateActor struct {
 	DurableStateBehavior
 	stateStore      persistence.StateStore
 	currentState    State
+	lastSyncVersion uint64
 	currentVersion  uint64
 	lastCommandTime time.Time
 	eventsStream    eventstream.Stream
 	actorSystem     actors.ActorSystem
+	bufferedWrite   *int32
 }
 
 // implements the actors.Actor interface
@@ -70,14 +72,40 @@ func newDurableStateActor(behavior DurableStateBehavior, stateStore persistence.
 	}
 }
 
+func (entity *durableStateActor) WithBufferedWrites(interval *int32) *durableStateActor {
+	if interval != nil {
+		entity.bufferedWrite = interval
+	}
+	return entity
+}
+
 // PreStart pre-starts the actor
 func (entity *durableStateActor) PreStart(ctx context.Context) error {
+	if entity.bufferedWrite != nil {
+		go entity.periodicallyPersistData(ctx)
+	}
+
 	return errorschain.
 		New(errorschain.ReturnFirst()).
 		AddError(entity.durableStateRequired()).
 		AddError(entity.stateStore.Ping(ctx)).
 		AddError(entity.recoverFromStore(ctx)).
 		Error()
+}
+
+func (entity *durableStateActor) periodicallyPersistData(ctx context.Context) {
+	// Run a go channel that emits message every X interval to persist the data in the store
+
+	ticker := ticker.New(5 * time.Second)
+	ticker.Start()
+	// tickerStopSignal := make(chan struct{}, 1)
+
+	go func() {
+		for range ticker.Ticks {
+			entity.persistState(ctx)
+		}
+	}()
+
 }
 
 // Receive processes any message dropped into the actor mailbox.
@@ -97,7 +125,7 @@ func (entity *durableStateActor) PostStop(ctx context.Context) error {
 	return errorschain.
 		New(errorschain.ReturnFirst()).
 		AddError(entity.stateStore.Ping(ctx)).
-		AddError(entity.persistStateAndPublish(ctx)).
+		AddError(entity.persistState(ctx)).
 		Error()
 }
 
@@ -144,7 +172,14 @@ func (entity *durableStateActor) processCommand(receiveContext *actors.ReceiveCo
 	entity.lastCommandTime = timestamppb.Now().AsTime()
 	entity.currentVersion = newVersion
 
-	if err := entity.persistStateAndPublish(ctx); err != nil {
+	if entity.bufferedWrite == nil {
+		if err := entity.persistState(ctx); err != nil {
+			entity.sendErrorReply(receiveContext, err)
+			return
+		}
+	}
+
+	if err := entity.publishToStream(); err != nil {
 		entity.sendErrorReply(receiveContext, err)
 		return
 	}
@@ -206,7 +241,27 @@ func (entity *durableStateActor) durableStateRequired() error {
 }
 
 // persistState persists the actor state
-func (entity *durableStateActor) persistStateAndPublish(ctx context.Context) error {
+func (entity *durableStateActor) persistState(ctx context.Context) error {
+	resultingState, _ := anypb.New(entity.currentState)
+	shardNumber := entity.actorSystem.GetPartition(entity.ID())
+
+	if entity.currentVersion != entity.lastSyncVersion {
+		fmt.Println("Persisting state")
+		durableState := &egopb.DurableState{
+			PersistenceId:  entity.ID(),
+			VersionNumber:  entity.currentVersion,
+			ResultingState: resultingState,
+			Timestamp:      entity.lastCommandTime.Unix(),
+			Shard:          uint64(shardNumber),
+		}
+		entity.lastSyncVersion = entity.currentVersion
+		return entity.stateStore.WriteState(ctx, durableState)
+	}
+	return nil
+}
+
+// publish event to actor stream
+func (entity *durableStateActor) publishToStream() error {
 	resultingState, _ := anypb.New(entity.currentState)
 	shardNumber := entity.actorSystem.GetPartition(entity.ID())
 	topic := fmt.Sprintf(statesTopic, shardNumber)
@@ -219,15 +274,6 @@ func (entity *durableStateActor) persistStateAndPublish(ctx context.Context) err
 		Shard:          uint64(shardNumber),
 	}
 
-	eg, ctx := errgroup.WithContext(ctx)
-	eg.Go(func() error {
-		entity.eventsStream.Publish(topic, durableState)
-		return nil
-	})
-
-	eg.Go(func() error {
-		return entity.stateStore.WriteState(ctx, durableState)
-	})
-
-	return eg.Wait()
+	entity.eventsStream.Publish(topic, durableState)
+	return nil
 }

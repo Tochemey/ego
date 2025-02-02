@@ -57,7 +57,9 @@ func main() {
 	// create an entity behavior with a given id
 	behavior := NewAccountBehavior(entityID)
 	// create an entity
-	_ = engine.DurableStateEntity(ctx, behavior)
+	interval := new(int32)
+	*interval = 5
+	_ = engine.DurableStateEntity(ctx, behavior, interval)
 
 	// send some commands to the pid
 	var command proto.Message
@@ -93,7 +95,7 @@ func main() {
 	os.Exit(0)
 }
 
-// AccountBehavior implements EventSourcedBehavior
+// AccountBehavior implements DurableStateBehavior
 type AccountBehavior struct {
 	id string
 }

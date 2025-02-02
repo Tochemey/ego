@@ -39,6 +39,7 @@ import (
 
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/eventstream"
+	"github.com/tochemey/ego/v3/offsetstore"
 	"github.com/tochemey/ego/v3/persistence"
 )
 
@@ -50,6 +51,7 @@ var (
 type eventSourcedActor struct {
 	EventSourcedBehavior
 	eventsStore     persistence.EventsStore
+	offsetStore     offsetstore.OffsetStore
 	currentState    State
 	eventsCounter   uint64
 	lastCommandTime time.Time
@@ -96,11 +98,33 @@ func (entity *eventSourcedActor) Receive(ctx *actors.ReceiveContext) {
 }
 
 // PostStop prepares the actor to gracefully shutdown
-// nolint
 func (entity *eventSourcedActor) PostStop(ctx context.Context) error {
 	entity.eventsCounter = 0
+	// Project state to offset data
+	return entity.projectStateToOffsetStore(ctx)
+}
+
+func (entity *eventSourcedActor) projectStateToOffsetStore(ctx context.Context) error {
+	// event, err := entity.eventsStore.GetLatestEvent(ctx, entity.ID())
+	// if err != nil {
+	// 	return fmt.Errorf("failed to recover the latest journal: %w", err)
+	// }
+
+	// // we do have the latest state just recover from it
+	// if event != nil {
+	// 	currentState := entity.InitialState()
+	// 	if err := event.GetResultingState().UnmarshalTo(currentState); err != nil {
+	// 		return fmt.Errorf("failed unmarshal the latest state: %w", err)
+	// 	}
+	// 	entity.currentState = currentState
+	// 	entity.eventsCounter = event.GetSequenceNumber()
+	// 	return nil
+	// }
+
+	// entity.offsetStore
 	return nil
 }
+
 
 // recoverFromSnapshot reset the persistent actor to the latest snapshot in case there is one
 // this is vital when the entity actor is restarting.
