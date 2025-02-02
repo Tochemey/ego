@@ -7,8 +7,8 @@
 [![codecov](https://codecov.io/gh/Tochemey/ego/branch/main/graph/badge.svg?token=Z5b9gM6Mnt)](https://codecov.io/gh/Tochemey/ego)
 
 eGo is a minimal library that help build event-sourcing and CQRS application through a simple interface, and it allows
-developers to describe their **_commands_**, **_events_** and **_states_** **_are defined using google protocol buffers_
-**.
+developers to describe their **_commands_**, **_events_** and **_states_** _**are defined using google protocol buffers**_
+.
 Under the hood, ego leverages [Go-Akt](https://github.com/Tochemey/goakt) to scale out and guarantee performant,
 reliable persistence.
 
