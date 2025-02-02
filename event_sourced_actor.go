@@ -30,12 +30,11 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/tochemey/goakt/v2/actors"
+	"github.com/tochemey/goakt/v2/goaktpb"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
-
-	"github.com/tochemey/goakt/v2/actors"
-	"github.com/tochemey/goakt/v2/goaktpb"
 
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/eventstream"

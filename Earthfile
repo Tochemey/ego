@@ -1,6 +1,6 @@
 VERSION 0.8
 
-FROM tochemey/docker-go:1.21.0-1.0.0
+FROM tochemey/docker-go:1.22.0-3.0.0
 
 RUN go install github.com/ory/go-acc@latest
 
@@ -68,7 +68,7 @@ vendor:
 
 	  COPY +mock/mocks ./mocks
 
-    RUN go mod vendor
+    RUN go mod tidy && go mod vendor
     SAVE ARTIFACT /app /files
 
 lint:

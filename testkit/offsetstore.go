@@ -65,7 +65,7 @@ func (x *OffsetStore) Disconnect(context.Context) error {
 	if !x.connected.Load() {
 		return nil
 	}
-	x.db.Range(func(key interface{}, value interface{}) bool {
+	x.db.Range(func(key interface{}, _ interface{}) bool {
 		x.db.Delete(key)
 		return true
 	})
@@ -103,7 +103,7 @@ func (x *OffsetStore) GetCurrentOffset(_ context.Context, projectionID *egopb.Pr
 
 func (x *OffsetStore) ResetOffset(_ context.Context, projectionName string, value int64) error {
 	ts := time.Now().UnixMilli()
-	x.db.Range(func(k interface{}, v interface{}) bool {
+	x.db.Range(func(_ interface{}, v interface{}) bool {
 		key := v.(OffsetKey)
 		val := v.(*egopb.Offset)
 		if key.ProjectionName == projectionName {

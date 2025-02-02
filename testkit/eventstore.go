@@ -67,7 +67,7 @@ func (x *EventStore) Disconnect(_ context.Context) error {
 	if !x.connected.Load() {
 		return nil
 	}
-	x.db.Range(func(key interface{}, value interface{}) bool {
+	x.db.Range(func(key interface{}, _ interface{}) bool {
 		x.db.Delete(key)
 		return true
 	})
@@ -94,7 +94,7 @@ func (x *EventStore) Ping(ctx context.Context) error {
 }
 
 func (x *EventStore) DeleteEvents(_ context.Context, persistenceID string, toSequenceNumber uint64) error {
-	x.db.Range(func(key interface{}, value interface{}) bool {
+	x.db.Range(func(key interface{}, _ interface{}) bool {
 		k := key.(EventKey)
 		if k.PersistenceID == persistenceID && k.SequenceNumber <= toSequenceNumber {
 			x.db.Delete(key)
