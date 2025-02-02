@@ -48,7 +48,6 @@ func main() {
 	eventStore := testkit.NewEventsStore()
 	// connect the event store
 	_ = eventStore.Connect(ctx)
-
 	// create the ego engine
 	engine := ego.NewEngine("Sample", eventStore)
 	// start ego engine

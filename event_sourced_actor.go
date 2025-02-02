@@ -39,7 +39,6 @@ import (
 
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/eventstream"
-	"github.com/tochemey/ego/v3/offsetstore"
 	"github.com/tochemey/ego/v3/persistence"
 )
 
@@ -51,7 +50,6 @@ var (
 type eventSourcedActor struct {
 	EventSourcedBehavior
 	eventsStore     persistence.EventsStore
-	offsetStore     offsetstore.OffsetStore
 	currentState    State
 	eventsCounter   uint64
 	lastCommandTime time.Time
