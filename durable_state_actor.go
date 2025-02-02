@@ -241,11 +241,9 @@ func (entity *durableStateActor) durableStateRequired() error {
 
 // persistState persists the actor state
 func (entity *durableStateActor) persistState(ctx context.Context) error {
-	resultingState, _ := anypb.New(entity.currentState)
-	shardNumber := entity.actorSystem.GetPartition(entity.ID())
-
 	if entity.currentVersion != entity.lastSyncVersion {
-		fmt.Println("Persisting state")
+		resultingState, _ := anypb.New(entity.currentState)
+		shardNumber := entity.actorSystem.GetPartition(entity.ID())
 		durableState := &egopb.DurableState{
 			PersistenceId:  entity.ID(),
 			VersionNumber:  entity.currentVersion,
