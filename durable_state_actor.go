@@ -98,7 +98,6 @@ func (entity *durableStateActor) periodicallyPersistData(ctx context.Context) {
 
 	ticker := ticker.New(5 * time.Second)
 	ticker.Start()
-	// tickerStopSignal := make(chan struct{}, 1)
 
 	go func() {
 		for range ticker.Ticks {

@@ -38,7 +38,6 @@ import (
 
 	"github.com/tochemey/ego/v3"
 	samplepb "github.com/tochemey/ego/v3/example/pbs/sample/pb/v1"
-	"github.com/tochemey/ego/v3/offsetstore"
 	"github.com/tochemey/ego/v3/testkit"
 )
 
@@ -50,14 +49,10 @@ func main() {
 	// connect the event store
 	_ = eventStore.Connect(ctx)
 
-	// offsetStore
-	offsetStore := testkit.NewOffsetStore()
-	offsetStore.Connect(ctx)
 	// create the ego engine
 	engine := ego.NewEngine("Sample", eventStore)
 	// start ego engine
 	_ = engine.Start(ctx)
-	_ = engine.AddProjection(ctx, "projection", nil, offsetStore)
 	// create a persistence id
 	entityID := uuid.NewString()
 	// create an entity behavior with a given id
