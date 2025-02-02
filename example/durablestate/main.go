@@ -41,6 +41,7 @@ import (
 	"github.com/tochemey/ego/v3/testkit"
 )
 
+// nolint
 func main() {
 	// create the go context
 	ctx := context.Background()
@@ -102,21 +103,25 @@ type AccountBehavior struct {
 var _ ego.DurableStateBehavior = &AccountBehavior{}
 
 // NewAccountBehavior creates an instance of AccountBehavior
+// nolint
 func NewAccountBehavior(id string) *AccountBehavior {
 	return &AccountBehavior{id: id}
 }
 
 // ID returns the id
+// nolint
 func (a *AccountBehavior) ID() string {
 	return a.id
 }
 
 // InitialState returns the initial state
+// nolint
 func (a *AccountBehavior) InitialState() ego.State {
 	return ego.State(new(samplepb.Account))
 }
 
 // HandleCommand handles every command that is sent to the persistent behavior
+// nolint
 func (a *AccountBehavior) HandleCommand(_ context.Context, command ego.Command, priorVersion uint64, priorState ego.State) (event ego.State, newVersion uint64, err error) {
 	switch cmd := command.(type) {
 	case *samplepb.CreateAccount:
