@@ -33,6 +33,7 @@ import (
 	"github.com/tochemey/ego/v3/internal/ticker"
 	"github.com/tochemey/goakt/v2/actors"
 	"github.com/tochemey/goakt/v2/goaktpb"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -94,8 +95,6 @@ func (entity *durableStateActor) PreStart(ctx context.Context) error {
 }
 
 func (entity *durableStateActor) periodicallyPersistData(ctx context.Context) {
-	// Run a go channel that emits message every X interval to persist the data in the store
-
 	ticker := ticker.New(5 * time.Second)
 	ticker.Start()
 
@@ -104,7 +103,6 @@ func (entity *durableStateActor) periodicallyPersistData(ctx context.Context) {
 			entity.persistState(ctx)
 		}
 	}()
-
 }
 
 // Receive processes any message dropped into the actor mailbox.
@@ -171,14 +169,18 @@ func (entity *durableStateActor) processCommand(receiveContext *actors.ReceiveCo
 	entity.lastCommandTime = timestamppb.Now().AsTime()
 	entity.currentVersion = newVersion
 
+	eg, ctx := errgroup.WithContext(ctx)
 	if entity.bufferedWrite == nil {
-		if err := entity.persistState(ctx); err != nil {
-			entity.sendErrorReply(receiveContext, err)
-			return
-		}
+		eg.Go(func() error {
+			return entity.persistState(ctx)
+		})
 	}
+	eg.Go(func() error {
+		return entity.publishToStream()
+	})
 
-	if err := entity.publishToStream(); err != nil {
+	err = eg.Wait()
+	if err != nil {
 		entity.sendErrorReply(receiveContext, err)
 		return
 	}
