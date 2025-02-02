@@ -42,7 +42,7 @@ type EventsStore interface {
 	WriteEvents(ctx context.Context, events []*egopb.Event) error
 	// Ping verifies a connection to the database is still alive, establishing a connection if necessary.
 	Ping(ctx context.Context) error
-	// DeleteEvents deletes store from the store upt to a given sequence number (inclusive)
+	// DeleteEvents deletes store from the store up to a given sequence number (inclusive)
 	DeleteEvents(ctx context.Context, persistenceID string, toSequenceNumber uint64) error
 	// ReplayEvents fetches store for a given persistence ID from a given sequence number(inclusive) to a given sequence number(inclusive) with a maximum of journals to be replayed.
 	ReplayEvents(ctx context.Context, persistenceID string, fromSequenceNumber, toSequenceNumber uint64, max uint64) ([]*egopb.Event, error)
