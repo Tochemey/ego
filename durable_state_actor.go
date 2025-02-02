@@ -123,6 +123,7 @@ func (entity *durableStateActor) PostStop(ctx context.Context) error {
 		New(errorschain.ReturnFirst()).
 		AddError(entity.stateStore.Ping(ctx)).
 		AddError(entity.persistState(ctx)).
+		AddError(entity.publishToStream()).
 		Error()
 }
 
