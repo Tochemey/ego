@@ -77,16 +77,14 @@ func (entity *eventSourcedActor) PreStart(ctx context.Context) error {
 		return fmt.Errorf("failed to connect to the events store: %w", err)
 	}
 
-	return nil
+	return entity.recoverFromSnapshot(ctx)
 }
 
 // Receive processes any message dropped into the actor mailbox.
 func (entity *eventSourcedActor) Receive(ctx *actors.ReceiveContext) {
 	switch command := ctx.Message().(type) {
 	case *goaktpb.PostStart:
-		if err := entity.recoverFromSnapshot(ctx.Context()); err != nil {
-			ctx.Err(fmt.Errorf("failed to recover from snapshot: %w", err))
-		}
+		// pass
 	case *egopb.GetStateCommand:
 		entity.getStateAndReply(ctx)
 	default:
