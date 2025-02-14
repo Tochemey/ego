@@ -16,7 +16,7 @@ reliable persistence.
 
 - [Installation](#installation)
 - [Versioning](#versioning)
-- [Binaries and Go Versions](#binaries-and-go-versions)
+- [Binaries and Go Versions](#binaries-and-minimum-go-versions)
 - [Features](#features)
     - [Event Sourced Behavior](#event-sourced-behavior)
         - [Howto](#howto)
@@ -53,7 +53,7 @@ The version format is as follows:
 
 The versioning will remain like `v3.x.x` until further notice.
 
-## Binaries and Go Versions
+## Binaries and Minimum Go Versions
 
 | From     | To       | Minimum Go Version |  
 |----------|----------|--------------------|
