@@ -57,9 +57,9 @@ The versioning will remain like `v3.x.x` until further notice.
 
 | From     | To       | Minimum Go Version |  
 |----------|----------|--------------------|
-| `v1.0.0` | `v1.1.2` | `1.20.0`           |
-| `v1.1.3` | `v2.0.1` | `1.21.0`           |
 | `v2.0.2` | `v3.3.2` | `1.22.0`           |
+| `v1.1.3` | `v2.0.1` | `1.21.0`           |
+| `v1.0.0` | `v1.1.2` | `1.20.0`           |
 
 ## Features
 
