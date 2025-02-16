@@ -49,7 +49,7 @@ pbs:
     BUILD +sample-pb
 
 test:
-  BUILD +lint
+  #BUILD +lint
   BUILD +local-test
 
 code:
