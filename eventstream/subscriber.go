@@ -1,7 +1,7 @@
 /*
  * MIT License
  *
- * Copyright (c) 2022-2025 Arsene Tochemey Gandote
+ * Copyright (c) 2023-2025 Tochemey
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -34,14 +34,14 @@ import (
 
 // Subscriber defines the Subscriber Interface
 type Subscriber interface {
+	ID() string
+	Active() bool
 	Topics() []string
 	Iterator() chan *Message
 	Shutdown()
 	signal(message *Message)
 	subscribe(topic string)
 	unsubscribe(topic string)
-	Active() bool
-	ID() string
 }
 
 // subscriber defines the subscriber

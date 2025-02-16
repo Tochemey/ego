@@ -1,7 +1,7 @@
 /*
  * MIT License
  *
- * Copyright (c) 2022-2025 Arsene Tochemey Gandote
+ * Copyright (c) 2023-2025 Tochemey
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -30,8 +30,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tochemey/goakt/v2/actors"
-	"github.com/tochemey/goakt/v2/goaktpb"
+	goakt "github.com/tochemey/goakt/v3/actor"
+	"github.com/tochemey/goakt/v3/goaktpb"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -55,8 +55,8 @@ type eventSourcedActor struct {
 	eventsStream    eventstream.Stream
 }
 
-// implements the actors.Actor interface
-var _ actors.Actor = (*eventSourcedActor)(nil)
+// implements the goakt.Actor interface
+var _ goakt.Actor = (*eventSourcedActor)(nil)
 
 // newEventSourcedActor creates an instance of actor provided the eventSourcedHandler and the events store
 func newEventSourcedActor(behavior EventSourcedBehavior, eventsStore persistence.EventsStore, eventsStream eventstream.Stream) *eventSourcedActor {
@@ -81,7 +81,7 @@ func (entity *eventSourcedActor) PreStart(ctx context.Context) error {
 }
 
 // Receive processes any message dropped into the actor mailbox.
-func (entity *eventSourcedActor) Receive(ctx *actors.ReceiveContext) {
+func (entity *eventSourcedActor) Receive(ctx *goakt.ReceiveContext) {
 	switch command := ctx.Message().(type) {
 	case *goaktpb.PostStart:
 		// pass
@@ -123,7 +123,7 @@ func (entity *eventSourcedActor) recoverFromSnapshot(ctx context.Context) error 
 }
 
 // sendErrorReply sends an error as a reply message
-func (entity *eventSourcedActor) sendErrorReply(ctx *actors.ReceiveContext, err error) {
+func (entity *eventSourcedActor) sendErrorReply(ctx *goakt.ReceiveContext, err error) {
 	reply := &egopb.CommandReply{
 		Reply: &egopb.CommandReply_ErrorReply{
 			ErrorReply: &egopb.ErrorReply{
@@ -136,7 +136,7 @@ func (entity *eventSourcedActor) sendErrorReply(ctx *actors.ReceiveContext, err 
 }
 
 // getStateAndReply returns the current state of the entity
-func (entity *eventSourcedActor) getStateAndReply(ctx *actors.ReceiveContext) {
+func (entity *eventSourcedActor) getStateAndReply(ctx *goakt.ReceiveContext) {
 	latestEvent, err := entity.eventsStore.GetLatestEvent(ctx.Context(), entity.ID())
 	if err != nil {
 		entity.sendErrorReply(ctx, err)
@@ -159,7 +159,7 @@ func (entity *eventSourcedActor) getStateAndReply(ctx *actors.ReceiveContext) {
 }
 
 // processCommandAndReply processes the incoming command
-func (entity *eventSourcedActor) processCommandAndReply(ctx *actors.ReceiveContext, command Command) {
+func (entity *eventSourcedActor) processCommandAndReply(ctx *goakt.ReceiveContext, command Command) {
 	goCtx := ctx.Context()
 	events, err := entity.HandleCommand(goCtx, command, entity.currentState)
 	if err != nil {
@@ -184,7 +184,7 @@ func (entity *eventSourcedActor) processCommandAndReply(ctx *actors.ReceiveConte
 		return
 	}
 
-	shardNumber := ctx.Self().ActorSystem().GetPartition(entity.ID())
+	shardNumber := ctx.ActorSystem().GetPartition(entity.ID())
 	topic := fmt.Sprintf(eventsTopic, shardNumber)
 
 	var envelopes []*egopb.Event

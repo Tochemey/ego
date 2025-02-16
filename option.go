@@ -1,7 +1,7 @@
 /*
  * MIT License
  *
- * Copyright (c) 2022-2025 Arsene Tochemey Gandote
+ * Copyright (c) 2023-2025 Tochemey
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -27,8 +27,8 @@ package ego
 import (
 	"go.uber.org/atomic"
 
-	"github.com/tochemey/goakt/v2/discovery"
-	"github.com/tochemey/goakt/v2/log"
+	"github.com/tochemey/goakt/v3/discovery"
+	"github.com/tochemey/goakt/v3/log"
 
 	"github.com/tochemey/ego/v3/persistence"
 )

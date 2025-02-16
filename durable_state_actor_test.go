@@ -1,7 +1,7 @@
 /*
  * MIT License
  *
- * Copyright (c) 2022-2025 Arsene Tochemey Gandote
+ * Copyright (c) 2023-2025 Tochemey
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -32,8 +32,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tochemey/goakt/v2/actors"
-	"github.com/tochemey/goakt/v2/log"
+	goakt "github.com/tochemey/goakt/v3/actor"
+	"github.com/tochemey/goakt/v3/log"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/tochemey/ego/v3/egopb"
@@ -47,10 +47,10 @@ func TestDurableStateBehavior(t *testing.T) {
 	t.Run("with state reply", func(t *testing.T) {
 		ctx := context.TODO()
 		// create an actor system
-		actorSystem, err := actors.NewActorSystem("TestActorSystem",
-			actors.WithPassivationDisabled(),
-			actors.WithLogger(log.DiscardLogger),
-			actors.WithActorInitMaxRetries(3))
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithPassivationDisabled(),
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithActorInitMaxRetries(3))
 		require.NoError(t, err)
 		assert.NotNil(t, actorSystem)
 
@@ -80,7 +80,7 @@ func TestDurableStateBehavior(t *testing.T) {
 
 		command = &testpb.CreateAccount{AccountBalance: 500.00}
 		// send the command to the actor
-		reply, err := actors.Ask(ctx, pid, command, 5*time.Second)
+		reply, err := goakt.Ask(ctx, pid, command, 5*time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, reply)
 		require.IsType(t, new(egopb.CommandReply), reply)
@@ -107,7 +107,7 @@ func TestDurableStateBehavior(t *testing.T) {
 			AccountId: persistenceID,
 			Balance:   250,
 		}
-		reply, err = actors.Ask(ctx, pid, command, 5*time.Second)
+		reply, err = goakt.Ask(ctx, pid, command, 5*time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, reply)
 		require.IsType(t, new(egopb.CommandReply), reply)
@@ -143,10 +143,10 @@ func TestDurableStateBehavior(t *testing.T) {
 		ctx := context.TODO()
 
 		// create an actor system
-		actorSystem, err := actors.NewActorSystem("TestActorSystem",
-			actors.WithPassivationDisabled(),
-			actors.WithLogger(log.DiscardLogger),
-			actors.WithActorInitMaxRetries(3))
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithPassivationDisabled(),
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithActorInitMaxRetries(3))
 		require.NoError(t, err)
 		assert.NotNil(t, actorSystem)
 
@@ -182,7 +182,7 @@ func TestDurableStateBehavior(t *testing.T) {
 
 		command = &testpb.CreateAccount{AccountBalance: 500.00}
 		// send the command to the actor
-		reply, err := actors.Ask(ctx, pid, command, time.Second)
+		reply, err := goakt.Ask(ctx, pid, command, time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, reply)
 		require.IsType(t, new(egopb.CommandReply), reply)
@@ -209,7 +209,7 @@ func TestDurableStateBehavior(t *testing.T) {
 			AccountId: "different-id",
 			Balance:   250,
 		}
-		reply, err = actors.Ask(ctx, pid, command, time.Second)
+		reply, err = goakt.Ask(ctx, pid, command, time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, reply)
 		require.IsType(t, new(egopb.CommandReply), reply)
@@ -231,10 +231,10 @@ func TestDurableStateBehavior(t *testing.T) {
 	})
 	t.Run("with state recovery from state store", func(t *testing.T) {
 		ctx := context.TODO()
-		actorSystem, err := actors.NewActorSystem("TestActorSystem",
-			actors.WithPassivationDisabled(),
-			actors.WithLogger(log.DiscardLogger),
-			actors.WithActorInitMaxRetries(3),
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithPassivationDisabled(),
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithActorInitMaxRetries(3),
 		)
 		require.NoError(t, err)
 		assert.NotNil(t, actorSystem)
@@ -271,7 +271,7 @@ func TestDurableStateBehavior(t *testing.T) {
 
 		command = &testpb.CreateAccount{AccountBalance: 500.00}
 
-		reply, err := actors.Ask(ctx, pid, command, time.Second)
+		reply, err := goakt.Ask(ctx, pid, command, time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, reply)
 		require.IsType(t, new(egopb.CommandReply), reply)
@@ -298,7 +298,7 @@ func TestDurableStateBehavior(t *testing.T) {
 			AccountId: persistenceID,
 			Balance:   250,
 		}
-		reply, err = actors.Ask(ctx, pid, command, time.Second)
+		reply, err = goakt.Ask(ctx, pid, command, time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, reply)
 		require.IsType(t, new(egopb.CommandReply), reply)
@@ -331,7 +331,7 @@ func TestDurableStateBehavior(t *testing.T) {
 
 		// fetch the current state
 		command = &egopb.GetStateCommand{}
-		reply, err = actors.Ask(ctx, pid, command, time.Second)
+		reply, err = goakt.Ask(ctx, pid, command, time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, reply)
 		require.IsType(t, new(egopb.CommandReply), reply)

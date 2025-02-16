@@ -1,7 +1,7 @@
 /*
  * MIT License
  *
- * Copyright (c) 2022-2025 Arsene Tochemey Gandote
+ * Copyright (c) 2023-2025 Tochemey
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -32,11 +32,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tochemey/goakt/v2/actors"
-	"github.com/tochemey/goakt/v2/address"
-	"github.com/tochemey/goakt/v2/discovery"
-	"github.com/tochemey/goakt/v2/log"
-	"github.com/tochemey/goakt/v2/remote"
+	goakt "github.com/tochemey/goakt/v3/actor"
+	"github.com/tochemey/goakt/v3/address"
+	"github.com/tochemey/goakt/v3/discovery"
+	"github.com/tochemey/goakt/v3/log"
+	"github.com/tochemey/goakt/v3/remote"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 
@@ -64,7 +64,7 @@ type Engine struct {
 	eventsStore        persistence.EventsStore // eventsStore is the events store
 	stateStore         persistence.StateStore  // stateStore is the durable state store
 	enableCluster      *atomic.Bool            // enableCluster enable/disable cluster mode
-	actorSystem        actors.ActorSystem      // actorSystem is the underlying actor system
+	actorSystem        goakt.ActorSystem       // actorSystem is the underlying actor system
 	logger             log.Logger              // logger is the logging engine to use
 	discoveryProvider  discovery.Provider      // discoveryProvider is the discovery provider for clustering
 	partitionsCount    uint64                  // partitionsCount specifies the number of partitions
@@ -76,7 +76,7 @@ type Engine struct {
 	minimumPeersQuorum uint16
 	eventStream        eventstream.Stream
 	mutex              *sync.Mutex
-	remoting           *actors.Remoting
+	remoting           *goakt.Remoting
 }
 
 // NewEngine creates and initializes a new instance of the eGo engine.
@@ -100,7 +100,7 @@ func NewEngine(name string, eventsStore persistence.EventsStore, opts ...Option)
 		logger:        log.New(log.ErrorLevel, os.Stderr),
 		eventStream:   eventstream.New(),
 		mutex:         &sync.Mutex{},
-		remoting:      actors.NewRemoting(),
+		remoting:      goakt.NewRemoting(),
 	}
 
 	for _, opt := range opts {
@@ -123,10 +123,10 @@ func NewEngine(name string, eventsStore persistence.EventsStore, opts ...Option)
 // Returns:
 //   - An error if the engine fails to start due to misconfiguration or system issues; otherwise, nil.
 func (engine *Engine) Start(ctx context.Context) error {
-	opts := []actors.Option{
-		actors.WithLogger(engine.logger),
-		actors.WithPassivationDisabled(),
-		actors.WithActorInitMaxRetries(1),
+	opts := []goakt.Option{
+		goakt.WithLogger(engine.logger),
+		goakt.WithPassivationDisabled(),
+		goakt.WithActorInitMaxRetries(1),
 	}
 
 	if engine.enableCluster.Load() {
@@ -139,7 +139,7 @@ func (engine *Engine) Start(ctx context.Context) error {
 			replicaCount = 2
 		}
 
-		clusterConfig := actors.
+		clusterConfig := goakt.
 			NewClusterConfig().
 			WithDiscovery(engine.discoveryProvider).
 			WithDiscoveryPort(engine.gossipPort).
@@ -153,12 +153,12 @@ func (engine *Engine) Start(ctx context.Context) error {
 			)
 
 		opts = append(opts,
-			actors.WithCluster(clusterConfig),
-			actors.WithRemote(remote.NewConfig(engine.hostName, engine.remotingPort)))
+			goakt.WithCluster(clusterConfig),
+			goakt.WithRemote(remote.NewConfig(engine.hostName, engine.remotingPort)))
 	}
 
 	var err error
-	engine.actorSystem, err = actors.NewActorSystem(engine.name, opts...)
+	engine.actorSystem, err = goakt.NewActorSystem(engine.name, opts...)
 	if err != nil {
 		return fmt.Errorf("failed to create the ego actor system: %w", err)
 	}
@@ -200,8 +200,8 @@ func (engine *Engine) AddProjection(ctx context.Context, name string, handler pr
 	actorSystem := engine.actorSystem
 	engine.mutex.Unlock()
 
-	// projections are long-lived actors
-	if _, err := actorSystem.Spawn(ctx, name, actor, actors.WithLongLived()); err != nil {
+	// projections are long-lived goakt
+	if _, err := actorSystem.Spawn(ctx, name, actor, goakt.WithLongLived()); err != nil {
 		return fmt.Errorf("failed to register the projection=(%s): %w", name, err)
 	}
 
@@ -341,13 +341,13 @@ func (engine *Engine) Entity(ctx context.Context, behavior EventSourcedBehavior,
 	engine.mutex.Unlock()
 
 	config := newSpawnConfig(opts...)
-	var sOptions []actors.SpawnOption
+	var sOptions []goakt.SpawnOption
 
 	switch {
 	case config.passivateAfter > 0:
-		sOptions = append(sOptions, actors.WithPassivateAfter(config.passivateAfter))
+		sOptions = append(sOptions, goakt.WithPassivateAfter(config.passivateAfter))
 	default:
-		sOptions = append(sOptions, actors.WithLongLived())
+		sOptions = append(sOptions, goakt.WithLongLived())
 	}
 
 	_, err := actorSystem.Spawn(ctx,
@@ -398,13 +398,13 @@ func (engine *Engine) DurableStateEntity(ctx context.Context, behavior DurableSt
 	}
 
 	config := newSpawnConfig(opts...)
-	var sOptions []actors.SpawnOption
+	var sOptions []goakt.SpawnOption
 
 	switch {
 	case config.passivateAfter > 0:
-		sOptions = append(sOptions, actors.WithPassivateAfter(config.passivateAfter))
+		sOptions = append(sOptions, goakt.WithPassivateAfter(config.passivateAfter))
 	default:
-		sOptions = append(sOptions, actors.WithLongLived())
+		sOptions = append(sOptions, goakt.WithLongLived())
 	}
 
 	_, err := actorSystem.Spawn(ctx,
@@ -462,7 +462,7 @@ func (engine *Engine) SendCommand(ctx context.Context, entityID string, cmd Comm
 	var reply proto.Message
 	switch {
 	case pid != nil:
-		reply, err = actors.Ask(ctx, pid, cmd, timeout)
+		reply, err = goakt.Ask(ctx, pid, cmd, timeout)
 	case addr != nil:
 		res, err := engine.remoting.RemoteAsk(ctx, address.NoSender(), addr, cmd, timeout)
 		if err == nil {
