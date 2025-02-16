@@ -42,6 +42,7 @@ import (
 
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/eventstream"
+	"github.com/tochemey/ego/v3/internal/syncmap"
 	"github.com/tochemey/ego/v3/offsetstore"
 	"github.com/tochemey/ego/v3/persistence"
 	"github.com/tochemey/ego/v3/projection"
@@ -57,6 +58,16 @@ var (
 	// ErrDurableStateStoreRequired is returned when the eGo engine durable store is not set
 	ErrDurableStateStoreRequired = errors.New("durable state store is required")
 )
+
+type eventSubscriber struct {
+	publisher  EventPublisher
+	subscriber eventstream.Subscriber
+}
+
+type stateSubscriber struct {
+	publisher  StatePublisher
+	subscriber eventstream.Subscriber
+}
 
 // Engine represents the engine that empowers the various entities
 type Engine struct {
@@ -78,6 +89,9 @@ type Engine struct {
 	mutex              *sync.Mutex
 	remoting           *goakt.Remoting
 	tls                *TLS
+
+	eventPublishers  *syncmap.Map[string, *eventSubscriber]
+	statesPublishers *syncmap.Map[string, *stateSubscriber]
 }
 
 // NewEngine creates and initializes a new instance of the eGo engine.
@@ -95,14 +109,16 @@ type Engine struct {
 //   - A pointer to the newly created Engine instance.
 func NewEngine(name string, eventsStore persistence.EventsStore, opts ...Option) *Engine {
 	e := &Engine{
-		name:          name,
-		eventsStore:   eventsStore,
-		enableCluster: atomic.NewBool(false),
-		logger:        log.New(log.ErrorLevel, os.Stderr),
-		eventStream:   eventstream.New(),
-		mutex:         &sync.Mutex{},
-		bindAddr:      "0.0.0.0",
-		remoting:      goakt.NewRemoting(),
+		name:             name,
+		eventsStore:      eventsStore,
+		enableCluster:    atomic.NewBool(false),
+		logger:           log.New(log.ErrorLevel, os.Stderr),
+		eventStream:      eventstream.New(),
+		mutex:            &sync.Mutex{},
+		bindAddr:         "0.0.0.0",
+		remoting:         goakt.NewRemoting(),
+		eventPublishers:  syncmap.New[string, *eventSubscriber](),
+		statesPublishers: syncmap.New[string, *stateSubscriber](),
 	}
 
 	for _, opt := range opts {
@@ -291,6 +307,24 @@ func (engine *Engine) IsProjectionRunning(ctx context.Context, name string) (boo
 func (engine *Engine) Stop(ctx context.Context) error {
 	engine.started.Store(false)
 	engine.eventStream.Close()
+
+	// shutdown all event publishers
+	engine.eventPublishers.
+		Range(func(_ string, sub *eventSubscriber) {
+			// TODO: decide how to handle errors
+			_ = sub.publisher.Close(ctx)
+			sub.subscriber.Shutdown()
+		})
+
+	// shutdown all state publishers
+	engine.statesPublishers.Range(func(s1 string, sub *stateSubscriber) {
+		// TODO: decide how to handle errors
+		_ = sub.publisher.Close(ctx)
+		sub.subscriber.Shutdown()
+	})
+
+	engine.eventPublishers.Reset()
+	engine.statesPublishers.Reset()
 	return engine.actorSystem.Stop(ctx)
 }
 
@@ -299,7 +333,14 @@ func (engine *Engine) Started() bool {
 	return engine.started.Load()
 }
 
-// Subscribe creates an events subscriber
+// Subscribe creates an events subscriber.
+//
+// This function initializes a new subscriber for the event stream managed by the eGo engine. The subscriber
+// will receive events from the topics specified by the engine's configuration.
+//
+// Returns:
+//   - An eventstream.Subscriber instance that can be used to receive events.
+//   - An error if the engine has not started or if there is an issue creating the subscriber.
 func (engine *Engine) Subscribe() (eventstream.Subscriber, error) {
 	if !engine.Started() {
 		return nil, ErrEngineNotStarted
@@ -318,6 +359,71 @@ func (engine *Engine) Subscribe() (eventstream.Subscriber, error) {
 	}
 
 	return subscriber, nil
+}
+
+// AddEventPublishers registers one or more event publishers with the eGo engine.
+// This function subscribes the publishers to the event stream, allowing them to receive events.
+//
+// Parameters:
+//   - publishers: A list of event publishers to be added to the engine.
+//
+// Returns an error if the engine has not started.
+func (engine *Engine) AddEventPublishers(publishers ...EventPublisher) error {
+	if !engine.Started() {
+		return ErrEngineNotStarted
+	}
+
+	engine.mutex.Lock()
+	defer engine.mutex.Unlock()
+
+	eventStream := engine.eventStream
+
+	for _, publisher := range publishers {
+		subscriber := eventStream.AddSubscriber()
+		for i := 0; i < int(engine.partitionsCount); i++ {
+			topic := fmt.Sprintf(eventsTopic, i)
+			engine.eventStream.Subscribe(subscriber, topic)
+		}
+
+		engine.eventPublishers.Set(publisher.ID(), &eventSubscriber{
+			publisher:  publisher,
+			subscriber: subscriber,
+		})
+	}
+
+	return nil
+}
+
+// AddStatePublishers registers one or more state publishers with the eGo engine.
+// This function subscribes the publishers to the event stream, allowing them to receive state changes.
+//
+// Parameters:
+//   - publishers: A list of state publishers to be added to the engine.
+//
+// Returns an error if the engine has not started.
+func (engine *Engine) AddStatePublishers(publishers ...StatePublisher) error {
+	if !engine.Started() {
+		return ErrEngineNotStarted
+	}
+
+	engine.mutex.Lock()
+	defer engine.mutex.Unlock()
+	eventStream := engine.eventStream
+
+	for _, publisher := range publishers {
+		subscriber := eventStream.AddSubscriber()
+		for i := 0; i < int(engine.partitionsCount); i++ {
+			topic := fmt.Sprintf(statesTopic, i)
+			engine.eventStream.Subscribe(subscriber, topic)
+		}
+
+		engine.statesPublishers.Set(publisher.ID(), &stateSubscriber{
+			publisher:  publisher,
+			subscriber: subscriber,
+		})
+	}
+
+	return nil
 }
 
 // Entity creates an event-sourced entity that persists its state by storing a history of events.
