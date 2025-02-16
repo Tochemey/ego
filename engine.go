@@ -69,14 +69,15 @@ type Engine struct {
 	discoveryProvider  discovery.Provider      // discoveryProvider is the discovery provider for clustering
 	partitionsCount    uint64                  // partitionsCount specifies the number of partitions
 	started            atomic.Bool
-	hostName           string
+	bindAddr           string
 	peersPort          int
-	gossipPort         int
+	discoveryPort      int
 	remotingPort       int
 	minimumPeersQuorum uint16
 	eventStream        eventstream.Stream
 	mutex              *sync.Mutex
 	remoting           *goakt.Remoting
+	tls                *TLS
 }
 
 // NewEngine creates and initializes a new instance of the eGo engine.
@@ -100,11 +101,16 @@ func NewEngine(name string, eventsStore persistence.EventsStore, opts ...Option)
 		logger:        log.New(log.ErrorLevel, os.Stderr),
 		eventStream:   eventstream.New(),
 		mutex:         &sync.Mutex{},
+		bindAddr:      "0.0.0.0",
 		remoting:      goakt.NewRemoting(),
 	}
 
 	for _, opt := range opts {
 		opt.Apply(e)
+	}
+
+	if e.tls != nil {
+		e.remoting = goakt.NewRemoting(goakt.WithRemotingTLS(e.tls.ClientTLS))
 	}
 
 	e.started.Store(false)
@@ -129,9 +135,16 @@ func (engine *Engine) Start(ctx context.Context) error {
 		goakt.WithActorInitMaxRetries(1),
 	}
 
+	if engine.tls != nil {
+		opts = append(opts, goakt.WithTLS(&goakt.TLSInfo{
+			ClientTLS: engine.tls.ClientTLS,
+			ServerTLS: engine.tls.ServerTLS,
+		}))
+	}
+
 	if engine.enableCluster.Load() {
-		if engine.hostName == "" {
-			engine.hostName, _ = os.Hostname()
+		if engine.bindAddr == "" {
+			engine.bindAddr, _ = os.Hostname()
 		}
 
 		replicaCount := 1
@@ -142,7 +155,7 @@ func (engine *Engine) Start(ctx context.Context) error {
 		clusterConfig := goakt.
 			NewClusterConfig().
 			WithDiscovery(engine.discoveryProvider).
-			WithDiscoveryPort(engine.gossipPort).
+			WithDiscoveryPort(engine.discoveryPort).
 			WithPeersPort(engine.peersPort).
 			WithMinimumPeersQuorum(uint32(engine.minimumPeersQuorum)).
 			WithReplicaCount(uint32(replicaCount)).
@@ -154,7 +167,7 @@ func (engine *Engine) Start(ctx context.Context) error {
 
 		opts = append(opts,
 			goakt.WithCluster(clusterConfig),
-			goakt.WithRemote(remote.NewConfig(engine.hostName, engine.remotingPort)))
+			goakt.WithRemote(remote.NewConfig(engine.bindAddr, engine.remotingPort)))
 	}
 
 	var err error

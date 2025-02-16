@@ -26,6 +26,7 @@ package ego
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"net"
 	"strconv"
@@ -33,6 +34,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/kapetan-io/tackle/autotls"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	actors "github.com/tochemey/goakt/v3/actor"
@@ -49,7 +51,7 @@ import (
 	testkit2 "github.com/tochemey/ego/v3/testkit"
 )
 
-func TestEgo(t *testing.T) {
+func TestEngine(t *testing.T) {
 	t.Run("EventSourced entity With single node cluster enabled", func(t *testing.T) {
 		ctx := context.TODO()
 		// create the event store
@@ -83,8 +85,20 @@ func TestEgo(t *testing.T) {
 		// create a projection message handler
 		handler := projection.NewDiscardHandler(log.DiscardLogger)
 		// create the ego engine
+		// AutoGenerate TLS certs
+		conf := autotls.Config{
+			AutoTLS:            true,
+			ClientAuth:         tls.NoClientCert,
+			InsecureSkipVerify: false,
+		}
+		require.NoError(t, autotls.Setup(&conf))
+
 		engine := NewEngine("Sample", eventStore,
 			WithLogger(log.DiscardLogger),
+			WithTLS(&TLS{
+				ClientTLS: conf.ClientTLS,
+				ServerTLS: conf.ServerTLS,
+			}),
 			WithCluster(provider, 4, 1, host, remotingPort, gossipPort, clusterPort))
 		// start ego engine
 		err := engine.Start(ctx)
@@ -355,7 +369,6 @@ func TestEgo(t *testing.T) {
 
 		assert.NoError(t, eventStore.Disconnect(ctx))
 	})
-
 	t.Run("DurableStore entity With single node cluster enabled", func(t *testing.T) {
 		ctx := context.TODO()
 		stateStore := testkit2.NewDurableStore()

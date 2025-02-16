@@ -51,8 +51,8 @@ func TestOptions(t *testing.T) {
 			expected: Engine{
 				discoveryProvider:  discoveryProvider,
 				minimumPeersQuorum: 3,
-				hostName:           "localhost",
-				gossipPort:         1335,
+				bindAddr:           "localhost",
+				discoveryPort:      1335,
 				peersPort:          1336,
 				remotingPort:       1334,
 				partitionsCount:    30,
