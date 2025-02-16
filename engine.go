@@ -59,14 +59,19 @@ var (
 	ErrDurableStateStoreRequired = errors.New("durable state store is required")
 )
 
+// Done is a signal that an operation has completed
+type Done struct{}
+
 type eventSubscriber struct {
 	publisher  EventPublisher
 	subscriber eventstream.Subscriber
+	done       chan Done
 }
 
 type stateSubscriber struct {
 	publisher  StatePublisher
 	subscriber eventstream.Subscriber
+	done       chan Done
 }
 
 // Engine represents the engine that empowers the various entities
@@ -311,6 +316,8 @@ func (engine *Engine) Stop(ctx context.Context) error {
 	// shutdown all event publishers
 	engine.eventPublishers.
 		Range(func(_ string, sub *eventSubscriber) {
+			// signal the publisher to stop
+			sub.done <- Done{}
 			// TODO: decide how to handle errors
 			_ = sub.publisher.Close(ctx)
 			sub.subscriber.Shutdown()
@@ -318,6 +325,8 @@ func (engine *Engine) Stop(ctx context.Context) error {
 
 	// shutdown all state publishers
 	engine.statesPublishers.Range(func(s1 string, sub *stateSubscriber) {
+		// signal the publisher to stop
+		sub.done <- Done{}
 		// TODO: decide how to handle errors
 		_ = sub.publisher.Close(ctx)
 		sub.subscriber.Shutdown()
@@ -359,71 +368,6 @@ func (engine *Engine) Subscribe() (eventstream.Subscriber, error) {
 	}
 
 	return subscriber, nil
-}
-
-// AddEventPublishers registers one or more event publishers with the eGo engine.
-// This function subscribes the publishers to the event stream, allowing them to receive events.
-//
-// Parameters:
-//   - publishers: A list of event publishers to be added to the engine.
-//
-// Returns an error if the engine has not started.
-func (engine *Engine) AddEventPublishers(publishers ...EventPublisher) error {
-	if !engine.Started() {
-		return ErrEngineNotStarted
-	}
-
-	engine.mutex.Lock()
-	defer engine.mutex.Unlock()
-
-	eventStream := engine.eventStream
-
-	for _, publisher := range publishers {
-		subscriber := eventStream.AddSubscriber()
-		for i := 0; i < int(engine.partitionsCount); i++ {
-			topic := fmt.Sprintf(eventsTopic, i)
-			engine.eventStream.Subscribe(subscriber, topic)
-		}
-
-		engine.eventPublishers.Set(publisher.ID(), &eventSubscriber{
-			publisher:  publisher,
-			subscriber: subscriber,
-		})
-	}
-
-	return nil
-}
-
-// AddStatePublishers registers one or more state publishers with the eGo engine.
-// This function subscribes the publishers to the event stream, allowing them to receive state changes.
-//
-// Parameters:
-//   - publishers: A list of state publishers to be added to the engine.
-//
-// Returns an error if the engine has not started.
-func (engine *Engine) AddStatePublishers(publishers ...StatePublisher) error {
-	if !engine.Started() {
-		return ErrEngineNotStarted
-	}
-
-	engine.mutex.Lock()
-	defer engine.mutex.Unlock()
-	eventStream := engine.eventStream
-
-	for _, publisher := range publishers {
-		subscriber := eventStream.AddSubscriber()
-		for i := 0; i < int(engine.partitionsCount); i++ {
-			topic := fmt.Sprintf(statesTopic, i)
-			engine.eventStream.Subscribe(subscriber, topic)
-		}
-
-		engine.statesPublishers.Set(publisher.ID(), &stateSubscriber{
-			publisher:  publisher,
-			subscriber: subscriber,
-		})
-	}
-
-	return nil
 }
 
 // Entity creates an event-sourced entity that persists its state by storing a history of events.
@@ -602,6 +546,87 @@ func (engine *Engine) SendCommand(ctx context.Context, entityID string, cmd Comm
 	return nil, 0, ErrCommandReplyUnmarshalling
 }
 
+// AddEventPublishers registers one or more event publishers with the eGo engine.
+// This function subscribes the publishers to the event stream, allowing them to receive events.
+//
+// Parameters:
+//   - publishers: A list of event publishers to be added to the engine.
+//
+// Returns an error if the engine has not started.
+func (engine *Engine) AddEventPublishers(publishers ...EventPublisher) error {
+	if !engine.Started() {
+		return ErrEngineNotStarted
+	}
+
+	engine.mutex.Lock()
+	defer engine.mutex.Unlock()
+
+	eventStream := engine.eventStream
+
+	for _, publisher := range publishers {
+		subscriber := eventStream.AddSubscriber()
+		for i := 0; i < int(engine.partitionsCount); i++ {
+			topic := fmt.Sprintf(eventsTopic, i)
+			engine.eventStream.Subscribe(subscriber, topic)
+		}
+
+		// create an instance of the event subscriber
+		eventSubscriber := &eventSubscriber{
+			publisher:  publisher,
+			subscriber: subscriber,
+			done:       make(chan Done, 1),
+		}
+
+		// add the event publisher to the engine
+		engine.eventPublishers.Set(publisher.ID(), eventSubscriber)
+
+		// start the event publisher
+		go engine.sendEvent(eventSubscriber)
+	}
+
+	return nil
+}
+
+// AddStatePublishers registers one or more state publishers with the eGo engine.
+// This function subscribes the publishers to the event stream, allowing them to receive state changes.
+//
+// Parameters:
+//   - publishers: A list of state publishers to be added to the engine.
+//
+// Returns an error if the engine has not started.
+func (engine *Engine) AddStatePublishers(publishers ...StatePublisher) error {
+	if !engine.Started() {
+		return ErrEngineNotStarted
+	}
+
+	engine.mutex.Lock()
+	defer engine.mutex.Unlock()
+	eventStream := engine.eventStream
+
+	for _, publisher := range publishers {
+		subscriber := eventStream.AddSubscriber()
+		for i := 0; i < int(engine.partitionsCount); i++ {
+			topic := fmt.Sprintf(statesTopic, i)
+			engine.eventStream.Subscribe(subscriber, topic)
+		}
+
+		// create an instance of the state subscriber
+		stateSubscriber := &stateSubscriber{
+			publisher:  publisher,
+			subscriber: subscriber,
+			done:       make(chan Done, 1),
+		}
+
+		// add the state publisher to the engine
+		engine.statesPublishers.Set(publisher.ID(), stateSubscriber)
+
+		// start the state publisher
+		go engine.sendState(stateSubscriber)
+	}
+
+	return nil
+}
+
 // parseCommandReply parses the command reply
 func parseCommandReply(reply *egopb.CommandReply) (State, uint64, error) {
 	var (
@@ -627,4 +652,64 @@ func parseCommandReply(reply *egopb.CommandReply) (State, uint64, error) {
 		return state, 0, err
 	}
 	return state, 0, errors.New("no state received")
+}
+
+// sendEvent sends events to the event publisher
+func (engine *Engine) sendEvent(processor *eventSubscriber) {
+	for {
+		select {
+		case <-processor.done:
+			return
+		case message := <-processor.subscriber.Iterator():
+			switch msg := message.Payload().(type) {
+			case *egopb.Event:
+				publisher := processor.publisher
+				if err := publisher.Publish(context.Background(), msg); err != nil {
+					engine.logger.Errorf("(%s) failed to publish event=[persistenceID=%s, sequenceNumber=%d]: %s",
+						publisher.ID(),
+						msg.GetPersistenceId(),
+						msg.GetSequenceNumber(),
+						err.Error())
+					continue
+				}
+
+				engine.logger.Infof("(%s) successfully published event=[persistenceID=%s, sequenceNumber=%d]: %s",
+					publisher.ID(),
+					msg.GetPersistenceId(),
+					msg.GetSequenceNumber())
+			default:
+				// pass
+			}
+		}
+	}
+}
+
+// sendState sends state changes to the state publisher
+func (engine *Engine) sendState(processor *stateSubscriber) {
+	for {
+		select {
+		case <-processor.done:
+			return
+		case message := <-processor.subscriber.Iterator():
+			switch msg := message.Payload().(type) {
+			case *egopb.DurableState:
+				publisher := processor.publisher
+				if err := publisher.Publish(context.Background(), msg); err != nil {
+					engine.logger.Errorf("(%s) failed to publish state=[persistenceID=%s, version=%d]: %s",
+						publisher.ID(),
+						msg.GetPersistenceId(),
+						msg.GetVersionNumber(),
+						err.Error())
+					continue
+				}
+
+				engine.logger.Infof("(%s) successfully published state=[persistenceID=%s, version=%d]: %s",
+					publisher.ID(),
+					msg.GetPersistenceId(),
+					msg.GetVersionNumber())
+			default:
+				// pass
+			}
+		}
+	}
 }

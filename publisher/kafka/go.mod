@@ -4,7 +4,7 @@ go 1.23.0
 
 require (
 	github.com/IBM/sarama v1.45.0
-	github.com/tochemey/ego/v3 v3.3.2
+	github.com/tochemey/ego/v3 v3.3.3-0.20250216192259-7c609e9f5bd4
 	go.uber.org/atomic v1.11.0
 )
 
@@ -39,7 +39,6 @@ require (
 	github.com/tidwall/btree v1.7.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/redcon v1.6.2 // indirect
-	github.com/tochemey/goakt/v2 v2.13.0 // indirect
 	github.com/tochemey/olric v0.2.0 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect

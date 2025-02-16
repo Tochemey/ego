@@ -26,9 +26,13 @@ package ego
 
 import (
 	"context"
+	"errors"
 
 	"github.com/tochemey/ego/v3/egopb"
 )
+
+// ErrPublisherNotStarted is returned when an operation is attempted on a publisher that has not been started.
+var ErrPublisherNotStarted = errors.New("publisher not started")
 
 // EventPublisher defines an interface for publishing events.
 // Implementations of this interface are responsible for delivering events

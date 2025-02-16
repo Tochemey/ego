@@ -25,19 +25,74 @@
 package kafka
 
 import (
+	"context"
+	"time"
+
 	"github.com/IBM/sarama"
 	"github.com/tochemey/goakt/v3/log"
 	"go.uber.org/atomic"
+
+	"github.com/tochemey/ego/v3"
+	"github.com/tochemey/ego/v3/egopb"
 )
 
-// Publisher defines a Kafka publisher.
+// EventsPublisher defines a Kafka publisher.
 // This publisher is responsible for delivering ego events/durable state to a Kafka broker.
-type Publisher struct {
+type EventsPublisher struct {
 	config   *Config
 	producer sarama.SyncProducer
 	logger   log.Logger
 	started  *atomic.Bool
 }
 
-// var _ ego.EventPublisher = (*Publisher)(nil)
-// var _ ego.StatePublisher = (*Publisher)(nil)
+// ensure EventsPublisher implements ego.EventPublisher.
+var _ ego.EventPublisher = (*EventsPublisher)(nil)
+
+// NewEventsPublisher creates a new instance of EventsPublisher.
+// It requires a configuration instance to create the publisher.
+//
+// Parameters:
+//   - config: The configuration for the Kafka publisher.
+//     This configuration includes the Kafka broker addresses, TLS settings, and other options.
+//
+// Returns:
+//   - *EventsPublisher: The new instance of EventsPublisher.
+//   - error: An error if the publisher could not be created.
+func NewEventsPublisher(config *Config) (*EventsPublisher, error) {
+	saramaConfig := toSaramaConfig(config)
+	producer, err := sarama.NewSyncProducer(config.Brokers, saramaConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	return &EventsPublisher{
+		config:   config,
+		logger:   config.Logger,
+		started:  atomic.NewBool(false),
+		producer: producer,
+	}, nil
+}
+
+// Close implements ego.EventPublisher.
+func (x *EventsPublisher) Close(ctx context.Context) error {
+	// we give the publisher 3 seconds to close. This is an abitrary value.
+	// It helps to ensure that the publisher has enough time to close.
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+
+	x.started.Store(false)
+	return x.producer.Close()
+}
+
+// ID implements ego.EventPublisher.
+func (x *EventsPublisher) ID() string {
+	return "eGo.Kafka.EventsPublisher"
+}
+
+// Publish implements ego.EventPublisher.
+func (x *EventsPublisher) Publish(ctx context.Context, event *egopb.Event) error {
+	// if !x.started.Load() {
+	// 	return ego.ErrPublisherNotStarted
+	// }
+	panic("unimplemented")
+}
