@@ -1,6 +1,6 @@
 VERSION 0.8
 
-FROM tochemey/docker-go:1.22.0-3.0.0
+FROM tochemey/docker-go:1.23.4-5.1.1
 
 RUN go install github.com/ory/go-acc@latest
 

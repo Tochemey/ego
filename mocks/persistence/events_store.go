@@ -26,6 +26,10 @@ func (_m *EventsStore) EXPECT() *EventsStore_Expecter {
 func (_m *EventsStore) Connect(ctx context.Context) error {
 	ret := _m.Called(ctx)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Connect")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
 		r0 = rf(ctx)
@@ -67,6 +71,10 @@ func (_c *EventsStore_Connect_Call) RunAndReturn(run func(context.Context) error
 // DeleteEvents provides a mock function with given fields: ctx, persistenceID, toSequenceNumber
 func (_m *EventsStore) DeleteEvents(ctx context.Context, persistenceID string, toSequenceNumber uint64) error {
 	ret := _m.Called(ctx, persistenceID, toSequenceNumber)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteEvents")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, string, uint64) error); ok {
@@ -112,6 +120,10 @@ func (_c *EventsStore_DeleteEvents_Call) RunAndReturn(run func(context.Context, 
 func (_m *EventsStore) Disconnect(ctx context.Context) error {
 	ret := _m.Called(ctx)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Disconnect")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
 		r0 = rf(ctx)
@@ -153,6 +165,10 @@ func (_c *EventsStore_Disconnect_Call) RunAndReturn(run func(context.Context) er
 // GetLatestEvent provides a mock function with given fields: ctx, persistenceID
 func (_m *EventsStore) GetLatestEvent(ctx context.Context, persistenceID string) (*egopb.Event, error) {
 	ret := _m.Called(ctx, persistenceID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetLatestEvent")
+	}
 
 	var r0 *egopb.Event
 	var r1 error
@@ -208,6 +224,10 @@ func (_c *EventsStore_GetLatestEvent_Call) RunAndReturn(run func(context.Context
 // GetShardEvents provides a mock function with given fields: ctx, shardNumber, offset, max
 func (_m *EventsStore) GetShardEvents(ctx context.Context, shardNumber uint64, offset int64, max uint64) ([]*egopb.Event, int64, error) {
 	ret := _m.Called(ctx, shardNumber, offset, max)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetShardEvents")
+	}
 
 	var r0 []*egopb.Event
 	var r1 int64
@@ -273,6 +293,10 @@ func (_c *EventsStore_GetShardEvents_Call) RunAndReturn(run func(context.Context
 func (_m *EventsStore) PersistenceIDs(ctx context.Context, pageSize uint64, pageToken string) ([]string, string, error) {
 	ret := _m.Called(ctx, pageSize, pageToken)
 
+	if len(ret) == 0 {
+		panic("no return value specified for PersistenceIDs")
+	}
+
 	var r0 []string
 	var r1 string
 	var r2 error
@@ -336,6 +360,10 @@ func (_c *EventsStore_PersistenceIDs_Call) RunAndReturn(run func(context.Context
 func (_m *EventsStore) Ping(ctx context.Context) error {
 	ret := _m.Called(ctx)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Ping")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
 		r0 = rf(ctx)
@@ -377,6 +405,10 @@ func (_c *EventsStore_Ping_Call) RunAndReturn(run func(context.Context) error) *
 // ReplayEvents provides a mock function with given fields: ctx, persistenceID, fromSequenceNumber, toSequenceNumber, max
 func (_m *EventsStore) ReplayEvents(ctx context.Context, persistenceID string, fromSequenceNumber uint64, toSequenceNumber uint64, max uint64) ([]*egopb.Event, error) {
 	ret := _m.Called(ctx, persistenceID, fromSequenceNumber, toSequenceNumber, max)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ReplayEvents")
+	}
 
 	var r0 []*egopb.Event
 	var r1 error
@@ -436,6 +468,10 @@ func (_c *EventsStore_ReplayEvents_Call) RunAndReturn(run func(context.Context, 
 func (_m *EventsStore) ShardNumbers(ctx context.Context) ([]uint64, error) {
 	ret := _m.Called(ctx)
 
+	if len(ret) == 0 {
+		panic("no return value specified for ShardNumbers")
+	}
+
 	var r0 []uint64
 	var r1 error
 	if rf, ok := ret.Get(0).(func(context.Context) ([]uint64, error)); ok {
@@ -489,6 +525,10 @@ func (_c *EventsStore_ShardNumbers_Call) RunAndReturn(run func(context.Context) 
 // WriteEvents provides a mock function with given fields: ctx, events
 func (_m *EventsStore) WriteEvents(ctx context.Context, events []*egopb.Event) error {
 	ret := _m.Called(ctx, events)
+
+	if len(ret) == 0 {
+		panic("no return value specified for WriteEvents")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, []*egopb.Event) error); ok {
