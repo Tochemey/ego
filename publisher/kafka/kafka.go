@@ -69,7 +69,7 @@ func NewEventsPublisher(config *Config) (*EventsPublisher, error) {
 	return &EventsPublisher{
 		config:   config,
 		logger:   config.Logger,
-		started:  atomic.NewBool(false),
+		started:  atomic.NewBool(true),
 		producer: producer,
 	}, nil
 }
@@ -151,7 +151,7 @@ func NewDurableStatePublisher(config *Config) (*DurableStatePublisher, error) {
 	return &DurableStatePublisher{
 		config:   config,
 		logger:   config.Logger,
-		started:  atomic.NewBool(false),
+		started:  atomic.NewBool(true),
 		producer: producer,
 	}, nil
 }
