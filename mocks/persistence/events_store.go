@@ -26,6 +26,10 @@ func (_m *EventsStore) EXPECT() *EventsStore_Expecter {
 func (_m *EventsStore) Connect(ctx context.Context) error {
 	ret := _m.Called(ctx)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Connect")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
 		r0 = rf(ctx)
@@ -67,6 +71,10 @@ func (_c *EventsStore_Connect_Call) RunAndReturn(run func(context.Context) error
 // DeleteEvents provides a mock function with given fields: ctx, persistenceID, toSequenceNumber
 func (_m *EventsStore) DeleteEvents(ctx context.Context, persistenceID string, toSequenceNumber uint64) error {
 	ret := _m.Called(ctx, persistenceID, toSequenceNumber)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteEvents")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, string, uint64) error); ok {
@@ -112,6 +120,10 @@ func (_c *EventsStore_DeleteEvents_Call) RunAndReturn(run func(context.Context, 
 func (_m *EventsStore) Disconnect(ctx context.Context) error {
 	ret := _m.Called(ctx)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Disconnect")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
 		r0 = rf(ctx)
@@ -153,6 +165,10 @@ func (_c *EventsStore_Disconnect_Call) RunAndReturn(run func(context.Context) er
 // GetLatestEvent provides a mock function with given fields: ctx, persistenceID
 func (_m *EventsStore) GetLatestEvent(ctx context.Context, persistenceID string) (*egopb.Event, error) {
 	ret := _m.Called(ctx, persistenceID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetLatestEvent")
+	}
 
 	var r0 *egopb.Event
 	var r1 error
@@ -205,18 +221,22 @@ func (_c *EventsStore_GetLatestEvent_Call) RunAndReturn(run func(context.Context
 	return _c
 }
 
-// GetShardEvents provides a mock function with given fields: ctx, shardNumber, offset, max
-func (_m *EventsStore) GetShardEvents(ctx context.Context, shardNumber uint64, offset int64, max uint64) ([]*egopb.Event, int64, error) {
-	ret := _m.Called(ctx, shardNumber, offset, max)
+// GetShardEvents provides a mock function with given fields: ctx, shardNumber, offset, limit
+func (_m *EventsStore) GetShardEvents(ctx context.Context, shardNumber uint64, offset int64, limit uint64) ([]*egopb.Event, int64, error) {
+	ret := _m.Called(ctx, shardNumber, offset, limit)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetShardEvents")
+	}
 
 	var r0 []*egopb.Event
 	var r1 int64
 	var r2 error
 	if rf, ok := ret.Get(0).(func(context.Context, uint64, int64, uint64) ([]*egopb.Event, int64, error)); ok {
-		return rf(ctx, shardNumber, offset, max)
+		return rf(ctx, shardNumber, offset, limit)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, uint64, int64, uint64) []*egopb.Event); ok {
-		r0 = rf(ctx, shardNumber, offset, max)
+		r0 = rf(ctx, shardNumber, offset, limit)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*egopb.Event)
@@ -224,13 +244,13 @@ func (_m *EventsStore) GetShardEvents(ctx context.Context, shardNumber uint64, o
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, uint64, int64, uint64) int64); ok {
-		r1 = rf(ctx, shardNumber, offset, max)
+		r1 = rf(ctx, shardNumber, offset, limit)
 	} else {
 		r1 = ret.Get(1).(int64)
 	}
 
 	if rf, ok := ret.Get(2).(func(context.Context, uint64, int64, uint64) error); ok {
-		r2 = rf(ctx, shardNumber, offset, max)
+		r2 = rf(ctx, shardNumber, offset, limit)
 	} else {
 		r2 = ret.Error(2)
 	}
@@ -247,12 +267,12 @@ type EventsStore_GetShardEvents_Call struct {
 //   - ctx context.Context
 //   - shardNumber uint64
 //   - offset int64
-//   - max uint64
-func (_e *EventsStore_Expecter) GetShardEvents(ctx interface{}, shardNumber interface{}, offset interface{}, max interface{}) *EventsStore_GetShardEvents_Call {
-	return &EventsStore_GetShardEvents_Call{Call: _e.mock.On("GetShardEvents", ctx, shardNumber, offset, max)}
+//   - limit uint64
+func (_e *EventsStore_Expecter) GetShardEvents(ctx interface{}, shardNumber interface{}, offset interface{}, limit interface{}) *EventsStore_GetShardEvents_Call {
+	return &EventsStore_GetShardEvents_Call{Call: _e.mock.On("GetShardEvents", ctx, shardNumber, offset, limit)}
 }
 
-func (_c *EventsStore_GetShardEvents_Call) Run(run func(ctx context.Context, shardNumber uint64, offset int64, max uint64)) *EventsStore_GetShardEvents_Call {
+func (_c *EventsStore_GetShardEvents_Call) Run(run func(ctx context.Context, shardNumber uint64, offset int64, limit uint64)) *EventsStore_GetShardEvents_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(uint64), args[2].(int64), args[3].(uint64))
 	})
@@ -272,6 +292,10 @@ func (_c *EventsStore_GetShardEvents_Call) RunAndReturn(run func(context.Context
 // PersistenceIDs provides a mock function with given fields: ctx, pageSize, pageToken
 func (_m *EventsStore) PersistenceIDs(ctx context.Context, pageSize uint64, pageToken string) ([]string, string, error) {
 	ret := _m.Called(ctx, pageSize, pageToken)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PersistenceIDs")
+	}
 
 	var r0 []string
 	var r1 string
@@ -336,6 +360,10 @@ func (_c *EventsStore_PersistenceIDs_Call) RunAndReturn(run func(context.Context
 func (_m *EventsStore) Ping(ctx context.Context) error {
 	ret := _m.Called(ctx)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Ping")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
 		r0 = rf(ctx)
@@ -374,17 +402,21 @@ func (_c *EventsStore_Ping_Call) RunAndReturn(run func(context.Context) error) *
 	return _c
 }
 
-// ReplayEvents provides a mock function with given fields: ctx, persistenceID, fromSequenceNumber, toSequenceNumber, max
-func (_m *EventsStore) ReplayEvents(ctx context.Context, persistenceID string, fromSequenceNumber uint64, toSequenceNumber uint64, max uint64) ([]*egopb.Event, error) {
-	ret := _m.Called(ctx, persistenceID, fromSequenceNumber, toSequenceNumber, max)
+// ReplayEvents provides a mock function with given fields: ctx, persistenceID, fromSequenceNumber, toSequenceNumber, limit
+func (_m *EventsStore) ReplayEvents(ctx context.Context, persistenceID string, fromSequenceNumber uint64, toSequenceNumber uint64, limit uint64) ([]*egopb.Event, error) {
+	ret := _m.Called(ctx, persistenceID, fromSequenceNumber, toSequenceNumber, limit)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ReplayEvents")
+	}
 
 	var r0 []*egopb.Event
 	var r1 error
 	if rf, ok := ret.Get(0).(func(context.Context, string, uint64, uint64, uint64) ([]*egopb.Event, error)); ok {
-		return rf(ctx, persistenceID, fromSequenceNumber, toSequenceNumber, max)
+		return rf(ctx, persistenceID, fromSequenceNumber, toSequenceNumber, limit)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, string, uint64, uint64, uint64) []*egopb.Event); ok {
-		r0 = rf(ctx, persistenceID, fromSequenceNumber, toSequenceNumber, max)
+		r0 = rf(ctx, persistenceID, fromSequenceNumber, toSequenceNumber, limit)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).([]*egopb.Event)
@@ -392,7 +424,7 @@ func (_m *EventsStore) ReplayEvents(ctx context.Context, persistenceID string, f
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, string, uint64, uint64, uint64) error); ok {
-		r1 = rf(ctx, persistenceID, fromSequenceNumber, toSequenceNumber, max)
+		r1 = rf(ctx, persistenceID, fromSequenceNumber, toSequenceNumber, limit)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -410,12 +442,12 @@ type EventsStore_ReplayEvents_Call struct {
 //   - persistenceID string
 //   - fromSequenceNumber uint64
 //   - toSequenceNumber uint64
-//   - max uint64
-func (_e *EventsStore_Expecter) ReplayEvents(ctx interface{}, persistenceID interface{}, fromSequenceNumber interface{}, toSequenceNumber interface{}, max interface{}) *EventsStore_ReplayEvents_Call {
-	return &EventsStore_ReplayEvents_Call{Call: _e.mock.On("ReplayEvents", ctx, persistenceID, fromSequenceNumber, toSequenceNumber, max)}
+//   - limit uint64
+func (_e *EventsStore_Expecter) ReplayEvents(ctx interface{}, persistenceID interface{}, fromSequenceNumber interface{}, toSequenceNumber interface{}, limit interface{}) *EventsStore_ReplayEvents_Call {
+	return &EventsStore_ReplayEvents_Call{Call: _e.mock.On("ReplayEvents", ctx, persistenceID, fromSequenceNumber, toSequenceNumber, limit)}
 }
 
-func (_c *EventsStore_ReplayEvents_Call) Run(run func(ctx context.Context, persistenceID string, fromSequenceNumber uint64, toSequenceNumber uint64, max uint64)) *EventsStore_ReplayEvents_Call {
+func (_c *EventsStore_ReplayEvents_Call) Run(run func(ctx context.Context, persistenceID string, fromSequenceNumber uint64, toSequenceNumber uint64, limit uint64)) *EventsStore_ReplayEvents_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string), args[2].(uint64), args[3].(uint64), args[4].(uint64))
 	})
@@ -435,6 +467,10 @@ func (_c *EventsStore_ReplayEvents_Call) RunAndReturn(run func(context.Context, 
 // ShardNumbers provides a mock function with given fields: ctx
 func (_m *EventsStore) ShardNumbers(ctx context.Context) ([]uint64, error) {
 	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ShardNumbers")
+	}
 
 	var r0 []uint64
 	var r1 error
@@ -489,6 +525,10 @@ func (_c *EventsStore_ShardNumbers_Call) RunAndReturn(run func(context.Context) 
 // WriteEvents provides a mock function with given fields: ctx, events
 func (_m *EventsStore) WriteEvents(ctx context.Context, events []*egopb.Event) error {
 	ret := _m.Called(ctx, events)
+
+	if len(ret) == 0 {
+		panic("no return value specified for WriteEvents")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, []*egopb.Event) error); ok {

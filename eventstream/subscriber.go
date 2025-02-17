@@ -1,7 +1,7 @@
 /*
  * MIT License
  *
- * Copyright (c) 2022-2025 Arsene Tochemey Gandote
+ * Copyright (c) 2023-2025 Tochemey
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -28,20 +28,21 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+	"go.uber.org/atomic"
 
 	"github.com/tochemey/ego/v3/internal/queue"
 )
 
 // Subscriber defines the Subscriber Interface
 type Subscriber interface {
+	ID() string
+	Active() bool
 	Topics() []string
 	Iterator() chan *Message
 	Shutdown()
 	signal(message *Message)
 	subscribe(topic string)
 	unsubscribe(topic string)
-	Active() bool
-	ID() string
 }
 
 // subscriber defines the subscriber
@@ -55,7 +56,7 @@ type subscriber struct {
 	// topics define the topic the subscriber subscribed to
 	topics map[string]bool
 	// states whether the given subscriber is active or not
-	active bool
+	active *atomic.Bool
 }
 
 var _ Subscriber = &subscriber{}
@@ -72,7 +73,7 @@ func newSubscriber() *subscriber {
 		sem:      sync.Mutex{},
 		messages: queue.NewQueue(),
 		topics:   make(map[string]bool),
-		active:   true,
+		active:   atomic.NewBool(true),
 	}
 }
 
@@ -87,11 +88,7 @@ func (x *subscriber) ID() string {
 
 // Active checks whether the consumer is active
 func (x *subscriber) Active() bool {
-	// acquire the lock
-	x.sem.Lock()
-	// release the lock once done
-	defer x.sem.Unlock()
-	return x.active
+	return x.active.Load()
 }
 
 // Topics returns the list of topics the consumer has subscribed to
@@ -109,23 +106,21 @@ func (x *subscriber) Topics() []string {
 
 // Shutdown shutdowns the consumer
 func (x *subscriber) Shutdown() {
-	// acquire the lock
-	x.sem.Lock()
-	// release the lock once done
-	defer x.sem.Unlock()
-	x.active = false
+	x.active.Store(false)
 }
 
 func (x *subscriber) Iterator() chan *Message {
-	out := make(chan *Message, x.messages.Length())
-	defer close(out)
-	for {
-		msg := x.messages.Dequeue()
-		if msg == nil {
-			break
+	out := make(chan *Message)
+	go func() {
+		defer close(out)
+		for x.active.Load() && x.messages.Length() > 0 {
+			msg := x.messages.Dequeue()
+			if msg == nil {
+				break
+			}
+			out <- msg.(*Message)
 		}
-		out <- msg.(*Message)
-	}
+	}()
 	return out
 }
 
@@ -136,7 +131,7 @@ func (x *subscriber) signal(message *Message) {
 	// release the lock once done
 	defer x.sem.Unlock()
 	// only receive message when active
-	if x.active {
+	if x.active.Load() {
 		x.messages.Enqueue(message)
 	}
 }

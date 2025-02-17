@@ -1,7 +1,7 @@
 /*
  * MIT License
  *
- * Copyright (c) 2022-2025 Arsene Tochemey Gandote
+ * Copyright (c) 2023-2025 Tochemey
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -94,7 +94,7 @@ func (x *EventStore) Ping(ctx context.Context) error {
 }
 
 func (x *EventStore) DeleteEvents(_ context.Context, persistenceID string, toSequenceNumber uint64) error {
-	x.db.Range(func(key interface{}, _ interface{}) bool {
+	x.db.Range(func(key interface{}, _ any) bool {
 		k := key.(EventKey)
 		if k.PersistenceID == persistenceID && k.SequenceNumber <= toSequenceNumber {
 			x.db.Delete(key)
@@ -104,9 +104,9 @@ func (x *EventStore) DeleteEvents(_ context.Context, persistenceID string, toSeq
 	return nil
 }
 
-func (x *EventStore) ReplayEvents(_ context.Context, persistenceID string, fromSequenceNumber, toSequenceNumber uint64, max uint64) ([]*egopb.Event, error) {
+func (x *EventStore) ReplayEvents(_ context.Context, persistenceID string, fromSequenceNumber, toSequenceNumber uint64, limit uint64) ([]*egopb.Event, error) {
 	var events []*egopb.Event
-	collect := func(key, value interface{}) bool {
+	collect := func(key, value any) bool {
 		k, ok := key.(EventKey)
 		if !ok {
 			return true // Skip if the key is not of type EventKey
@@ -116,7 +116,7 @@ func (x *EventStore) ReplayEvents(_ context.Context, persistenceID string, fromS
 			k.SequenceNumber >= fromSequenceNumber &&
 			k.SequenceNumber <= toSequenceNumber {
 			events = append(events, value.(*egopb.Event))
-			if len(events) >= int(max) {
+			if len(events) >= int(limit) {
 				return false // Stop further iteration
 			}
 		}
@@ -129,7 +129,7 @@ func (x *EventStore) ReplayEvents(_ context.Context, persistenceID string, fromS
 
 func (x *EventStore) GetLatestEvent(_ context.Context, persistenceID string) (*egopb.Event, error) {
 	var events []*egopb.Event
-	x.db.Range(func(key interface{}, value interface{}) bool {
+	x.db.Range(func(key any, value any) bool {
 		k := key.(EventKey)
 		if k.PersistenceID == persistenceID {
 			events = append(events, value.(*egopb.Event))
@@ -150,7 +150,7 @@ func (x *EventStore) GetLatestEvent(_ context.Context, persistenceID string) (*e
 func (x *EventStore) PersistenceIDs(_ context.Context, pageSize uint64, pageToken string) (persistenceIDs []string, nextPageToken string, err error) {
 	// step 1: collect unique PersistenceIDs using a map
 	idSet := make(map[string]struct{})
-	x.db.Range(func(key, _ interface{}) bool {
+	x.db.Range(func(key, _ any) bool {
 		k := key.(EventKey)
 		idSet[k.PersistenceID] = struct{}{}
 		return true
@@ -193,9 +193,9 @@ func (x *EventStore) PersistenceIDs(_ context.Context, pageSize uint64, pageToke
 	return persistenceIDs, nextPageToken, nil
 }
 
-func (x *EventStore) GetShardEvents(_ context.Context, shardNumber uint64, offset int64, max uint64) ([]*egopb.Event, int64, error) {
+func (x *EventStore) GetShardEvents(_ context.Context, shardNumber uint64, offset int64, limit uint64) ([]*egopb.Event, int64, error) {
 	var shardEvents []*egopb.Event
-	x.db.Range(func(_ interface{}, value interface{}) bool {
+	x.db.Range(func(_ any, value any) bool {
 		event := value.(*egopb.Event)
 		if event.GetShard() == shardNumber {
 			shardEvents = append(shardEvents, value.(*egopb.Event))
@@ -210,7 +210,7 @@ func (x *EventStore) GetShardEvents(_ context.Context, shardNumber uint64, offse
 	var events []*egopb.Event
 	for _, event := range shardEvents {
 		if event.GetTimestamp() > offset {
-			if len(events) <= int(max) {
+			if len(events) <= int(limit) {
 				events = append(events, event)
 			}
 		}
@@ -230,7 +230,7 @@ func (x *EventStore) GetShardEvents(_ context.Context, shardNumber uint64, offse
 
 func (x *EventStore) ShardNumbers(context.Context) ([]uint64, error) {
 	shards := goset.NewSet[uint64]()
-	x.db.Range(func(_ interface{}, value interface{}) bool {
+	x.db.Range(func(_ any, value any) bool {
 		event := value.(*egopb.Event)
 		shards.Add(event.GetShard())
 		return true

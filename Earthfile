@@ -1,8 +1,10 @@
 VERSION 0.8
 
-FROM tochemey/docker-go:1.22.0-3.0.0
+FROM tochemey/docker-go:1.23.4-5.1.1
 
 RUN go install github.com/ory/go-acc@latest
+# install vektra/mockery
+RUN go install github.com/vektra/mockery/v2@v2.52.1
 
 protogen:
     # copy the proto files to generate
@@ -92,6 +94,8 @@ mock:
     # generate the mocks
     RUN mockery  --dir persistence --all --keeptree --exported=true --with-expecter=true --inpackage=true --disable-version-string=true --output ./mocks/persistence --case snake
     RUN mockery  --dir offsetstore --name OffsetStore --keeptree --exported=true --with-expecter=true --inpackage=true --disable-version-string=true --output ./mocks/offsetstore --case snake
+    RUN mockery  --dir . --name EventPublisher --keeptree --exported=true --with-expecter=true --inpackage=true --disable-version-string=true --output ./mocks/ego --case snake
+    RUN mockery  --dir . --name StatePublisher --keeptree --exported=true --with-expecter=true --inpackage=true --disable-version-string=true --output ./mocks/ego --case snake
 
 
     SAVE ARTIFACT ./mocks mocks AS LOCAL mocks

@@ -1,7 +1,7 @@
 /*
  * MIT License
  *
- * Copyright (c) 2022-2025 Arsene Tochemey Gandote
+ * Copyright (c) 2023-2025 Tochemey
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -27,8 +27,8 @@ package projection
 import (
 	"context"
 
-	"github.com/tochemey/goakt/v2/actors"
-	"github.com/tochemey/goakt/v2/goaktpb"
+	goakt "github.com/tochemey/goakt/v3/actor"
+	"github.com/tochemey/goakt/v3/goaktpb"
 
 	"github.com/tochemey/ego/v3/offsetstore"
 	"github.com/tochemey/ego/v3/persistence"
@@ -41,7 +41,7 @@ type Projection struct {
 }
 
 // implements the Actor contract
-var _ actors.Actor = (*Projection)(nil)
+var _ goakt.Actor = (*Projection)(nil)
 
 // New creates an instance of Projection
 func New(name string,
@@ -60,7 +60,7 @@ func (proj *Projection) PreStart(ctx context.Context) error {
 }
 
 // Receive handle the message sent to the projection actor
-func (proj *Projection) Receive(ctx *actors.ReceiveContext) {
+func (proj *Projection) Receive(ctx *goakt.ReceiveContext) {
 	switch ctx.Message().(type) {
 	case *goaktpb.PostStart:
 		proj.runner.Run(ctx.Context())

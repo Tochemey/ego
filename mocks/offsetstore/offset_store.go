@@ -26,6 +26,10 @@ func (_m *OffsetStore) EXPECT() *OffsetStore_Expecter {
 func (_m *OffsetStore) Connect(ctx context.Context) error {
 	ret := _m.Called(ctx)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Connect")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
 		r0 = rf(ctx)
@@ -68,6 +72,10 @@ func (_c *OffsetStore_Connect_Call) RunAndReturn(run func(context.Context) error
 func (_m *OffsetStore) Disconnect(ctx context.Context) error {
 	ret := _m.Called(ctx)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Disconnect")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
 		r0 = rf(ctx)
@@ -109,6 +117,10 @@ func (_c *OffsetStore_Disconnect_Call) RunAndReturn(run func(context.Context) er
 // GetCurrentOffset provides a mock function with given fields: ctx, projectionID
 func (_m *OffsetStore) GetCurrentOffset(ctx context.Context, projectionID *egopb.ProjectionId) (*egopb.Offset, error) {
 	ret := _m.Called(ctx, projectionID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetCurrentOffset")
+	}
 
 	var r0 *egopb.Offset
 	var r1 error
@@ -165,6 +177,10 @@ func (_c *OffsetStore_GetCurrentOffset_Call) RunAndReturn(run func(context.Conte
 func (_m *OffsetStore) Ping(ctx context.Context) error {
 	ret := _m.Called(ctx)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Ping")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
 		r0 = rf(ctx)
@@ -206,6 +222,10 @@ func (_c *OffsetStore_Ping_Call) RunAndReturn(run func(context.Context) error) *
 // ResetOffset provides a mock function with given fields: ctx, projectionName, value
 func (_m *OffsetStore) ResetOffset(ctx context.Context, projectionName string, value int64) error {
 	ret := _m.Called(ctx, projectionName, value)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ResetOffset")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, string, int64) error); ok {
@@ -250,6 +270,10 @@ func (_c *OffsetStore_ResetOffset_Call) RunAndReturn(run func(context.Context, s
 // WriteOffset provides a mock function with given fields: ctx, offset
 func (_m *OffsetStore) WriteOffset(ctx context.Context, offset *egopb.Offset) error {
 	ret := _m.Called(ctx, offset)
+
+	if len(ret) == 0 {
+		panic("no return value specified for WriteOffset")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, *egopb.Offset) error); ok {

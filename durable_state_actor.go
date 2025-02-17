@@ -1,7 +1,7 @@
 /*
  * MIT License
  *
- * Copyright (c) 2022-2025 Arsene Tochemey Gandote
+ * Copyright (c) 2023-2025 Tochemey
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -30,8 +30,8 @@ import (
 	"math"
 	"time"
 
-	"github.com/tochemey/goakt/v2/actors"
-	"github.com/tochemey/goakt/v2/goaktpb"
+	goakt "github.com/tochemey/goakt/v3/actor"
+	"github.com/tochemey/goakt/v3/goaktpb"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -55,11 +55,11 @@ type durableStateActor struct {
 	currentVersion  uint64
 	lastCommandTime time.Time
 	eventsStream    eventstream.Stream
-	actorSystem     actors.ActorSystem
+	actorSystem     goakt.ActorSystem
 }
 
-// implements the actors.Actor interface
-var _ actors.Actor = (*durableStateActor)(nil)
+// implements the goakt.Actor interface
+var _ goakt.Actor = (*durableStateActor)(nil)
 
 // newDurableStateActor creates an instance of actor provided the DurableStateBehavior
 func newDurableStateActor(behavior DurableStateBehavior, stateStore persistence.StateStore, eventsStream eventstream.Stream) *durableStateActor {
@@ -81,7 +81,7 @@ func (entity *durableStateActor) PreStart(ctx context.Context) error {
 }
 
 // Receive processes any message dropped into the actor mailbox.
-func (entity *durableStateActor) Receive(ctx *actors.ReceiveContext) {
+func (entity *durableStateActor) Receive(ctx *goakt.ReceiveContext) {
 	switch command := ctx.Message().(type) {
 	case *goaktpb.PostStart:
 		entity.actorSystem = ctx.ActorSystem()
@@ -125,7 +125,7 @@ func (entity *durableStateActor) recoverFromStore(ctx context.Context) error {
 }
 
 // processCommand processes the incoming command
-func (entity *durableStateActor) processCommand(receiveContext *actors.ReceiveContext, command Command) {
+func (entity *durableStateActor) processCommand(receiveContext *goakt.ReceiveContext, command Command) {
 	ctx := receiveContext.Context()
 	newState, newVersion, err := entity.HandleCommand(ctx, command, entity.currentVersion, entity.currentState)
 	if err != nil {
@@ -153,7 +153,7 @@ func (entity *durableStateActor) processCommand(receiveContext *actors.ReceiveCo
 }
 
 // sendStateReply sends a state reply message
-func (entity *durableStateActor) sendStateReply(ctx *actors.ReceiveContext) {
+func (entity *durableStateActor) sendStateReply(ctx *goakt.ReceiveContext) {
 	state, _ := anypb.New(entity.currentState)
 	ctx.Response(&egopb.CommandReply{
 		Reply: &egopb.CommandReply_StateReply{
@@ -168,7 +168,7 @@ func (entity *durableStateActor) sendStateReply(ctx *actors.ReceiveContext) {
 }
 
 // sendErrorReply sends an error as a reply message
-func (entity *durableStateActor) sendErrorReply(ctx *actors.ReceiveContext, err error) {
+func (entity *durableStateActor) sendErrorReply(ctx *goakt.ReceiveContext, err error) {
 	ctx.Response(&egopb.CommandReply{
 		Reply: &egopb.CommandReply_ErrorReply{
 			ErrorReply: &egopb.ErrorReply{
@@ -210,6 +210,8 @@ func (entity *durableStateActor) persistStateAndPublish(ctx context.Context) err
 	resultingState, _ := anypb.New(entity.currentState)
 	shardNumber := entity.actorSystem.GetPartition(entity.ID())
 	topic := fmt.Sprintf(statesTopic, shardNumber)
+
+	entity.actorSystem.Logger().Debugf("publishing durableState to topic: %s", topic)
 
 	durableState := &egopb.DurableState{
 		PersistenceId:  entity.ID(),

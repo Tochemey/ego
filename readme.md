@@ -14,10 +14,10 @@ reliable persistence.
 
 ## Table of Content
 
-- [Installation](#installation)
-- [Versioning](#versioning)
-- [Binaries and Go Versions](#binaries-and-minimum-go-versions)
-- [Features](#features)
+- [Installation](#-installation)
+- [Versioning](#-versioning)
+- [Binaries and Go Versions](#-binaries-and-minimum-go-versions)
+- [Features](#-features)
     - [Event Sourced Behavior](#event-sourced-behavior)
         - [Howto](#howto)
         - [Events Stream](#events-stream)
@@ -28,20 +28,21 @@ reliable persistence.
         - [State Store](#state-store)
         - [Howto](#howto-1)
         - [State Stream](#events-stream-1)
-- [Cluster](#cluster)
-- [Testkit](#testkit)
-- [Mocks](#mocks)
-- [Examples](#examples)
-- [Sample](#sample)
-- [Contribution](#contribution)
+    - [Publisher APIs](#publishers)
+- [Cluster](#-cluster)
+- [Testkit](#-testkit)
+- [Mocks](#-mocks)
+- [Examples](#-examples)
+- [Sample](#-sample)
+- [Contribution](#-contribution)
 
-## Installation
+## 💻 Installation
 
 ```bash
-go get github.com/tochemey/ego
+go get github.com/tochemey/ego/v3
 ```
 
-## Versioning
+## 🔢 Versioning
 
 The version system adopted in eGo deviates a bit from the standard semantic versioning system.
 The version format is as follows:
@@ -51,17 +52,18 @@ The version format is as follows:
   changes.
 - The `PATCH` part of the version will cater for dependencies upgrades, bug fixes, security patches and co.
 
-The versioning will remain like `v3.x.x` until further notice.
+The versioning will remain like `v3.x.x` until further notice. The current version is **`v3.4.0`**
 
-## Binaries and Minimum Go Versions
+## 📦 Binaries and Minimum Go Versions
 
 | From     | To       | Minimum Go Version |  
 |----------|----------|--------------------|
+| `v3.3.2` | `v3.4.0` | `1.23.0`           |
 | `v2.0.2` | `v3.3.2` | `1.22.0`           |
 | `v1.1.3` | `v2.0.1` | `1.21.0`           |
 | `v1.0.0` | `v1.1.2` | `1.20.0`           |
 
-## Features
+## ✨ Features
 
 ### Event Sourced Behavior
 
@@ -171,24 +173,38 @@ That enables real-time processing of state without having to interact with the s
 Just use `Subscribe` method of [Engine](./engine.go) and start iterating through the messages and cast every message to
 the [DurableState](./protos/ego/v3/ego.proto).
 
-## Cluster
+### Publishers
+
+eGo offers the following publisher APIs:
+
+* [EventPublisher](./publisher.go) - publish `EventSourcedBehavior` events to any streaming platform
+* [StatePublisher](./publisher.go) - publish `DurableStateBehavior` state to any streaming platform
+
+The following streaming connectors are implemented out of the box:
+
+* [Kafka](./publisher/kafka)
+* [Pulsar](./publisher/pulsar)
+* [NATs](./publisher/nats)
+* [Websocket](./publisher/websocket)
+
+## 🌐 Cluster
 
 The cluster mode heavily relies on [Go-Akt](https://github.com/Tochemey/goakt#clustering) clustering. To enable clustering one need to use `WithCluster` option
 when creating the eGo engine.
 
-## Testkit
+## 🧪 Testkit
 
 eGo comes bundle with in-memory datastore that can be found in the [testkit](./testkit) package. This can help play with eGo.
 
-## Mocks
+## 🏗️ Mocks
 
 eGo ships in some [mocks](./mocks) that can help mock the data stores for unit tests purpose.
 
-## Examples
+## 🎯 Examples
 
 Check the [examples](./example)
 
-## Sample
+## 📝 Sample
 
 ```go
 package main
@@ -335,6 +351,6 @@ func (a *AccountBehavior) HandleEvent(_ context.Context, event ego.Event, priorS
 
 ```
 
-## Contribution
+## 🤲 Contribution
 
 kindly follow the instructions in the [contribution doc](./contributing.md)

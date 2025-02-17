@@ -1,7 +1,7 @@
 /*
  * MIT License
  *
- * Copyright (c) 2022-2025 Arsene Tochemey Gandote
+ * Copyright (c) 2023-2025 Tochemey
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -32,8 +32,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tochemey/goakt/v2/actors"
-	"github.com/tochemey/goakt/v2/log"
+	goakt "github.com/tochemey/goakt/v3/actor"
+	"github.com/tochemey/goakt/v3/log"
 	"go.uber.org/goleak"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -50,10 +50,10 @@ func TestProjection(t *testing.T) {
 		ctx := context.TODO()
 		logger := log.DiscardLogger
 		// create an actor system
-		actorSystem, err := actors.NewActorSystem("TestActorSystem",
-			actors.WithPassivationDisabled(),
-			actors.WithLogger(logger),
-			actors.WithActorInitMaxRetries(3))
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithPassivationDisabled(),
+			goakt.WithLogger(logger),
+			goakt.WithActorInitMaxRetries(3))
 		require.NoError(t, err)
 		assert.NotNil(t, actorSystem)
 

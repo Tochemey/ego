@@ -53,9 +53,3 @@ jobs:
           files: ./coverage.out # optional
           fail_ci_if_error: false # optional (default = false)
           verbose: false # optional (default = false)
-#      - uses: go-semantic-release/action@v1
-#        id: semver
-#        with:
-#          github-token: ${{ secrets.GITHUB_TOKEN }}
-#          allow-initial-development-versions: true
-#          force-bump-patch-version: true

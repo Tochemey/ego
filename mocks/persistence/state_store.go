@@ -26,6 +26,10 @@ func (_m *StateStore) EXPECT() *StateStore_Expecter {
 func (_m *StateStore) Connect(ctx context.Context) error {
 	ret := _m.Called(ctx)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Connect")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
 		r0 = rf(ctx)
@@ -68,6 +72,10 @@ func (_c *StateStore_Connect_Call) RunAndReturn(run func(context.Context) error)
 func (_m *StateStore) Disconnect(ctx context.Context) error {
 	ret := _m.Called(ctx)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Disconnect")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
 		r0 = rf(ctx)
@@ -109,6 +117,10 @@ func (_c *StateStore_Disconnect_Call) RunAndReturn(run func(context.Context) err
 // GetLatestState provides a mock function with given fields: ctx, persistenceID
 func (_m *StateStore) GetLatestState(ctx context.Context, persistenceID string) (*egopb.DurableState, error) {
 	ret := _m.Called(ctx, persistenceID)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetLatestState")
+	}
 
 	var r0 *egopb.DurableState
 	var r1 error
@@ -165,6 +177,10 @@ func (_c *StateStore_GetLatestState_Call) RunAndReturn(run func(context.Context,
 func (_m *StateStore) Ping(ctx context.Context) error {
 	ret := _m.Called(ctx)
 
+	if len(ret) == 0 {
+		panic("no return value specified for Ping")
+	}
+
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
 		r0 = rf(ctx)
@@ -206,6 +222,10 @@ func (_c *StateStore_Ping_Call) RunAndReturn(run func(context.Context) error) *S
 // WriteState provides a mock function with given fields: ctx, state
 func (_m *StateStore) WriteState(ctx context.Context, state *egopb.DurableState) error {
 	ret := _m.Called(ctx, state)
+
+	if len(ret) == 0 {
+		panic("no return value specified for WriteState")
+	}
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, *egopb.DurableState) error); ok {
