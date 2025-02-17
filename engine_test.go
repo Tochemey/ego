@@ -946,6 +946,99 @@ func TestEngine(t *testing.T) {
 		publisher.AssertExpectations(t)
 		provider.AssertExpectations(t)
 	})
+	t.Run("With DurableState Publisher when not started", func(t *testing.T) {
+		ctx := context.TODO()
+		// create the event store
+		eventStore := testkit2.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+
+		publisher := new(egomock.StatePublisher)
+
+		// create the ego engine
+		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		err := engine.AddStatePublishers(publisher)
+		require.Error(t, err)
+		assert.EqualError(t, err, ErrEngineNotStarted.Error())
+
+		assert.NoError(t, eventStore.Disconnect(ctx))
+	})
+	t.Run("With EventPublisher when not started", func(t *testing.T) {
+		ctx := context.TODO()
+		// create the event store
+		eventStore := testkit2.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+
+		publisher := new(egomock.EventPublisher)
+
+		// create the ego engine
+		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		err := engine.AddEventPublishers(publisher)
+		require.Error(t, err)
+		assert.EqualError(t, err, ErrEngineNotStarted.Error())
+
+		assert.NoError(t, eventStore.Disconnect(ctx))
+	})
+	t.Run("With Engine Stop failure when EventPublisher close fails", func(t *testing.T) {
+		ctx := context.TODO()
+		stateStore := testkit2.NewDurableStore()
+		require.NoError(t, stateStore.Connect(ctx))
+
+		// mock the state publisher
+		closeErr := errors.New("close error")
+		publisher := new(egomock.EventPublisher)
+		publisher.On("ID").Return("eGo.test.EventPublisher")
+		publisher.On("Close", ctx).Return(closeErr)
+
+		// create the ego engine
+		engine := NewEngine("Sample", nil,
+			WithStateStore(stateStore),
+			WithLogger(log.DiscardLogger))
+
+		err := engine.Start(ctx)
+		require.NoError(t, err)
+
+		// wait for complete start
+		lib.Pause(time.Second)
+
+		// add the state publisher before start processing durable state
+		err = engine.AddEventPublishers(publisher)
+		require.NoError(t, err)
+		require.ErrorIs(t, engine.Stop(ctx), closeErr)
+		assert.NoError(t, stateStore.Disconnect(ctx))
+		lib.Pause(time.Second)
+		publisher.AssertExpectations(t)
+	})
+
+	t.Run("With Engine Stop failure when DurableState Publisher close fails", func(t *testing.T) {
+		ctx := context.TODO()
+		stateStore := testkit2.NewDurableStore()
+		require.NoError(t, stateStore.Connect(ctx))
+
+		// mock the state publisher
+		closeErr := errors.New("close error")
+		publisher := new(egomock.StatePublisher)
+		publisher.On("ID").Return("eGo.test.StatePublisher")
+		publisher.On("Close", ctx).Return(closeErr)
+
+		// create the ego engine
+		engine := NewEngine("Sample", nil,
+			WithStateStore(stateStore),
+			WithLogger(log.DiscardLogger))
+
+		err := engine.Start(ctx)
+		require.NoError(t, err)
+
+		// wait for complete start
+		lib.Pause(time.Second)
+
+		// add the state publisher before start processing durable state
+		err = engine.AddStatePublishers(publisher)
+		require.NoError(t, err)
+		require.ErrorIs(t, engine.Stop(ctx), closeErr)
+		assert.NoError(t, stateStore.Disconnect(ctx))
+		lib.Pause(time.Second)
+		publisher.AssertExpectations(t)
+	})
 }
 
 // EventSourcedEntity implements persistence.Behavior
