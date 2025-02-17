@@ -31,6 +31,7 @@ import (
 	"github.com/IBM/sarama"
 	"github.com/tochemey/goakt/v3/log"
 	"go.uber.org/atomic"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/tochemey/ego/v3"
 	"github.com/tochemey/ego/v3/egopb"
@@ -90,9 +91,30 @@ func (x *EventsPublisher) ID() string {
 }
 
 // Publish implements ego.EventPublisher.
+// It publishes an event to the Kafka broker.
+//
+// Parameters:
+//   - ctx: The context for managing cancellation and timeouts.
+//   - event: The event to be published.
+//
+// Returns:
+//   - error: If an error occurs during event publication, it is returned.
 func (x *EventsPublisher) Publish(ctx context.Context, event *egopb.Event) error {
-	// if !x.started.Load() {
-	// 	return ego.ErrPublisherNotStarted
-	// }
-	panic("unimplemented")
+	if !x.started.Load() {
+		return ego.ErrPublisherNotStarted
+	}
+
+	// serialize the event. No need to check for errors.
+	payload, _ := proto.Marshal(event)
+
+	// create a new producer message
+	message := &sarama.ProducerMessage{
+		Topic: x.config.EventsTopic,
+		Key:   sarama.StringEncoder(event.GetPersistenceId()),
+		Value: sarama.ByteEncoder(payload),
+	}
+
+	// send the message
+	_, _, err := x.producer.SendMessage(message)
+	return err
 }

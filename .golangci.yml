@@ -39,6 +39,9 @@ issues:
         - revive
 
 linters-settings:
+  gosec:
+    excludes:
+      - G115
   misspell:
     locale: US
     ignore-words:

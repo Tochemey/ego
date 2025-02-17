@@ -215,6 +215,7 @@ func (entity *eventSourcedActor) processCommandAndReply(ctx *goakt.ReceiveContex
 		envelopes = append(envelopes, envelope)
 	}
 
+	ctx.Logger().Debugf("publishing events to topic: %s", topic)
 	eg, goCtx := errgroup.WithContext(goCtx)
 	eg.Go(func() error {
 		for _, envelope := range envelopes {

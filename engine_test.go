@@ -36,6 +36,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/kapetan-io/tackle/autotls"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	actors "github.com/tochemey/goakt/v3/actor"
 	"github.com/tochemey/goakt/v3/log"
@@ -46,6 +47,7 @@ import (
 	"github.com/tochemey/ego/v3/egopb"
 	samplepb "github.com/tochemey/ego/v3/example/pbs/sample/pb/v1"
 	"github.com/tochemey/ego/v3/internal/lib"
+	egomock "github.com/tochemey/ego/v3/mocks/ego"
 	"github.com/tochemey/ego/v3/projection"
 	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
 	testkit2 "github.com/tochemey/ego/v3/testkit"
@@ -75,7 +77,7 @@ func TestEngine(t *testing.T) {
 		// mock the discovery provider
 		provider := new(mockdisco.Provider)
 
-		provider.EXPECT().ID().Return("testDisco")
+		provider.EXPECT().ID().Return("id")
 		provider.EXPECT().Initialize().Return(nil)
 		provider.EXPECT().Register().Return(nil)
 		provider.EXPECT().Deregister().Return(nil)
@@ -182,6 +184,7 @@ func TestEngine(t *testing.T) {
 		assert.NoError(t, eventStore.Disconnect(ctx))
 		assert.NoError(t, offsetStore.Disconnect(ctx))
 		assert.NoError(t, engine.Stop(ctx))
+		provider.AssertExpectations(t)
 	})
 	t.Run("EventSourced entity With no cluster enabled", func(t *testing.T) {
 		ctx := context.TODO()
@@ -189,11 +192,29 @@ func TestEngine(t *testing.T) {
 		eventStore := testkit2.NewEventsStore()
 		// connect to the event store
 		require.NoError(t, eventStore.Connect(ctx))
+
+		// mock the event publisher
+		publisher := new(egomock.EventPublisher)
+		publisher.On("ID").Return("eGo.test.EventsPublisher")
+		publisher.On("Close", ctx).Return(nil)
+		publisher.
+			On("Publish", mock.Anything, mock.AnythingOfType("*egopb.Event")).
+			Return(func(ctx context.Context, event *egopb.Event) error {
+				return nil
+			})
+
 		// create the ego engine
 		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
 		// start ego engine
 		err := engine.Start(ctx)
 		require.NoError(t, err)
+
+		lib.Pause(time.Second)
+
+		// add the events publisher before start processing events
+		err = engine.AddEventPublishers(publisher)
+		require.NoError(t, err)
+
 		// create a persistence id
 		entityID := uuid.NewString()
 		// create an entity behavior with a given id
@@ -214,9 +235,9 @@ func TestEngine(t *testing.T) {
 		account, ok := resultingState.(*samplepb.Account)
 		require.True(t, ok)
 
-		assert.EqualValues(t, 500.00, account.GetAccountBalance())
-		assert.Equal(t, entityID, account.GetAccountId())
-		assert.EqualValues(t, 1, revision)
+		require.EqualValues(t, 500.00, account.GetAccountBalance())
+		require.Equal(t, entityID, account.GetAccountId())
+		require.EqualValues(t, 1, revision)
 
 		// send another command to credit the balance
 		command = &samplepb.CreditAccount{
@@ -228,13 +249,15 @@ func TestEngine(t *testing.T) {
 		newAccount, ok := newState.(*samplepb.Account)
 		require.True(t, ok)
 
-		assert.EqualValues(t, 750.00, newAccount.GetAccountBalance())
-		assert.Equal(t, entityID, newAccount.GetAccountId())
-		assert.EqualValues(t, 2, revision)
+		require.EqualValues(t, 750.00, newAccount.GetAccountBalance())
+		require.Equal(t, entityID, newAccount.GetAccountId())
+		require.EqualValues(t, 2, revision)
 
 		// free resources
-		assert.NoError(t, eventStore.Disconnect(ctx))
-		assert.NoError(t, engine.Stop(ctx))
+		require.NoError(t, eventStore.Disconnect(ctx))
+		require.NoError(t, engine.Stop(ctx))
+		lib.Pause(time.Second)
+		publisher.AssertExpectations(t)
 	})
 	t.Run("EventSourced entity With SendCommand when not started", func(t *testing.T) {
 		ctx := context.TODO()
@@ -389,7 +412,7 @@ func TestEngine(t *testing.T) {
 		// mock the discovery provider
 		provider := new(mockdisco.Provider)
 
-		provider.EXPECT().ID().Return("testDisco")
+		provider.EXPECT().ID().Return("id")
 		provider.EXPECT().Initialize().Return(nil)
 		provider.EXPECT().Register().Return(nil)
 		provider.EXPECT().Deregister().Return(nil)
@@ -407,12 +430,11 @@ func TestEngine(t *testing.T) {
 		// wait for the cluster to fully start
 		lib.Pause(time.Second)
 
-		// subscribe to events
+		// subscribe to durable state
 		subscriber, err := engine.Subscribe()
 		require.NoError(t, err)
 		require.NotNil(t, subscriber)
 
-		require.NoError(t, err)
 		// create a persistence id
 		entityID := uuid.NewString()
 
@@ -464,6 +486,7 @@ func TestEngine(t *testing.T) {
 		require.NoError(t, engine.Stop(ctx))
 		lib.Pause(time.Second)
 		require.NoError(t, stateStore.Disconnect(ctx))
+		provider.AssertExpectations(t)
 	})
 	t.Run("DurableStore entity With no cluster enabled", func(t *testing.T) {
 		ctx := context.TODO()
@@ -477,6 +500,13 @@ func TestEngine(t *testing.T) {
 
 		err := engine.Start(ctx)
 		require.NoError(t, err)
+
+		lib.Pause(time.Second)
+
+		// subscribe to durable state
+		subscriber, err := engine.Subscribe()
+		require.NoError(t, err)
+		require.NotNil(t, subscriber)
 
 		entityID := uuid.NewString()
 		behavior := NewAccountDurableStateBehavior(entityID)
@@ -511,6 +541,13 @@ func TestEngine(t *testing.T) {
 		assert.EqualValues(t, 750.00, newAccount.GetAccountBalance())
 		assert.Equal(t, entityID, newAccount.GetAccountId())
 		assert.EqualValues(t, 2, revision)
+
+		for message := range subscriber.Iterator() {
+			payload := message.Payload()
+			envelope, ok := payload.(*egopb.DurableState)
+			require.True(t, ok)
+			require.NotZero(t, envelope.GetVersionNumber())
+		}
 
 		assert.NoError(t, engine.Stop(ctx))
 		lib.Pause(time.Second)
@@ -577,6 +614,336 @@ func TestEngine(t *testing.T) {
 		assert.EqualError(t, err, actors.ErrActorNotFound(entityID).Error())
 		assert.NoError(t, engine.Stop(ctx))
 		assert.NoError(t, stateStore.Disconnect(ctx))
+	})
+	t.Run("With Events Publisher with cluster enabled", func(t *testing.T) {
+		ctx := context.TODO()
+		// create the event store
+		eventStore := testkit2.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+		offsetStore := testkit2.NewOffsetStore()
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		nodePorts := dynaport.Get(3)
+		discoveryPort := nodePorts[0]
+		clusterPort := nodePorts[1]
+		remotingPort := nodePorts[2]
+
+		host := "127.0.0.1"
+
+		// define discovered addresses
+		addrs := []string{
+			net.JoinHostPort(host, strconv.Itoa(discoveryPort)),
+		}
+
+		// mock the discovery provider
+		provider := new(mockdisco.Provider)
+
+		provider.EXPECT().ID().Return("id")
+		provider.EXPECT().Initialize().Return(nil)
+		provider.EXPECT().Register().Return(nil)
+		provider.EXPECT().Deregister().Return(nil)
+		provider.EXPECT().DiscoverPeers().Return(addrs, nil)
+		provider.EXPECT().Close().Return(nil)
+
+		// mock the event publisher
+		publisher := new(egomock.EventPublisher)
+		publisher.On("ID").Return("eGo.test.EventsPublisher")
+		publisher.On("Close", ctx).Return(nil)
+		publisher.
+			On("Publish", mock.Anything, mock.AnythingOfType("*egopb.Event")).
+			Return(func(ctx context.Context, event *egopb.Event) error {
+				return nil
+			})
+
+		// create a projection message handler
+		handler := projection.NewDiscardHandler(log.DiscardLogger)
+		// create the ego engine
+		// AutoGenerate TLS certs
+		conf := autotls.Config{
+			AutoTLS:            true,
+			ClientAuth:         tls.NoClientCert,
+			InsecureSkipVerify: false,
+		}
+		require.NoError(t, autotls.Setup(&conf))
+
+		engine := NewEngine("Sample", eventStore,
+			WithLogger(log.DiscardLogger),
+			WithTLS(&TLS{
+				ClientTLS: conf.ClientTLS,
+				ServerTLS: conf.ServerTLS,
+			}),
+			WithCluster(provider, 4, 1, host, remotingPort, discoveryPort, clusterPort))
+
+		// start ego engine
+		err := engine.Start(ctx)
+
+		// wait for the cluster to fully start
+		lib.Pause(time.Second)
+
+		// add the events publisher before start processing events
+		err = engine.AddEventPublishers(publisher)
+		require.NoError(t, err)
+
+		// add projection
+		err = engine.AddProjection(ctx, "discard", handler, offsetStore)
+		require.NoError(t, err)
+
+		lib.Pause(time.Second)
+
+		running, err := engine.IsProjectionRunning(ctx, "discard")
+		require.NoError(t, err)
+		require.True(t, running)
+
+		// subscribe to events
+		subscriber, err := engine.Subscribe()
+		require.NoError(t, err)
+		require.NotNil(t, subscriber)
+
+		require.NoError(t, err)
+		// create a persistence id
+		entityID := uuid.NewString()
+		// create an entity behavior with a given id
+		behavior := NewEventSourcedEntity(entityID)
+		// create an entity
+		err = engine.Entity(ctx, behavior)
+		require.NoError(t, err)
+		// send some commands to the pid
+		var command proto.Message
+		// create an account
+		command = &samplepb.CreateAccount{
+			AccountId:      entityID,
+			AccountBalance: 500.00,
+		}
+
+		// wait for the cluster to fully start
+		lib.Pause(time.Second)
+
+		// send the command to the actor. Please don't ignore the error in production grid code
+		resultingState, revision, err := engine.SendCommand(ctx, entityID, command, time.Minute)
+		require.NoError(t, err)
+		account, ok := resultingState.(*samplepb.Account)
+		require.True(t, ok)
+
+		assert.EqualValues(t, 500.00, account.GetAccountBalance())
+		assert.Equal(t, entityID, account.GetAccountId())
+		assert.EqualValues(t, 1, revision)
+
+		// send another command to credit the balance
+		command = &samplepb.CreditAccount{
+			AccountId: entityID,
+			Balance:   250,
+		}
+
+		newState, revision, err := engine.SendCommand(ctx, entityID, command, time.Minute)
+		require.NoError(t, err)
+		newAccount, ok := newState.(*samplepb.Account)
+		require.True(t, ok)
+
+		assert.EqualValues(t, 750.00, newAccount.GetAccountBalance())
+		assert.Equal(t, entityID, newAccount.GetAccountId())
+		assert.EqualValues(t, 2, revision)
+
+		for message := range subscriber.Iterator() {
+			payload := message.Payload()
+			envelope, ok := payload.(*egopb.Event)
+			event := envelope.GetEvent()
+			require.True(t, ok)
+			switch envelope.GetSequenceNumber() {
+			case 1:
+				assert.True(t, event.MessageIs(new(samplepb.AccountCreated)))
+			case 2:
+				assert.True(t, event.MessageIs(new(samplepb.AccountCredited)))
+			}
+		}
+
+		// free resources
+		assert.NoError(t, eventStore.Disconnect(ctx))
+		assert.NoError(t, offsetStore.Disconnect(ctx))
+		assert.NoError(t, engine.Stop(ctx))
+		lib.Pause(time.Second)
+
+		publisher.AssertExpectations(t)
+		provider.AssertExpectations(t)
+	})
+	t.Run("With DurableState Publisher with no cluster enabled", func(t *testing.T) {
+		ctx := context.TODO()
+		stateStore := testkit2.NewDurableStore()
+		require.NoError(t, stateStore.Connect(ctx))
+
+		// mock the state publisher
+		publisher := new(egomock.StatePublisher)
+		publisher.On("ID").Return("eGo.test.StatePublisher")
+		publisher.On("Close", ctx).Return(nil)
+		publisher.
+			On("Publish", mock.Anything, mock.AnythingOfType("*egopb.DurableState")).
+			Return(func(ctx context.Context, state *egopb.DurableState) error {
+				return nil
+			})
+
+		// create the ego engine
+		engine := NewEngine("Sample", nil,
+			WithStateStore(stateStore),
+			WithLogger(log.DiscardLogger))
+
+		err := engine.Start(ctx)
+		require.NoError(t, err)
+
+		// wait for complete start
+		lib.Pause(time.Second)
+
+		// add the state publisher before start processing durable state
+		err = engine.AddStatePublishers(publisher)
+		require.NoError(t, err)
+
+		entityID := uuid.NewString()
+		behavior := NewAccountDurableStateBehavior(entityID)
+
+		err = engine.DurableStateEntity(ctx, behavior)
+		require.NoError(t, err)
+		var command proto.Message
+
+		command = &testpb.CreateAccount{
+			AccountBalance: 500.00,
+		}
+
+		resultingState, revision, err := engine.SendCommand(ctx, entityID, command, time.Minute)
+		require.NoError(t, err)
+		account, ok := resultingState.(*testpb.Account)
+		require.True(t, ok)
+
+		require.EqualValues(t, 500.00, account.GetAccountBalance())
+		require.Equal(t, entityID, account.GetAccountId())
+		require.EqualValues(t, 1, revision)
+
+		// send another command to credit the balance
+		command = &testpb.CreditAccount{
+			AccountId: entityID,
+			Balance:   250,
+		}
+		newState, revision, err := engine.SendCommand(ctx, entityID, command, time.Minute)
+		require.NoError(t, err)
+		newAccount, ok := newState.(*testpb.Account)
+		require.True(t, ok)
+
+		require.EqualValues(t, 750.00, newAccount.GetAccountBalance())
+		require.Equal(t, entityID, newAccount.GetAccountId())
+		require.EqualValues(t, 2, revision)
+
+		require.NoError(t, engine.Stop(ctx))
+		assert.NoError(t, stateStore.Disconnect(ctx))
+		lib.Pause(time.Second)
+		publisher.AssertExpectations(t)
+	})
+	t.Run("With DurableState Publisher with cluster enabled", func(t *testing.T) {
+		ctx := context.TODO()
+		stateStore := testkit2.NewDurableStore()
+		require.NoError(t, stateStore.Connect(ctx))
+
+		nodePorts := dynaport.Get(3)
+		gossipPort := nodePorts[0]
+		clusterPort := nodePorts[1]
+		remotingPort := nodePorts[2]
+
+		host := "127.0.0.1"
+
+		// define discovered addresses
+		addrs := []string{
+			net.JoinHostPort(host, strconv.Itoa(gossipPort)),
+		}
+
+		// mock the state publisher
+		publisher := new(egomock.StatePublisher)
+		publisher.On("ID").Return("eGo.test.StatePublisher")
+		publisher.On("Close", ctx).Return(nil)
+		publisher.
+			On("Publish", mock.Anything, mock.AnythingOfType("*egopb.DurableState")).
+			Return(func(ctx context.Context, state *egopb.DurableState) error {
+				return nil
+			})
+
+		// mock the discovery provider
+		provider := new(mockdisco.Provider)
+
+		provider.EXPECT().ID().Return("id")
+		provider.EXPECT().Initialize().Return(nil)
+		provider.EXPECT().Register().Return(nil)
+		provider.EXPECT().Deregister().Return(nil)
+		provider.EXPECT().DiscoverPeers().Return(addrs, nil)
+		provider.EXPECT().Close().Return(nil)
+
+		// create the ego engine
+		engine := NewEngine("Sample", nil,
+			WithLogger(log.DiscardLogger),
+			WithStateStore(stateStore),
+			WithCluster(provider, 4, 1, host, remotingPort, gossipPort, clusterPort))
+
+		err := engine.Start(ctx)
+
+		// wait for the cluster to fully start
+		lib.Pause(time.Second)
+
+		// add the state publisher before start processing durable state
+		err = engine.AddStatePublishers(publisher)
+		require.NoError(t, err)
+
+		// subscribe to durable state
+		subscriber, err := engine.Subscribe()
+		require.NoError(t, err)
+		require.NotNil(t, subscriber)
+
+		// create a persistence id
+		entityID := uuid.NewString()
+
+		behavior := NewAccountDurableStateBehavior(entityID)
+		// create an entity
+		err = engine.DurableStateEntity(ctx, behavior)
+		require.NoError(t, err)
+		// send some commands to the pid
+		var command proto.Message
+		command = &testpb.CreateAccount{
+			AccountBalance: 500.00,
+		}
+
+		// wait for the cluster to fully start
+		lib.Pause(time.Second)
+
+		// send the command to the actor. Please don't ignore the error in production grid code
+		resultingState, revision, err := engine.SendCommand(ctx, entityID, command, time.Minute)
+		require.NoError(t, err)
+		account, ok := resultingState.(*testpb.Account)
+		require.True(t, ok)
+
+		assert.EqualValues(t, 500.00, account.GetAccountBalance())
+		assert.Equal(t, entityID, account.GetAccountId())
+		assert.EqualValues(t, 1, revision)
+
+		command = &testpb.CreditAccount{
+			AccountId: entityID,
+			Balance:   250,
+		}
+
+		newState, revision, err := engine.SendCommand(ctx, entityID, command, time.Minute)
+		require.NoError(t, err)
+		newAccount, ok := newState.(*testpb.Account)
+		require.True(t, ok)
+
+		assert.EqualValues(t, 750.00, newAccount.GetAccountBalance())
+		assert.Equal(t, entityID, newAccount.GetAccountId())
+		assert.EqualValues(t, 2, revision)
+
+		for message := range subscriber.Iterator() {
+			payload := message.Payload()
+			envelope, ok := payload.(*egopb.DurableState)
+			require.True(t, ok)
+			require.NotZero(t, envelope.GetVersionNumber())
+		}
+
+		// free resources
+		require.NoError(t, engine.Stop(ctx))
+		lib.Pause(time.Second)
+		require.NoError(t, stateStore.Disconnect(ctx))
+		publisher.AssertExpectations(t)
+		provider.AssertExpectations(t)
 	})
 }
 

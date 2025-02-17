@@ -4,8 +4,9 @@ go 1.23.0
 
 require (
 	github.com/IBM/sarama v1.45.0
-	github.com/tochemey/ego/v3 v3.3.3-0.20250216192259-7c609e9f5bd4
+	github.com/tochemey/ego/v3 v3.3.3-0.20250216200937-22de818f78ec
 	go.uber.org/atomic v1.11.0
+	google.golang.org/protobuf v1.36.5
 )
 
 require (
@@ -49,8 +50,7 @@ require (
 	golang.org/x/sync v0.11.0 // indirect
 	golang.org/x/sys v0.30.0 // indirect
 	golang.org/x/text v0.22.0 // indirect
-	golang.org/x/tools v0.29.0 // indirect
-	google.golang.org/protobuf v1.36.5 // indirect
+	golang.org/x/tools v0.30.0 // indirect
 )
 
 require (

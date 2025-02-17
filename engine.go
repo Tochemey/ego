@@ -62,13 +62,13 @@ var (
 // Done is a signal that an operation has completed
 type Done struct{}
 
-type eventSubscriber struct {
+type eventsStream struct {
 	publisher  EventPublisher
 	subscriber eventstream.Subscriber
 	done       chan Done
 }
 
-type stateSubscriber struct {
+type statesStream struct {
 	publisher  StatePublisher
 	subscriber eventstream.Subscriber
 	done       chan Done
@@ -95,8 +95,8 @@ type Engine struct {
 	remoting           *goakt.Remoting
 	tls                *TLS
 
-	eventPublishers  *syncmap.Map[string, *eventSubscriber]
-	statesPublishers *syncmap.Map[string, *stateSubscriber]
+	eventsStreams *syncmap.Map[string, *eventsStream]
+	statesStreams *syncmap.Map[string, *statesStream]
 }
 
 // NewEngine creates and initializes a new instance of the eGo engine.
@@ -114,16 +114,16 @@ type Engine struct {
 //   - A pointer to the newly created Engine instance.
 func NewEngine(name string, eventsStore persistence.EventsStore, opts ...Option) *Engine {
 	e := &Engine{
-		name:             name,
-		eventsStore:      eventsStore,
-		enableCluster:    atomic.NewBool(false),
-		logger:           log.New(log.ErrorLevel, os.Stderr),
-		eventStream:      eventstream.New(),
-		mutex:            &sync.Mutex{},
-		bindAddr:         "0.0.0.0",
-		remoting:         goakt.NewRemoting(),
-		eventPublishers:  syncmap.New[string, *eventSubscriber](),
-		statesPublishers: syncmap.New[string, *stateSubscriber](),
+		name:          name,
+		eventsStore:   eventsStore,
+		enableCluster: atomic.NewBool(false),
+		logger:        log.New(log.ErrorLevel, os.Stderr),
+		eventStream:   eventstream.New(),
+		mutex:         &sync.Mutex{},
+		bindAddr:      "0.0.0.0",
+		remoting:      goakt.NewRemoting(),
+		eventsStreams: syncmap.New[string, *eventsStream](),
+		statesStreams: syncmap.New[string, *statesStream](),
 	}
 
 	for _, opt := range opts {
@@ -311,29 +311,30 @@ func (engine *Engine) IsProjectionRunning(ctx context.Context, name string) (boo
 //   - An error if the shutdown process encounters issues; otherwise, nil.
 func (engine *Engine) Stop(ctx context.Context) error {
 	engine.started.Store(false)
-	engine.eventStream.Close()
 
-	// shutdown all event publishers
-	engine.eventPublishers.
-		Range(func(_ string, sub *eventSubscriber) {
-			// signal the publisher to stop
-			sub.done <- Done{}
-			// TODO: decide how to handle errors
-			_ = sub.publisher.Close(ctx)
-			sub.subscriber.Shutdown()
-		})
-
-	// shutdown all state publishers
-	engine.statesPublishers.Range(func(s1 string, sub *stateSubscriber) {
+	// shutdown all event eventsStreams
+	eventsStreams := engine.eventsStreams.Values()
+	for _, stream := range eventsStreams {
 		// signal the publisher to stop
-		sub.done <- Done{}
-		// TODO: decide how to handle errors
-		_ = sub.publisher.Close(ctx)
-		sub.subscriber.Shutdown()
-	})
+		stream.done <- Done{}
+		stream.subscriber.Shutdown()
+		if err := stream.publisher.Close(ctx); err != nil {
+			return err
+		}
+	}
 
-	engine.eventPublishers.Reset()
-	engine.statesPublishers.Reset()
+	statesStreams := engine.statesStreams.Values()
+	for _, stream := range statesStreams {
+		stream.done <- Done{}
+		stream.subscriber.Shutdown()
+		if err := stream.publisher.Close(ctx); err != nil {
+			return err
+		}
+	}
+
+	engine.eventStream.Close()
+	engine.eventsStreams.Reset()
+	engine.statesStreams.Reset()
 	return engine.actorSystem.Stop(ctx)
 }
 
@@ -360,11 +361,10 @@ func (engine *Engine) Subscribe() (eventstream.Subscriber, error) {
 	engine.mutex.Unlock()
 
 	subscriber := eventStream.AddSubscriber()
-	for i := 0; i < int(engine.partitionsCount); i++ {
-		topic := fmt.Sprintf(eventsTopic, i)
-		engine.eventStream.Subscribe(subscriber, topic)
-		topic = fmt.Sprintf(statesTopic, i)
-		engine.eventStream.Subscribe(subscriber, topic)
+	eventTopics := generateTopics(eventsTopic, engine.partitionsCount)
+	stateTopics := generateTopics(statesTopic, engine.partitionsCount)
+	for _, topic := range append(eventTopics, stateTopics...) {
+		eventStream.Subscribe(subscriber, topic)
 	}
 
 	return subscriber, nil
@@ -549,6 +549,8 @@ func (engine *Engine) SendCommand(ctx context.Context, entityID string, cmd Comm
 // AddEventPublishers registers one or more event publishers with the eGo engine.
 // This function subscribes the publishers to the event stream, allowing them to receive events.
 //
+// Note: Event publishers are responsible for publishing events to external systems. They need to be added to the engine before processing any events.
+//
 // Parameters:
 //   - publishers: A list of event publishers to be added to the engine.
 //
@@ -561,26 +563,26 @@ func (engine *Engine) AddEventPublishers(publishers ...EventPublisher) error {
 	engine.mutex.Lock()
 	defer engine.mutex.Unlock()
 
-	eventStream := engine.eventStream
-
 	for _, publisher := range publishers {
-		subscriber := eventStream.AddSubscriber()
-		for i := 0; i < int(engine.partitionsCount); i++ {
-			topic := fmt.Sprintf(eventsTopic, i)
+		subscriber := engine.eventStream.AddSubscriber()
+		topics := generateTopics(eventsTopic, engine.partitionsCount)
+		for _, topic := range topics {
+			engine.logger.Debugf("%s subscribing to topic: %s", publisher.ID(), topic)
 			engine.eventStream.Subscribe(subscriber, topic)
 		}
 
 		// create an instance of the event subscriber
-		eventSubscriber := &eventSubscriber{
+		eventSubscriber := &eventsStream{
 			publisher:  publisher,
 			subscriber: subscriber,
 			done:       make(chan Done, 1),
 		}
 
 		// add the event publisher to the engine
-		engine.eventPublishers.Set(publisher.ID(), eventSubscriber)
+		engine.eventsStreams.Set(publisher.ID(), eventSubscriber)
 
 		// start the event publisher
+		engine.logger.Infof("starting %s events publisher....", publisher.ID())
 		go engine.sendEvent(eventSubscriber)
 	}
 
@@ -589,6 +591,9 @@ func (engine *Engine) AddEventPublishers(publishers ...EventPublisher) error {
 
 // AddStatePublishers registers one or more state publishers with the eGo engine.
 // This function subscribes the publishers to the event stream, allowing them to receive state changes.
+//
+// Note: State publishers are responsible for publishing durable state changes to external systems.
+// They need to be added to the engine before processing any durable state.
 //
 // Parameters:
 //   - publishers: A list of state publishers to be added to the engine.
@@ -601,26 +606,28 @@ func (engine *Engine) AddStatePublishers(publishers ...StatePublisher) error {
 
 	engine.mutex.Lock()
 	defer engine.mutex.Unlock()
-	eventStream := engine.eventStream
 
 	for _, publisher := range publishers {
-		subscriber := eventStream.AddSubscriber()
-		for i := 0; i < int(engine.partitionsCount); i++ {
-			topic := fmt.Sprintf(statesTopic, i)
+		subscriber := engine.eventStream.AddSubscriber()
+		topics := generateTopics(statesTopic, engine.partitionsCount)
+
+		for _, topic := range topics {
+			engine.logger.Debugf("%s subscribing to topic: %s", publisher.ID(), topic)
 			engine.eventStream.Subscribe(subscriber, topic)
 		}
 
 		// create an instance of the state subscriber
-		stateSubscriber := &stateSubscriber{
+		stateSubscriber := &statesStream{
 			publisher:  publisher,
 			subscriber: subscriber,
 			done:       make(chan Done, 1),
 		}
 
 		// add the state publisher to the engine
-		engine.statesPublishers.Set(publisher.ID(), stateSubscriber)
+		engine.statesStreams.Set(publisher.ID(), stateSubscriber)
 
 		// start the state publisher
+		engine.logger.Infof("starting %s durable state publisher....", publisher.ID())
 		go engine.sendState(stateSubscriber)
 	}
 
@@ -655,61 +662,83 @@ func parseCommandReply(reply *egopb.CommandReply) (State, uint64, error) {
 }
 
 // sendEvent sends events to the event publisher
-func (engine *Engine) sendEvent(processor *eventSubscriber) {
+func (engine *Engine) sendEvent(stream *eventsStream) {
 	for {
 		select {
-		case <-processor.done:
+		case <-stream.done:
 			return
-		case message := <-processor.subscriber.Iterator():
-			switch msg := message.Payload().(type) {
-			case *egopb.Event:
-				publisher := processor.publisher
-				if err := publisher.Publish(context.Background(), msg); err != nil {
-					engine.logger.Errorf("(%s) failed to publish event=[persistenceID=%s, sequenceNumber=%d]: %s",
-						publisher.ID(),
-						msg.GetPersistenceId(),
-						msg.GetSequenceNumber(),
-						err.Error())
-					continue
-				}
-
-				engine.logger.Infof("(%s) successfully published event=[persistenceID=%s, sequenceNumber=%d]: %s",
-					publisher.ID(),
-					msg.GetPersistenceId(),
-					msg.GetSequenceNumber())
-			default:
-				// pass
+		case message := <-stream.subscriber.Iterator():
+			if message == nil {
+				continue
 			}
+
+			event, ok := message.Payload().(*egopb.Event)
+			if !ok {
+				continue
+			}
+
+			publisher := stream.publisher
+			if err := publisher.Publish(context.Background(), event); err != nil {
+				engine.logger.Errorf("(%s) failed to publish event=[persistenceID=%s, sequenceNumber=%d]: %s",
+					publisher.ID(),
+					event.GetPersistenceId(),
+					event.GetSequenceNumber(),
+					err.Error())
+				continue
+			}
+
+			engine.logger.Infof("(%s) successfully published event=[persistenceID=%s, sequenceNumber=%d]: %s",
+				publisher.ID(),
+				event.GetPersistenceId(),
+				event.GetSequenceNumber())
 		}
 	}
 }
 
 // sendState sends state changes to the state publisher
-func (engine *Engine) sendState(processor *stateSubscriber) {
+func (engine *Engine) sendState(stream *statesStream) {
 	for {
 		select {
-		case <-processor.done:
+		case <-stream.done:
 			return
-		case message := <-processor.subscriber.Iterator():
-			switch msg := message.Payload().(type) {
-			case *egopb.DurableState:
-				publisher := processor.publisher
-				if err := publisher.Publish(context.Background(), msg); err != nil {
-					engine.logger.Errorf("(%s) failed to publish state=[persistenceID=%s, version=%d]: %s",
-						publisher.ID(),
-						msg.GetPersistenceId(),
-						msg.GetVersionNumber(),
-						err.Error())
-					continue
-				}
+		case message := <-stream.subscriber.Iterator():
+			if message == nil {
+				continue
+			}
 
-				engine.logger.Infof("(%s) successfully published state=[persistenceID=%s, version=%d]: %s",
+			msg, ok := message.Payload().(*egopb.DurableState)
+			if !ok {
+				continue
+			}
+
+			publisher := stream.publisher
+			if err := publisher.Publish(context.Background(), msg); err != nil {
+				engine.logger.Errorf("(%s) failed to publish state=[persistenceID=%s, version=%d]: %s",
 					publisher.ID(),
 					msg.GetPersistenceId(),
-					msg.GetVersionNumber())
-			default:
-				// pass
+					msg.GetVersionNumber(),
+					err.Error())
+				continue
 			}
+
+			engine.logger.Infof("(%s) successfully published state=[persistenceID=%s, version=%d]: %s",
+				publisher.ID(),
+				msg.GetPersistenceId(),
+				msg.GetVersionNumber())
 		}
 	}
+}
+
+// generateTopics generates a list of topics based on the base topic name and partitions count.
+func generateTopics(baseTopic string, partitionsCount uint64) []string {
+	var topics []string
+	switch {
+	case partitionsCount == 0:
+		topics = append(topics, fmt.Sprintf(baseTopic, 0))
+	default:
+		for i := 0; i < int(partitionsCount); i++ {
+			topics = append(topics, fmt.Sprintf(baseTopic, i))
+		}
+	}
+	return topics
 }

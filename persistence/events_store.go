@@ -45,13 +45,13 @@ type EventsStore interface {
 	// DeleteEvents deletes store from the store up to a given sequence number (inclusive)
 	DeleteEvents(ctx context.Context, persistenceID string, toSequenceNumber uint64) error
 	// ReplayEvents fetches store for a given persistence ID from a given sequence number(inclusive) to a given sequence number(inclusive) with a maximum of journals to be replayed.
-	ReplayEvents(ctx context.Context, persistenceID string, fromSequenceNumber, toSequenceNumber uint64, max uint64) ([]*egopb.Event, error)
+	ReplayEvents(ctx context.Context, persistenceID string, fromSequenceNumber, toSequenceNumber uint64, limit uint64) ([]*egopb.Event, error)
 	// GetLatestEvent fetches the latest event
 	GetLatestEvent(ctx context.Context, persistenceID string) (*egopb.Event, error)
 	// PersistenceIDs returns the distinct list of all the persistence ids in the journal store
 	PersistenceIDs(ctx context.Context, pageSize uint64, pageToken string) (persistenceIDs []string, nextPageToken string, err error)
-	// GetShardEvents returns the next (max) events after the offset in the journal for a given shard
-	GetShardEvents(ctx context.Context, shardNumber uint64, offset int64, max uint64) ([]*egopb.Event, int64, error)
+	// GetShardEvents returns the next (limit) events after the offset in the journal for a given shard
+	GetShardEvents(ctx context.Context, shardNumber uint64, offset int64, limit uint64) ([]*egopb.Event, int64, error)
 	// ShardNumbers returns the distinct list of all the shards in the journal store
 	ShardNumbers(ctx context.Context) ([]uint64, error)
 }

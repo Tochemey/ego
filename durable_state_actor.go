@@ -211,6 +211,8 @@ func (entity *durableStateActor) persistStateAndPublish(ctx context.Context) err
 	shardNumber := entity.actorSystem.GetPartition(entity.ID())
 	topic := fmt.Sprintf(statesTopic, shardNumber)
 
+	entity.actorSystem.Logger().Debugf("publishing durableState to topic: %s", topic)
+
 	durableState := &egopb.DurableState{
 		PersistenceId:  entity.ID(),
 		VersionNumber:  entity.currentVersion,
