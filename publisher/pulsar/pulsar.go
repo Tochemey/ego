@@ -27,6 +27,7 @@ package pulsar
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/apache/pulsar-client-go/pulsar"
 	"go.uber.org/atomic"
@@ -39,6 +40,7 @@ import (
 // EventsPublisher defines a Pulsar publisher.
 // This publisher is responsible for delivering ego events to a Pulsar server.
 type EventsPublisher struct {
+	config   *Config
 	client   pulsar.Client
 	producer pulsar.Producer
 	started  *atomic.Bool
@@ -50,20 +52,43 @@ var _ ego.EventPublisher = (*EventsPublisher)(nil)
 // NewEventsPublisher creates a new instance of EventsPublisher.
 //
 // Parameters:
-//   - clientOptions: The client options for the Pulsar client.
-//   - producerOptions: The producer options for the Pulsar producer.
+//   - config: The configuration to use.
 //
 // Returns: The new instance of EventsPublisher or an error if the publisher cannot be created.
-func NewEventsPublisher(clientOptions *pulsar.ClientOptions,
-	producerOptions *pulsar.ProducerOptions) (*EventsPublisher, error) {
+func NewEventsPublisher(config *Config) (*EventsPublisher, error) {
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid configuration: %w", err)
+	}
+
+	// set the connection timeout and default it to 5 seconds
+	connectionTimeout := config.ConnectionTimeout
+	if connectionTimeout == 0 {
+		connectionTimeout = 5 * time.Second
+	}
+
+	// set the keep alive and default it to 30 seconds
+	keepAlive := config.KeepAlive
+	if keepAlive == 0 {
+		keepAlive = 30 * time.Second
+	}
+
 	// create a new Pulsar client
-	client, err := pulsar.NewClient(*clientOptions)
+	client, err := pulsar.NewClient(pulsar.ClientOptions{
+		URL:               config.URL,
+		ConnectionTimeout: connectionTimeout,
+		KeepAliveInterval: keepAlive,
+	})
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to create client: %w", err)
 	}
 
 	// create a new Pulsar producer
-	producer, err := client.CreateProducer(*producerOptions)
+	// TODO: add more producer options
+	producer, err := client.CreateProducer(pulsar.ProducerOptions{
+		Topic: config.EventsTopic,
+	})
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to create producer: %w", err)
 	}
@@ -130,20 +155,43 @@ var _ ego.StatePublisher = (*DurableStatePublisher)(nil)
 // NewDurableStatePublisher creates a new instance of DurableStatePublisher.
 //
 // Parameters:
-//   - clientOptions: The client options for the Pulsar client.
-//   - producerOptions: The producer options for the Pulsar producer.
+//   - config: The configuration to use.
 //
 // Returns: The new instance of EventsPublisher or an error if the publisher cannot be created.
-func NewDurableStatePublisher(clientOptions *pulsar.ClientOptions,
-	producerOptions *pulsar.ProducerOptions) (*DurableStatePublisher, error) {
+func NewDurableStatePublisher(config *Config) (*DurableStatePublisher, error) {
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid configuration: %w", err)
+	}
+
+	// set the connection timeout and default it to 5 seconds
+	connectionTimeout := config.ConnectionTimeout
+	if connectionTimeout == 0 {
+		connectionTimeout = 5 * time.Second
+	}
+
+	// set the keep alive and default it to 30 seconds
+	keepAlive := config.KeepAlive
+	if keepAlive == 0 {
+		keepAlive = 30 * time.Second
+	}
+
 	// create a new Pulsar client
-	client, err := pulsar.NewClient(*clientOptions)
+	client, err := pulsar.NewClient(pulsar.ClientOptions{
+		URL:               config.URL,
+		ConnectionTimeout: connectionTimeout,
+		KeepAliveInterval: keepAlive,
+	})
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to create client: %w", err)
 	}
 
 	// create a new Pulsar producer
-	producer, err := client.CreateProducer(*producerOptions)
+	// TODO: add more producer options
+	producer, err := client.CreateProducer(pulsar.ProducerOptions{
+		Topic: config.StateTopic,
+	})
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to create producer: %w", err)
 	}
