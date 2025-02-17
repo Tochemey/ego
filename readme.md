@@ -177,8 +177,8 @@ the [DurableState](./protos/ego/v3/ego.proto).
 
 eGo offers the following publisher APIs:
 
-* [EventPublisher](./publisher.go) - publish `EventSourcedBehavior` events to any streaming platform
-* [StatePublisher](./publisher.go) - publish `DurableStateBehavior` state to any streaming platform
+* [EventPublisher](./publisher.go) - publishes `EventSourcedBehavior` events to any streaming platform
+* [StatePublisher](./publisher.go) - publishes `DurableStateBehavior` state to any streaming platform
 
 The following streaming connectors are implemented out of the box:
 
