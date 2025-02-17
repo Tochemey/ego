@@ -224,8 +224,8 @@ github.com/tidwall/match v1.1.1/go.mod h1:eRSPERbgtNPcGhD8UCthc6PmLEQXEWd3PRB5JT
 github.com/tidwall/redcon v1.6.2 h1:5qfvrrybgtO85jnhSravmkZyC0D+7WstbfCs3MmPhow=
 github.com/tidwall/redcon v1.6.2/go.mod h1:p5Wbsgeyi2VSTBWOcA5vRXrOb9arFTcU2+ZzFjqV75Y=
 github.com/tinylib/msgp v1.1.5/go.mod h1:eQsjooMTnV42mHu917E26IogZ2930nFyBQdofk10Udg=
-github.com/tochemey/ego/v3 v3.3.3-0.20250217013204-7bf60265a95d h1:Hef0/RiGdLpzO7ZB8CB7oi+EjTfk61M5uYos3lDSCf0=
-github.com/tochemey/ego/v3 v3.3.3-0.20250217013204-7bf60265a95d/go.mod h1:TuowN3LV6YVItwS4MZlyZ51oZBd75XIylYn0XwKSETM=
+github.com/tochemey/ego/v3 v3.4.0 h1:okSNBItNDAUJTQcWk76gr1zbd2rrbeuAqtavA7PBZPo=
+github.com/tochemey/ego/v3 v3.4.0/go.mod h1:TuowN3LV6YVItwS4MZlyZ51oZBd75XIylYn0XwKSETM=
 github.com/tochemey/goakt/v3 v3.0.0 h1:WukWOsXbaCkIjXWKm0GHY81s6yKeHDE06Vj3O42cJ4c=
 github.com/tochemey/goakt/v3 v3.0.0/go.mod h1:I3F45cKjyQiWnTqY4PLcnM9hBYhzb3vjulUoD9ComNc=
 github.com/tochemey/gopack v0.2.0 h1:LpjE95dfqSQepHC/chAszP64R+w4tj5PivaTJHTFnz0=
