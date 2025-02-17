@@ -29,7 +29,6 @@ import (
 
 	"github.com/flowchartsman/retry"
 	"github.com/nats-io/nats.go"
-	"github.com/tochemey/goakt/v3/log"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 
@@ -41,7 +40,6 @@ import (
 // This publisher is responsible for delivering ego events to a NATS server.
 type EventsPublisher struct {
 	config     *Config
-	logger     log.Logger
 	started    *atomic.Bool
 	connection *nats.Conn
 	jetStream  nats.JetStream
@@ -107,7 +105,6 @@ func NewEventsPublisher(config *Config) (*EventsPublisher, error) {
 
 	return &EventsPublisher{
 		config:     config,
-		logger:     config.Logger,
 		started:    atomic.NewBool(true),
 		connection: connection,
 		jetStream:  jetStream,
@@ -159,7 +156,6 @@ func (x *EventsPublisher) Publish(_ context.Context, event *egopb.Event) error {
 
 type DurableStatePublisher struct {
 	config     *Config
-	logger     log.Logger
 	started    *atomic.Bool
 	connection *nats.Conn
 	jetStream  nats.JetStream
@@ -225,7 +221,6 @@ func NewDurableStatePublisher(config *Config) (*DurableStatePublisher, error) {
 
 	return &DurableStatePublisher{
 		config:     config,
-		logger:     config.Logger,
 		started:    atomic.NewBool(true),
 		connection: connection,
 		jetStream:  jetStream,

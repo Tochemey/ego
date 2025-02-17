@@ -28,6 +28,7 @@ reliable persistence.
         - [State Store](#state-store)
         - [Howto](#howto-1)
         - [State Stream](#events-stream-1)
+    - [Publisher APIs](#publishers)
 - [Cluster](#-cluster)
 - [Testkit](#-testkit)
 - [Mocks](#-mocks)
@@ -171,6 +172,20 @@ To define a durable state entity, one needs to:
 That enables real-time processing of state without having to interact with the state store.
 Just use `Subscribe` method of [Engine](./engine.go) and start iterating through the messages and cast every message to
 the [DurableState](./protos/ego/v3/ego.proto).
+
+### Publishers
+
+eGo offers the following publisher APIs:
+
+* [EventPublisher](./publisher.go) - publish `EventSourcedBehavior` events to any streaming platform
+* [StatePublisher](./publisher.go) - publish `DurableStateBehavior` state to any streaming platform
+
+The following streaming connectors are implemented out of the box:
+
+* [Kafka](./publisher/kafka)
+* [Pulsar](./publisher/pulsar)
+* [NATs](./publisher/nats)
+* [Websocket](./publisher/websocket)
 
 ## 🌐 Cluster
 

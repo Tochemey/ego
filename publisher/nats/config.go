@@ -29,7 +29,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tochemey/goakt/v3/log"
 	"github.com/tochemey/gopack/validation"
 )
 
@@ -44,8 +43,6 @@ type Config struct {
 	// ReconnectWait sets the time to backoff after attempting a reconnect
 	// to a server that we were already connected to previously.
 	ReconnectWait time.Duration
-	// Logger is the logger for the publisher.
-	Logger log.Logger
 }
 
 var _ validation.Validator = (*Config)(nil)

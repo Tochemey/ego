@@ -29,7 +29,6 @@ import (
 	"time"
 
 	"github.com/IBM/sarama"
-	"github.com/tochemey/goakt/v3/log"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 
@@ -42,7 +41,6 @@ import (
 type EventsPublisher struct {
 	config   *Config
 	producer sarama.SyncProducer
-	logger   log.Logger
 	started  *atomic.Bool
 }
 
@@ -68,7 +66,6 @@ func NewEventsPublisher(config *Config) (*EventsPublisher, error) {
 
 	return &EventsPublisher{
 		config:   config,
-		logger:   config.Logger,
 		started:  atomic.NewBool(true),
 		producer: producer,
 	}, nil
@@ -124,7 +121,6 @@ func (x *EventsPublisher) Publish(ctx context.Context, event *egopb.Event) error
 type DurableStatePublisher struct {
 	config   *Config
 	producer sarama.SyncProducer
-	logger   log.Logger
 	started  *atomic.Bool
 }
 
@@ -150,7 +146,6 @@ func NewDurableStatePublisher(config *Config) (*DurableStatePublisher, error) {
 
 	return &DurableStatePublisher{
 		config:   config,
-		logger:   config.Logger,
 		started:  atomic.NewBool(true),
 		producer: producer,
 	}, nil
