@@ -121,17 +121,17 @@ func NewEventsPublisher(config *Config) (*EventsPublisher, error) {
 //   - ctx: The context to close the publisher.
 //
 // Returns: An error if the publisher fails to close.
-func (e *EventsPublisher) Close(context.Context) error {
-	e.started.Store(false)
-	if err := e.connection.Drain(); err != nil {
+func (x *EventsPublisher) Close(context.Context) error {
+	x.started.Store(false)
+	if err := x.connection.Drain(); err != nil {
 		return err
 	}
-	e.connection.Close()
+	x.connection.Close()
 	return nil
 }
 
 // ID returns the ID of the NATS publisher.
-func (e *EventsPublisher) ID() string {
+func (x *EventsPublisher) ID() string {
 	return "eGo.NATS.EventsPublisher"
 }
 
@@ -140,16 +140,17 @@ func (e *EventsPublisher) ID() string {
 // Parameters:
 //   - ctx: The context to send the event.
 //   - event: The event to send.
-//   - Returns: An error if the event fails to be sent.
-func (e *EventsPublisher) Publish(_ context.Context, event *egopb.Event) error {
-	if !e.started.Load() {
+//
+// Returns: An error if the event fails to be sent.
+func (x *EventsPublisher) Publish(_ context.Context, event *egopb.Event) error {
+	if !x.started.Load() {
 		return ego.ErrPublisherNotStarted
 	}
 
 	// serialize the event. No need to check for errors.
 	payload, _ := proto.Marshal(event)
 
-	_, err := e.jetStream.Publish(e.config.NatsSubject, payload)
+	_, err := x.jetStream.Publish(x.config.NatsSubject, payload)
 	if err != nil {
 		return err
 	}
