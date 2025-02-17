@@ -132,7 +132,7 @@ func (x *EventsPublisher) Close(context.Context) error {
 
 // ID returns the ID of the NATS publisher.
 func (x *EventsPublisher) ID() string {
-	return "eGo.NATS.EventsPublisher"
+	return "ego-nats"
 }
 
 // Publish sends an event to the NATS server.
@@ -250,7 +250,7 @@ func (e *DurableStatePublisher) Close(context.Context) error {
 
 // ID returns the ID of the NATS publisher.
 func (e *DurableStatePublisher) ID() string {
-	return "eGo.NATS.DurableStatePublisher"
+	return "ego-nats"
 }
 
 // Publish sends a message to the NATS server.

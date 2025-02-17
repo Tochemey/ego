@@ -22,28 +22,16 @@
  * SOFTWARE.
  */
 
-package pulsar
+package websocket
 
 import (
-	"fmt"
-	"strings"
-	"time"
-
 	"github.com/tochemey/gopack/validation"
 )
 
-// Config is a set of base config values required for connecting to Pulsar
+// Config is a set of base config values required for connecting to a websocket server
 type Config struct {
-	// URL defines the pulsar server in the format pulsar://host:port
+	// URL defines the websocket server in the format ws://host:port/path or wss://host:port/path
 	URL string
-	// EventsTopic is the topic for publishing events.
-	EventsTopic string
-	// StateTopic is the topic for publishing state changes.
-	StateTopic string
-	// ConnectionTimeout specifies the timeout for establishing a connection.
-	ConnectionTimeout time.Duration
-	// KeepAlive specifies the keep-alive period for the connection.
-	KeepAlive time.Duration
 }
 
 var _ validation.Validator = (*Config)(nil)
@@ -51,29 +39,5 @@ var _ validation.Validator = (*Config)(nil)
 func (x Config) Validate() error {
 	return validation.New(validation.FailFast()).
 		AddValidator(validation.NewEmptyStringValidator("URL", x.URL)).
-		AddValidator(NewURLValidator(x.URL)).
-		AddValidator(validation.NewEmptyStringValidator("EventsTopic", x.EventsTopic)).
-		AddValidator(validation.NewEmptyStringValidator("StateTopic", x.StateTopic)).
 		Validate()
-}
-
-type URLValidator struct {
-	url string
-}
-
-// enforce compilation error
-var _ validation.Validator = (*URLValidator)(nil)
-
-func NewURLValidator(url string) validation.Validator {
-	return &URLValidator{url: url}
-}
-
-// Validate execute the validation code
-func (x *URLValidator) Validate() error {
-	if !strings.HasPrefix(x.url, "pulsar") {
-		return fmt.Errorf("invalid nats server address: %s", x.url)
-	}
-
-	hostAndPort := strings.SplitN(x.url, "pulsar://", 2)[1]
-	return validation.NewTCPAddressValidator(hostAndPort).Validate()
 }

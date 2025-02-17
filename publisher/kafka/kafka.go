@@ -87,7 +87,7 @@ func (x *EventsPublisher) Close(ctx context.Context) error {
 
 // ID implements ego.EventPublisher.
 func (x *EventsPublisher) ID() string {
-	return "eGo.Kafka.EventsPublisher"
+	return "ego-kafka"
 }
 
 // Publish implements ego.EventPublisher.
@@ -169,7 +169,7 @@ func (x *DurableStatePublisher) Close(ctx context.Context) error {
 
 // ID implements ego.StatePublisher.
 func (x *DurableStatePublisher) ID() string {
-	return "eGo.Kafka.DurableStatePublisher"
+	return "ego-kafka"
 }
 
 // Publish implements ego.StatePublisher.
