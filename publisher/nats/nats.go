@@ -249,7 +249,7 @@ func (e *DurableStatePublisher) Close(context.Context) error {
 
 // ID returns the ID of the NATS publisher.
 func (e *DurableStatePublisher) ID() string {
-	return "eGo.NATS.EventsPublisher"
+	return "eGo.NATS.DurableStatePublisher"
 }
 
 // Publish sends a message to the NATS server.
