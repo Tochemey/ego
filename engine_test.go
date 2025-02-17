@@ -53,6 +53,7 @@ import (
 	testkit2 "github.com/tochemey/ego/v3/testkit"
 )
 
+// nolint
 func TestEngine(t *testing.T) {
 	t.Run("EventSourced entity With single node cluster enabled", func(t *testing.T) {
 		ctx := context.TODO()
