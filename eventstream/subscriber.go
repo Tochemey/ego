@@ -110,15 +110,17 @@ func (x *subscriber) Shutdown() {
 }
 
 func (x *subscriber) Iterator() chan *Message {
-	out := make(chan *Message, x.messages.Length())
-	defer close(out)
-	for x.messages.Length() > 0 && x.active.Load() {
-		msg := x.messages.Dequeue()
-		if msg == nil {
-			break
+	out := make(chan *Message)
+	go func() {
+		defer close(out)
+		for x.active.Load() && x.messages.Length() > 0 {
+			msg := x.messages.Dequeue()
+			if msg == nil {
+				break
+			}
+			out <- msg.(*Message)
 		}
-		out <- msg.(*Message)
-	}
+	}()
 	return out
 }
 
