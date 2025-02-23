@@ -107,18 +107,18 @@ func (entity *eventSourcedActor) recoverFromSnapshot(ctx context.Context) error 
 		return fmt.Errorf("failed to recover the latest journal: %w", err)
 	}
 
-	// we do have the latest state just recover from it
-	if event != nil {
-		currentState := entity.InitialState()
-		if err := event.GetResultingState().UnmarshalTo(currentState); err != nil {
-			return fmt.Errorf("failed unmarshal the latest state: %w", err)
-		}
-		entity.currentState = currentState
-		entity.eventsCounter = event.GetSequenceNumber()
+	if event == nil || event.GetResultingState() == nil {
+		entity.currentState = entity.InitialState()
 		return nil
 	}
 
-	entity.currentState = entity.InitialState()
+	currentState := entity.InitialState()
+	if err := event.GetResultingState().UnmarshalTo(currentState); err != nil {
+		return fmt.Errorf("failed to unmarshal the latest state: %w", err)
+	}
+
+	entity.currentState = currentState
+	entity.eventsCounter = event.GetSequenceNumber()
 	return nil
 }
 
