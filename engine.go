@@ -421,11 +421,7 @@ func (engine *Engine) Entity(ctx context.Context, behavior EventSourcedBehavior,
 		behavior.ID(),
 		newEventSourcedActor(behavior, eventsStore, eventStream),
 		sOptions...)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }
 
 // DurableStateEntity creates an entity that persists its full state in a durable store without maintaining historical event records.
@@ -478,11 +474,7 @@ func (engine *Engine) DurableStateEntity(ctx context.Context, behavior DurableSt
 		behavior.ID(),
 		newDurableStateActor(behavior, durableStateStore, eventStream),
 		sOptions...)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }
 
 // SendCommand sends a command to the specified entity and processes its response.
