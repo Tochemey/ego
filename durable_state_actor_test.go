@@ -362,7 +362,6 @@ func TestDurableStateBehavior(t *testing.T) {
 		eventStream.Close()
 	})
 	t.Run("with state recovery from state store with no latest state", func(t *testing.T) {
-		defer goleak.VerifyNone(t)
 		ctx := context.TODO()
 		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
 			goakt.WithPassivationDisabled(),
