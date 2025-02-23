@@ -310,6 +310,10 @@ func (engine *Engine) IsProjectionRunning(ctx context.Context, name string) (boo
 // Returns:
 //   - An error if the shutdown process encounters issues; otherwise, nil.
 func (engine *Engine) Stop(ctx context.Context) error {
+	if !engine.Started() {
+		return nil
+	}
+
 	engine.started.Store(false)
 
 	// shutdown all event eventsStreams
