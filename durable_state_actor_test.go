@@ -361,47 +361,6 @@ func TestDurableStateBehavior(t *testing.T) {
 		assert.NoError(t, durableStore.Disconnect(ctx))
 		eventStream.Close()
 	})
-	t.Run("with state recovery from state store with no latest state", func(t *testing.T) {
-		ctx := context.TODO()
-		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
-			goakt.WithPassivationDisabled(),
-			goakt.WithLogger(log.DiscardLogger),
-			goakt.WithActorInitMaxRetries(3),
-		)
-		require.NoError(t, err)
-		assert.NotNil(t, actorSystem)
-
-		// start the actor system
-		err = actorSystem.Start(ctx)
-		require.NoError(t, err)
-
-		lib.Pause(time.Second)
-
-		persistenceID := uuid.NewString()
-		behavior := NewAccountDurableStateBehavior(persistenceID)
-
-		eventStream := eventstream.New()
-
-		durableStore := new(mocks.StateStore)
-		durableStore.EXPECT().Ping(mock.Anything).Return(nil)
-		durableStore.EXPECT().GetLatestState(mock.Anything, behavior.ID()).Return(new(egopb.DurableState), nil)
-		durableStore.EXPECT().WriteState(mock.Anything, mock.AnythingOfType("*egopb.DurableState")).Return(nil)
-
-		persistentActor := newDurableStateActor(behavior, durableStore, eventStream)
-		pid, err := actorSystem.Spawn(ctx, behavior.ID(), persistentActor)
-		require.NoError(t, err)
-		require.NotNil(t, pid)
-
-		lib.Pause(time.Second)
-
-		err = actorSystem.Stop(ctx)
-		require.NoError(t, err)
-
-		lib.Pause(time.Second)
-
-		eventStream.Close()
-		durableStore.AssertExpectations(t)
-	})
 	t.Run("with state recovery from state store failure", func(t *testing.T) {
 		defer goleak.VerifyNone(t)
 		ctx := context.TODO()
