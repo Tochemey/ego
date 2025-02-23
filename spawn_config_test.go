@@ -32,9 +32,15 @@ import (
 )
 
 func TestSpawnOption(t *testing.T) {
-	config := &spawnConfig{}
-	second := time.Second
-	option := WithPassivateAfter(second)
-	option.Apply(config)
-	require.Equal(t, &spawnConfig{passivateAfter: second}, config)
+	t.Run("WithPassivateAfter with options", func(t *testing.T) {
+		config := newSpawnConfig(WithPassivateAfter(time.Second))
+		require.EqualValues(t, time.Second, config.passivateAfter)
+	})
+	t.Run("WithPassivateAfter with Apply", func(t *testing.T) {
+		config := &spawnConfig{}
+		second := time.Second
+		option := WithPassivateAfter(second)
+		option.Apply(config)
+		require.Equal(t, &spawnConfig{passivateAfter: second}, config)
+	})
 }
