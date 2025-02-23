@@ -72,7 +72,7 @@ func TestRunner(t *testing.T) {
 		handler := NewDiscardHandler(logger)
 
 		// create an instance of the projection
-		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithRefreshInterval(time.Millisecond), WithLogger(logger))
+		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithPullInterval(time.Millisecond), WithLogger(logger))
 		// start the projection
 		err := runner.Start(ctx)
 		require.NoError(t, err)
@@ -105,7 +105,7 @@ func TestRunner(t *testing.T) {
 		}
 
 		require.NoError(t, eventsStore.WriteEvents(ctx, journals))
-		require.True(t, runner.started.Load())
+		require.True(t, runner.running.Load())
 
 		// wait for the data to be persisted by the database since this an eventual consistency case
 		lib.Pause(time.Second)
@@ -149,7 +149,7 @@ func TestRunner(t *testing.T) {
 		// create a handler that return successfully
 		handler := &testHandler1{}
 
-		runner := newRunner(projectionName, handler, journalStore, offsetStore, WithRefreshInterval(time.Millisecond))
+		runner := newRunner(projectionName, handler, journalStore, offsetStore, WithPullInterval(time.Millisecond))
 		// start the projection
 		err := runner.Start(ctx)
 		require.NoError(t, err)
@@ -179,13 +179,13 @@ func TestRunner(t *testing.T) {
 		}
 
 		require.NoError(t, journalStore.WriteEvents(ctx, journals))
-		require.True(t, runner.started.Load())
+		require.True(t, runner.running.Load())
 
 		// wait for the data to be persisted by the database since this an eventual consistency case
 		lib.Pause(time.Second)
 
 		// here due to the default recovery strategy the projection is stopped
-		require.False(t, runner.started.Load())
+		require.False(t, runner.running.Load())
 		// free resources
 		assert.NoError(t, journalStore.Disconnect(ctx))
 		assert.NoError(t, offsetStore.Disconnect(ctx))
@@ -212,7 +212,7 @@ func TestRunner(t *testing.T) {
 		handler := &testHandler1{}
 
 		runner := newRunner(projectionName, handler, journalStore, offsetStore,
-			WithRefreshInterval(time.Millisecond),
+			WithPullInterval(time.Millisecond),
 			WithRecoveryStrategy(NewRecovery(
 				WithRecoveryPolicy(RetryAndFail),
 				WithRetries(2),
@@ -233,7 +233,7 @@ func TestRunner(t *testing.T) {
 		count := 10
 		timestamp := timestamppb.Now()
 		journals := make([]*egopb.Event, count)
-		for i := 0; i < count; i++ {
+		for i := range count {
 			seqNr := i + 1
 			journals[i] = &egopb.Event{
 				PersistenceId:  persistenceID,
@@ -246,13 +246,13 @@ func TestRunner(t *testing.T) {
 		}
 
 		require.NoError(t, journalStore.WriteEvents(ctx, journals))
-		require.True(t, runner.started.Load())
+		require.True(t, runner.running.Load())
 
 		// wait for the data to be persisted by the database since this an eventual consistency case
 		lib.Pause(1 * time.Second)
 
 		// let us grab the current offset
-		require.False(t, runner.started.Load())
+		require.False(t, runner.running.Load())
 
 		// free resources
 		assert.NoError(t, journalStore.Disconnect(ctx))
@@ -281,7 +281,7 @@ func TestRunner(t *testing.T) {
 		handler := &testHandler2{counter: atomic.NewInt32(0)}
 
 		runner := newRunner(projectionName, handler, journalStore, offsetStore,
-			WithRefreshInterval(time.Millisecond),
+			WithPullInterval(time.Millisecond),
 			WithRecoveryStrategy(NewRecovery(
 				WithRecoveryPolicy(Skip),
 				WithRetries(2),
@@ -300,7 +300,7 @@ func TestRunner(t *testing.T) {
 		count := 10
 		timestamp := timestamppb.Now()
 		journals := make([]*egopb.Event, count)
-		for i := 0; i < count; i++ {
+		for i := range count {
 			seqNr := i + 1
 			journals[i] = &egopb.Event{
 				PersistenceId:  persistenceID,
@@ -314,7 +314,7 @@ func TestRunner(t *testing.T) {
 		}
 
 		require.NoError(t, journalStore.WriteEvents(ctx, journals))
-		require.True(t, runner.started.Load())
+		require.True(t, runner.running.Load())
 
 		// wait for the data to be persisted by the database since this an eventual consistency case
 		lib.Pause(time.Second)
@@ -357,7 +357,7 @@ func TestRunner(t *testing.T) {
 		handler := &testHandler2{counter: atomic.NewInt32(0)}
 
 		runner := newRunner(projectionName, handler, journalStore, offsetStore,
-			WithRefreshInterval(time.Millisecond),
+			WithPullInterval(time.Millisecond),
 			WithRecoveryStrategy(NewRecovery(
 				WithRecoveryPolicy(RetryAndSkip),
 				WithRetries(2),
@@ -376,7 +376,7 @@ func TestRunner(t *testing.T) {
 		count := 10
 		timestamp := timestamppb.Now()
 		journals := make([]*egopb.Event, count)
-		for i := 0; i < count; i++ {
+		for i := range count {
 			seqNr := i + 1
 			journals[i] = &egopb.Event{
 				PersistenceId:  persistenceID,
@@ -390,7 +390,7 @@ func TestRunner(t *testing.T) {
 		}
 
 		require.NoError(t, journalStore.WriteEvents(ctx, journals))
-		require.True(t, runner.started.Load())
+		require.True(t, runner.running.Load())
 
 		// wait for the data to be persisted by the database since this an eventual consistency case
 		lib.Pause(time.Second)
@@ -421,7 +421,7 @@ func TestRunner(t *testing.T) {
 		require.NoError(t, offsetStore.Connect(ctx))
 
 		// create an instance of the projection
-		runner := newRunner(projectionName, handler, nil, offsetStore, WithRefreshInterval(time.Millisecond))
+		runner := newRunner(projectionName, handler, nil, offsetStore, WithPullInterval(time.Millisecond))
 		// start the projection
 		err := runner.Start(ctx)
 		require.Error(t, err)
@@ -439,7 +439,7 @@ func TestRunner(t *testing.T) {
 		require.NoError(t, eventsStore.Connect(ctx))
 
 		// create an instance of the projection
-		runner := newRunner(projectionName, handler, eventsStore, nil, WithRefreshInterval(time.Millisecond))
+		runner := newRunner(projectionName, handler, eventsStore, nil, WithPullInterval(time.Millisecond))
 		// start the projection
 		err := runner.Start(ctx)
 		require.Error(t, err)
@@ -462,7 +462,7 @@ func TestRunner(t *testing.T) {
 		require.NoError(t, offsetStore.Connect(ctx))
 
 		// create an instance of the projection
-		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithRefreshInterval(time.Millisecond))
+		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithPullInterval(time.Millisecond))
 		// start the projection
 		err := runner.Start(ctx)
 		require.NoError(t, err)
@@ -490,7 +490,7 @@ func TestRunner(t *testing.T) {
 		eventsStore.EXPECT().Ping(mock.Anything).Return(errors.New("fail ping"))
 
 		// create an instance of the projection
-		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithRefreshInterval(time.Millisecond))
+		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithPullInterval(time.Millisecond))
 		// start the projection
 		err := runner.Start(ctx)
 		require.Error(t, err)
@@ -513,7 +513,7 @@ func TestRunner(t *testing.T) {
 		offsetStore.EXPECT().Ping(mock.Anything).Return(errors.New("fail ping"))
 
 		// create an instance of the projection
-		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithRefreshInterval(time.Millisecond))
+		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithPullInterval(time.Millisecond))
 		// start the projection
 		err := runner.Start(ctx)
 		require.Error(t, err)
@@ -536,7 +536,7 @@ func TestRunner(t *testing.T) {
 		offsetStore.EXPECT().ResetOffset(ctx, projectionName, resetOffsetTo.UnixMilli()).Return(errors.New("fail to reset offset"))
 
 		// create an instance of the projection
-		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithRefreshInterval(time.Millisecond))
+		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithPullInterval(time.Millisecond))
 		// purposefully for test
 		runner.resetOffsetTo = resetOffsetTo
 
@@ -595,7 +595,7 @@ func TestRunner(t *testing.T) {
 		offsetStore.EXPECT().Ping(mock.Anything).Return(nil)
 		offsetStore.EXPECT().ResetOffset(mock.Anything, projectionName, resetOffsetTo.UnixMilli()).Return(nil)
 		offsetStore.EXPECT().GetCurrentOffset(mock.Anything, projectionID).Return(offset, nil)
-		offsetStore.EXPECT().WriteOffset(mock.Anything, mock.AnythingOfType("*egopb.Offset")).Return(errors.New("fail to write the offset"))
+		offsetStore.EXPECT().WriteOffset(mock.Anything, mock.AnythingOfType("*egopb.Offset")).Return(assert.AnError)
 
 		eventsStore := new(mockseventstore.EventsStore)
 		eventsStore.EXPECT().Ping(mock.Anything).Return(nil)
@@ -603,7 +603,7 @@ func TestRunner(t *testing.T) {
 		eventsStore.EXPECT().GetShardEvents(mock.Anything, shardNumber, offset.GetValue(), uint64(maxBufferSize)).Return(events, nextOffsetValue.AsTime().UnixMilli(), nil)
 
 		// create an instance of the projection
-		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithRefreshInterval(time.Millisecond))
+		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithPullInterval(time.Millisecond))
 		runner.resetOffsetTo = resetOffsetTo
 		runner.maxBufferSize = maxBufferSize
 
@@ -619,7 +619,226 @@ func TestRunner(t *testing.T) {
 		eventsStore.AssertExpectations(t)
 		offsetStore.AssertExpectations(t)
 
-		assert.False(t, runner.started.Load())
+		assert.False(t, runner.running.Load())
+
+		require.NoError(t, runner.Stop())
+	})
+	t.Run("when fail to fetch shard numbers stops the runner", func(t *testing.T) {
+		defer goleak.VerifyNone(t)
+		ctx := context.TODO()
+		projectionName := "db-writer"
+		logger := log.DiscardLogger
+		handler := NewDiscardHandler(logger)
+
+		maxBufferSize := 10
+		resetOffsetTo := time.Now().UTC()
+
+		offsetStore := new(mocksoffsetstore.OffsetStore)
+		offsetStore.EXPECT().Ping(mock.Anything).Return(nil)
+		offsetStore.EXPECT().ResetOffset(mock.Anything, projectionName, resetOffsetTo.UnixMilli()).Return(nil)
+
+		eventsStore := new(mockseventstore.EventsStore)
+		eventsStore.EXPECT().Ping(mock.Anything).Return(nil)
+		eventsStore.EXPECT().ShardNumbers(mock.Anything).Return(nil, assert.AnError)
+
+		// create an instance of the projection
+		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithPullInterval(time.Millisecond))
+		runner.resetOffsetTo = resetOffsetTo
+		runner.maxBufferSize = maxBufferSize
+
+		// start the projection
+		err := runner.Start(ctx)
+		require.NoError(t, err)
+
+		// run the projection
+		runner.Run(ctx)
+
+		lib.Pause(time.Second)
+
+		eventsStore.AssertExpectations(t)
+		offsetStore.AssertExpectations(t)
+
+		assert.False(t, runner.running.Load())
+
+		require.NoError(t, runner.Stop())
+	})
+	t.Run("when fail to get current offset stops the runner", func(t *testing.T) {
+		defer goleak.VerifyNone(t)
+		ctx := context.TODO()
+		projectionName := "db-writer"
+		shardNumber := uint64(9)
+
+		logger := log.DiscardLogger
+		handler := NewDiscardHandler(logger)
+
+		// create the projection id
+		projectionID := &egopb.ProjectionId{
+			ProjectionName: projectionName,
+			ShardNumber:    shardNumber,
+		}
+
+		maxBufferSize := 10
+		resetOffsetTo := time.Now().UTC()
+
+		offsetStore := new(mocksoffsetstore.OffsetStore)
+		offsetStore.EXPECT().Ping(mock.Anything).Return(nil)
+		offsetStore.EXPECT().ResetOffset(mock.Anything, projectionName, resetOffsetTo.UnixMilli()).Return(nil)
+		offsetStore.EXPECT().GetCurrentOffset(mock.Anything, projectionID).Return(nil, assert.AnError)
+
+		eventsStore := new(mockseventstore.EventsStore)
+		eventsStore.EXPECT().Ping(mock.Anything).Return(nil)
+		eventsStore.EXPECT().ShardNumbers(mock.Anything).Return([]uint64{shardNumber}, nil)
+
+		// create an instance of the projection
+		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithPullInterval(time.Millisecond))
+		runner.resetOffsetTo = resetOffsetTo
+		runner.maxBufferSize = maxBufferSize
+
+		// start the projection
+		err := runner.Start(ctx)
+		require.NoError(t, err)
+
+		// run the projection
+		runner.Run(ctx)
+
+		lib.Pause(time.Second)
+
+		eventsStore.AssertExpectations(t)
+		offsetStore.AssertExpectations(t)
+
+		assert.False(t, runner.running.Load())
+
+		require.NoError(t, runner.Stop())
+	})
+	t.Run("when fail to get shard events stops the runner", func(t *testing.T) {
+		defer goleak.VerifyNone(t)
+		ctx := context.TODO()
+		projectionName := "db-writer"
+
+		shardNumber := uint64(9)
+		timestamp := timestamppb.Now()
+		logger := log.DiscardLogger
+		handler := NewDiscardHandler(logger)
+
+		// create the projection id
+		projectionID := &egopb.ProjectionId{
+			ProjectionName: projectionName,
+			ShardNumber:    shardNumber,
+		}
+
+		offset := &egopb.Offset{
+			ShardNumber:    shardNumber,
+			ProjectionName: projectionName,
+			Value:          timestamp.AsTime().Unix(),
+			Timestamp:      0,
+		}
+
+		maxBufferSize := 10
+		resetOffsetTo := time.Now().UTC()
+
+		offsetStore := new(mocksoffsetstore.OffsetStore)
+		offsetStore.EXPECT().Ping(mock.Anything).Return(nil)
+		offsetStore.EXPECT().ResetOffset(mock.Anything, projectionName, resetOffsetTo.UnixMilli()).Return(nil)
+		offsetStore.EXPECT().GetCurrentOffset(mock.Anything, projectionID).Return(offset, nil)
+
+		eventsStore := new(mockseventstore.EventsStore)
+		eventsStore.EXPECT().Ping(mock.Anything).Return(nil)
+		eventsStore.EXPECT().ShardNumbers(mock.Anything).Return([]uint64{shardNumber}, nil)
+		eventsStore.EXPECT().GetShardEvents(mock.Anything, shardNumber, offset.GetValue(), uint64(maxBufferSize)).Return(nil, 0, assert.AnError)
+
+		// create an instance of the projection
+		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithPullInterval(time.Millisecond))
+		runner.resetOffsetTo = resetOffsetTo
+		runner.maxBufferSize = maxBufferSize
+
+		// start the projection
+		err := runner.Start(ctx)
+		require.NoError(t, err)
+
+		// run the projection
+		runner.Run(ctx)
+
+		lib.Pause(time.Second)
+
+		eventsStore.AssertExpectations(t)
+		offsetStore.AssertExpectations(t)
+
+		assert.False(t, runner.running.Load())
+
+		require.NoError(t, runner.Stop())
+	})
+	t.Run("when current offset is zero", func(t *testing.T) {
+		defer goleak.VerifyNone(t)
+		ctx := context.TODO()
+		projectionName := "db-writer"
+		persistenceID := uuid.NewString()
+		shardNumber := uint64(9)
+		timestamp := timestamppb.Now()
+		logger := log.DiscardLogger
+		handler := NewDiscardHandler(logger)
+
+		// create the projection id
+		projectionID := &egopb.ProjectionId{
+			ProjectionName: projectionName,
+			ShardNumber:    shardNumber,
+		}
+
+		offset := &egopb.Offset{
+			ShardNumber:    shardNumber,
+			ProjectionName: projectionName,
+			Value:          timestamp.AsTime().Unix(),
+			Timestamp:      0,
+		}
+
+		state, err := anypb.New(new(testpb.Account))
+		require.NoError(t, err)
+		event, err := anypb.New(&testpb.AccountCredited{})
+		require.NoError(t, err)
+		nextOffsetValue := timestamppb.New(time.Now().Add(time.Minute))
+		events := []*egopb.Event{
+			{
+				PersistenceId:  persistenceID,
+				SequenceNumber: 1,
+				IsDeleted:      false,
+				Event:          event,
+				ResultingState: state,
+				Timestamp:      timestamp.AsTime().Unix(),
+				Shard:          shardNumber,
+			},
+		}
+
+		maxBufferSize := 10
+		resetOffsetTo := time.Now().UTC()
+
+		offsetStore := new(mocksoffsetstore.OffsetStore)
+		offsetStore.EXPECT().Ping(mock.Anything).Return(nil)
+		offsetStore.EXPECT().ResetOffset(mock.Anything, projectionName, resetOffsetTo.UnixMilli()).Return(nil)
+		offsetStore.EXPECT().GetCurrentOffset(mock.Anything, projectionID).Return(offset, nil)
+		offsetStore.EXPECT().WriteOffset(mock.Anything, mock.AnythingOfType("*egopb.Offset")).Return(nil)
+
+		eventsStore := new(mockseventstore.EventsStore)
+		eventsStore.EXPECT().Ping(mock.Anything).Return(nil)
+		eventsStore.EXPECT().ShardNumbers(mock.Anything).Return([]uint64{shardNumber}, nil)
+		eventsStore.EXPECT().GetShardEvents(mock.Anything, shardNumber, offset.GetValue(), uint64(maxBufferSize)).Return(events, nextOffsetValue.AsTime().UnixMilli(), nil)
+
+		// create an instance of the projection
+		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithPullInterval(time.Millisecond))
+		runner.resetOffsetTo = resetOffsetTo
+		runner.maxBufferSize = maxBufferSize
+
+		// start the projection
+		err = runner.Start(ctx)
+		require.NoError(t, err)
+
+		// run the projection
+		runner.Run(ctx)
+
+		lib.Pause(time.Second)
+
+		eventsStore.AssertExpectations(t)
+		offsetStore.AssertExpectations(t)
+
+		require.True(t, runner.running.Load())
 
 		require.NoError(t, runner.Stop())
 	})

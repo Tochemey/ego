@@ -63,14 +63,18 @@ func (c *Chain) AddErrors(errs ...error) *Chain {
 
 // Error returns the error
 func (c *Chain) Error() error {
+	if c.returnFirst {
+		for _, v := range c.errs {
+			if v != nil {
+				return v
+			}
+		}
+		return nil
+	}
+
 	var err error
 	for _, v := range c.errs {
 		if v != nil {
-			if c.returnFirst {
-				// just return the error
-				return v
-			}
-			// append error to the violations
 			err = multierr.Append(err, v)
 		}
 	}

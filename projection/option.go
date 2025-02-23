@@ -46,10 +46,11 @@ func (f OptionFunc) Apply(runner *runner) {
 	f(runner)
 }
 
-// WithRefreshInterval sets the refresh interval
-func WithRefreshInterval(interval time.Duration) Option {
+// WithPullInterval sets the events pull interval
+// This defines how often the projection will fetch events
+func WithPullInterval(interval time.Duration) Option {
 	return OptionFunc(func(runner *runner) {
-		runner.refreshInterval = interval
+		runner.pullInterval = interval
 	})
 }
 

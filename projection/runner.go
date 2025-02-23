@@ -59,11 +59,11 @@ type runner struct {
 	recovery *Recovery
 	// stop signal
 	stopSignal chan struct{}
-	// started status
-	started *atomic.Bool
-	// refresh interval. Events are fetched with this interval
+	// running status
+	running *atomic.Bool
+	// pull interval. Events are fetched with this interval
 	// the default value is 1s
-	refreshInterval time.Duration
+	pullInterval time.Duration
 	// defines how many events are fetched
 	// the default value is 500
 	maxBufferSize int
@@ -81,18 +81,18 @@ func newRunner(name string,
 	offsetStore offsetstore.OffsetStore,
 	opts ...Option) *runner {
 	runner := &runner{
-		name:            name,
-		logger:          log.New(log.ErrorLevel, os.Stderr),
-		handler:         handler,
-		eventsStore:     eventsStore,
-		offsetsStore:    offsetStore,
-		recovery:        NewRecovery(),
-		stopSignal:      make(chan struct{}, 1),
-		started:         atomic.NewBool(false),
-		refreshInterval: time.Second,
-		maxBufferSize:   500,
-		startingOffset:  time.Time{},
-		resetOffsetTo:   time.Time{},
+		name:           name,
+		logger:         log.New(log.ErrorLevel, os.Stderr),
+		handler:        handler,
+		eventsStore:    eventsStore,
+		offsetsStore:   offsetStore,
+		recovery:       NewRecovery(),
+		stopSignal:     make(chan struct{}, 1),
+		running:        atomic.NewBool(false),
+		pullInterval:   time.Second,
+		maxBufferSize:  500,
+		startingOffset: time.Time{},
+		resetOffsetTo:  time.Time{},
 	}
 
 	for _, opt := range opts {
@@ -104,7 +104,7 @@ func newRunner(name string,
 
 // Start starts the projection runner
 func (x *runner) Start(ctx context.Context) error {
-	if x.started.Load() {
+	if x.running.Load() {
 		return nil
 	}
 
@@ -146,19 +146,19 @@ func (x *runner) Start(ctx context.Context) error {
 		return err
 	}
 
-	x.started.Store(true)
+	x.running.Store(true)
 
 	return nil
 }
 
 // Stop stops the projection runner
 func (x *runner) Stop() error {
-	if !x.started.Load() {
+	if !x.running.Load() {
 		return nil
 	}
 
 	x.stopSignal <- struct{}{}
-	x.started.Store(false)
+	x.running.Store(false)
 	return nil
 }
 
@@ -175,15 +175,14 @@ func (x *runner) Run(ctx context.Context) {
 
 // processingLoop is a loop that continuously runs to process events persisted onto the journal store until the projection is stopped
 func (x *runner) processingLoop(ctx context.Context) {
-	ticker := ticker.New(x.refreshInterval)
+	ticker := ticker.New(x.pullInterval)
 	ticker.Start()
-	tickerStopSignal := make(chan struct{}, 1)
 
 	go func() {
 		for {
 			select {
 			case <-x.stopSignal:
-				tickerStopSignal <- struct{}{}
+				ticker.Stop()
 				return
 			case <-ticker.Ticks:
 				g, ctx := errgroup.WithContext(ctx)
@@ -209,7 +208,7 @@ func (x *runner) processingLoop(ctx context.Context) {
 				})
 
 				// Start a fixed number of goroutines process the shards.
-				for i := 0; i < 5; i++ {
+				for range 5 {
 					g.Go(func() error {
 						for shard := range shardsChan {
 							select {
@@ -226,22 +225,18 @@ func (x *runner) processingLoop(ctx context.Context) {
 				// wait for all the processing to be done
 				if err := g.Wait(); err != nil {
 					x.logger.Error(err)
-					if err := x.Stop(); err != nil {
-						x.logger.Fatal(err)
-						return
-					}
+					ticker.Stop()
+					_ = x.Stop()
+					return
 				}
 			}
 		}
 	}()
-
-	<-tickerStopSignal
-	ticker.Stop()
 }
 
 // doProcess processes all events of a given persistent entity and hand them over to the handler
 func (x *runner) doProcess(ctx context.Context, shard uint64) error {
-	if !x.started.Load() {
+	if !x.running.Load() {
 		return nil
 	}
 
@@ -273,7 +268,7 @@ func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 
 	// define a variable that hold the number of events successfully processed
 	// iterate the events
-	for i := 0; i < length; i++ {
+	for i := range length {
 		envelope := events[i]
 
 		state := envelope.GetResultingState()
@@ -293,9 +288,8 @@ func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 		case RetryAndFail:
 			retries := x.recovery.Retries()
 			delay := x.recovery.RetryDelay()
-			// create a new exponential backoff that will try a maximum of retries times, with
-			// an initial delay of 100 ms and a maximum delay
-			backoff := retry.NewRetrier(int(retries), 100*time.Millisecond, delay)
+			// create a new exponential backoff that will try a maximum of retries times
+			backoff := retry.NewRetrier(int(retries), delay, delay)
 			// pass the data to the projection handler
 			if err := backoff.Run(func() error {
 				if err := x.handler.Handle(ctx, persistenceID, event, state, seqNr); err != nil {
@@ -311,9 +305,8 @@ func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 		case RetryAndSkip:
 			retries := x.recovery.Retries()
 			delay := x.recovery.RetryDelay()
-			// create a new exponential backoff that will try a maximum of retries times, with
-			// an initial delay of 100 ms and a maximum delay
-			backoff := retry.NewRetrier(int(retries), 100*time.Millisecond, delay)
+			// create a new exponential backoff that will try a maximum of retries times
+			backoff := retry.NewRetrier(int(retries), delay, delay)
 			// pass the data to the projection handler
 			if err := backoff.Run(func() error {
 				return x.handler.Handle(ctx, persistenceID, event, state, seqNr)

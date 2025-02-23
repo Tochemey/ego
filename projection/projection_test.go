@@ -80,7 +80,7 @@ func TestProjection(t *testing.T) {
 		handler := NewDiscardHandler(logger)
 
 		// create the actor
-		actor := New(projectionName, handler, journalStore, offsetStore, WithRefreshInterval(time.Millisecond))
+		actor := New(projectionName, handler, journalStore, offsetStore, WithPullInterval(time.Millisecond))
 		// spawn the actor
 		pid, err := actorSystem.Spawn(ctx, persistenceID, actor)
 		require.NoError(t, err)
@@ -97,7 +97,7 @@ func TestProjection(t *testing.T) {
 		count := 10
 		timestamp := timestamppb.Now()
 		journals := make([]*egopb.Event, count)
-		for i := 0; i < count; i++ {
+		for i := range count {
 			seqNr := i + 1
 			journals[i] = &egopb.Event{
 				PersistenceId:  persistenceID,
@@ -130,8 +130,64 @@ func TestProjection(t *testing.T) {
 		require.EqualValues(t, 10, handler.EventsCount())
 
 		// free resources
-		assert.NoError(t, journalStore.Disconnect(ctx))
-		assert.NoError(t, offsetStore.Disconnect(ctx))
+		require.NoError(t, journalStore.Disconnect(ctx))
+		require.NoError(t, offsetStore.Disconnect(ctx))
+		assert.NoError(t, actorSystem.Stop(ctx))
+	})
+	t.Run("With unhandled message result in deadletter", func(t *testing.T) {
+		defer goleak.VerifyNone(t)
+		ctx := context.TODO()
+		logger := log.DefaultLogger
+		// create an actor system
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithPassivationDisabled(),
+			goakt.WithLogger(logger),
+			goakt.WithActorInitMaxRetries(3))
+		require.NoError(t, err)
+		assert.NotNil(t, actorSystem)
+
+		// start the actor system
+		err = actorSystem.Start(ctx)
+		require.NoError(t, err)
+
+		lib.Pause(time.Second)
+
+		projectionName := "db-writer"
+		persistenceID := uuid.NewString()
+
+		// set up the event store
+		journalStore := testkit2.NewEventsStore()
+		assert.NotNil(t, journalStore)
+		require.NoError(t, journalStore.Connect(ctx))
+
+		// set up the offset store
+		offsetStore := testkit2.NewOffsetStore()
+		assert.NotNil(t, offsetStore)
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		handler := NewDiscardHandler(logger)
+
+		// create the projection actor
+		actor := New(projectionName, handler, journalStore, offsetStore, WithPullInterval(time.Millisecond))
+		// spawn the actor
+		pid, err := actorSystem.Spawn(ctx, persistenceID, actor)
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		lib.Pause(time.Second)
+
+		message := &testpb.CreateAccount{}
+		// send a message to the actor
+		err = goakt.Tell(ctx, pid, message)
+		require.NoError(t, err)
+
+		lib.Pause(time.Second)
+		metric := pid.Metric(ctx)
+		require.EqualValues(t, 1, metric.DeadlettersCount())
+
+		// free resources
+		require.NoError(t, journalStore.Disconnect(ctx))
+		require.NoError(t, offsetStore.Disconnect(ctx))
 		assert.NoError(t, actorSystem.Stop(ctx))
 	})
 }

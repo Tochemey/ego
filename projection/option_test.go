@@ -29,7 +29,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-
 	"github.com/tochemey/goakt/v3/log"
 )
 
@@ -45,8 +44,8 @@ func TestOption(t *testing.T) {
 	}{
 		{
 			name:     "WithRefreshInterval",
-			option:   WithRefreshInterval(ts),
-			expected: runner{refreshInterval: ts},
+			option:   WithPullInterval(ts),
+			expected: runner{pullInterval: ts},
 		},
 		{
 			name:     "WithMaxBufferSize",

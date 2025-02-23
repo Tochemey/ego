@@ -72,9 +72,12 @@ func newDurableStateActor(behavior DurableStateBehavior, stateStore persistence.
 
 // PreStart pre-starts the actor
 func (entity *durableStateActor) PreStart(ctx context.Context) error {
+	if err := entity.durableStateRequired(); err != nil {
+		return err
+	}
+
 	return errorschain.
 		New(errorschain.ReturnFirst()).
-		AddError(entity.durableStateRequired()).
 		AddError(entity.stateStore.Ping(ctx)).
 		AddError(entity.recoverFromStore(ctx)).
 		Error()
@@ -106,21 +109,23 @@ func (entity *durableStateActor) PostStop(ctx context.Context) error {
 func (entity *durableStateActor) recoverFromStore(ctx context.Context) error {
 	durableState, err := entity.stateStore.GetLatestState(ctx, entity.ID())
 	if err != nil {
-		return fmt.Errorf("failed unmarshal the latest state: %w", err)
+		return fmt.Errorf("failed to get the latest state: %w", err)
 	}
 
-	if durableState != nil && proto.Equal(durableState, new(egopb.DurableState)) {
-		currentState := entity.InitialState()
-		if err := durableState.GetResultingState().UnmarshalTo(currentState); err != nil {
-			return fmt.Errorf("failed unmarshal the latest state: %w", err)
-		}
-
-		entity.currentState = currentState
-		entity.currentVersion = durableState.GetVersionNumber()
+	if durableState == nil || proto.Equal(durableState, new(egopb.DurableState)) {
+		entity.currentState = entity.InitialState()
 		return nil
 	}
 
-	entity.currentState = entity.InitialState()
+	currentState := entity.InitialState()
+	if resultingState := durableState.GetResultingState(); resultingState != nil {
+		if err := resultingState.UnmarshalTo(currentState); err != nil {
+			return fmt.Errorf("failed to unmarshal the latest state: %w", err)
+		}
+	}
+
+	entity.currentState = currentState
+	entity.currentVersion = durableState.GetVersionNumber()
 	return nil
 }
 
