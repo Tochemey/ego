@@ -94,16 +94,16 @@ func (b *EventsStream) RemoveSubscriber(sub Subscriber) {
 
 // Broadcast notifies all subscribers of a given topic of a new message
 func (b *EventsStream) Broadcast(msg any, topics []string) {
-	// broadcast message to all topics.
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	for _, topic := range topics {
 		for _, consumer := range b.topics[topic] {
-			m := NewMessage(topic, msg)
 			if !consumer.Active() {
-				return
+				continue
 			}
-			go (func(s Subscriber) {
-				s.signal(m)
-			})(consumer)
+			m := NewMessage(topic, msg)
+			go consumer.signal(m)
 		}
 	}
 }
@@ -136,33 +136,31 @@ func (b *EventsStream) Subscribe(sub Subscriber, topic string) {
 
 // Unsubscribe removes a subscriber from a topic
 func (b *EventsStream) Unsubscribe(sub Subscriber, topic string) {
-	// unsubscribe to given topic
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	// only unsubscribe active subscriber
-	if !sub.Active() {
-		return
+	if subscribers, ok := b.topics[topic]; ok {
+		delete(subscribers, sub.ID())
+		if len(subscribers) == 0 {
+			delete(b.topics, topic)
+		}
 	}
 
-	delete(b.topics[topic], sub.ID())
 	sub.unsubscribe(topic)
 }
 
 // Publish publishes a message to a topic
 func (b *EventsStream) Publish(topic string, msg any) {
-	// publish the message to given topic.
 	b.mu.Lock()
-	bTopics := b.topics[topic]
+	subscribers := b.topics[topic]
 	b.mu.Unlock()
-	for _, consumer := range bTopics {
-		m := NewMessage(topic, msg)
+
+	for _, consumer := range subscribers {
 		if !consumer.Active() {
-			return
+			continue
 		}
-		go (func(s Subscriber) {
-			s.signal(m)
-		})(consumer)
+		m := NewMessage(topic, msg)
+		go consumer.signal(m)
 	}
 }
 
