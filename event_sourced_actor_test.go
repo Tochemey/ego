@@ -31,15 +31,18 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	goakt "github.com/tochemey/goakt/v3/actor"
 	"github.com/tochemey/goakt/v3/log"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/eventstream"
 	"github.com/tochemey/ego/v3/internal/lib"
+	mocks "github.com/tochemey/ego/v3/mocks/persistence"
 	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
 	"github.com/tochemey/ego/v3/testkit"
 )
@@ -648,6 +651,176 @@ func TestEventSourcedActor(t *testing.T) {
 		require.NoError(t, eventStore.Disconnect(ctx))
 
 		lib.Pause(time.Second)
+
+		// close the stream
+		eventStream.Close()
+		// stop the actor system
+		err = actorSystem.Stop(ctx)
+		assert.NoError(t, err)
+	})
+	t.Run("With events store not defined", func(t *testing.T) {
+		ctx := context.TODO()
+
+		// create an instance of events stream
+		eventStream := eventstream.New()
+
+		// create an actor system
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithPassivationDisabled(),
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithActorInitMaxRetries(3))
+		require.NoError(t, err)
+		assert.NotNil(t, actorSystem)
+
+		// start the actor system
+		err = actorSystem.Start(ctx)
+		require.NoError(t, err)
+
+		lib.Pause(time.Second)
+
+		// create a persistence id
+		persistenceID := uuid.NewString()
+		// create the persistence behavior
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		// create the persistence actor using the behavior previously created
+		actor := newEventSourcedActor(behavior, nil, eventStream)
+		// spawn the actor
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor)
+		require.Error(t, err)
+		require.Nil(t, pid)
+
+		// close the stream
+		eventStream.Close()
+		// stop the actor system
+		err = actorSystem.Stop(ctx)
+		assert.NoError(t, err)
+	})
+	t.Run("With events store ping failed", func(t *testing.T) {
+		ctx := context.TODO()
+
+		// create an instance of events stream
+		eventStream := eventstream.New()
+
+		// create an actor system
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithPassivationDisabled(),
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithActorInitMaxRetries(3))
+		require.NoError(t, err)
+		assert.NotNil(t, actorSystem)
+
+		// start the actor system
+		err = actorSystem.Start(ctx)
+		require.NoError(t, err)
+
+		lib.Pause(time.Second)
+
+		// create a persistence id
+		persistenceID := uuid.NewString()
+		// create the persistence behavior
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		eventStore := new(mocks.EventsStore)
+		eventStore.EXPECT().Ping(mock.Anything).Return(assert.AnError)
+
+		// create the persistence actor using the behavior previously created
+		actor := newEventSourcedActor(behavior, eventStore, eventStream)
+		// spawn the actor
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor)
+		require.Error(t, err)
+		require.Nil(t, pid)
+
+		// close the stream
+		eventStream.Close()
+		// stop the actor system
+		err = actorSystem.Stop(ctx)
+		assert.NoError(t, err)
+	})
+	t.Run("With events store GetLatestEvent failed", func(t *testing.T) {
+		ctx := context.TODO()
+
+		// create an instance of events stream
+		eventStream := eventstream.New()
+
+		// create an actor system
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithPassivationDisabled(),
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithActorInitMaxRetries(3))
+		require.NoError(t, err)
+		assert.NotNil(t, actorSystem)
+
+		// start the actor system
+		err = actorSystem.Start(ctx)
+		require.NoError(t, err)
+
+		lib.Pause(time.Second)
+
+		// create a persistence id
+		persistenceID := uuid.NewString()
+		// create the persistence behavior
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		eventStore := new(mocks.EventsStore)
+		eventStore.EXPECT().Ping(mock.Anything).Return(nil)
+		eventStore.EXPECT().GetLatestEvent(mock.Anything, persistenceID).Return(nil, assert.AnError)
+
+		// create the persistence actor using the behavior previously created
+		actor := newEventSourcedActor(behavior, eventStore, eventStream)
+		// spawn the actor
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor)
+		require.Error(t, err)
+		require.Nil(t, pid)
+
+		// close the stream
+		eventStream.Close()
+		// stop the actor system
+		err = actorSystem.Stop(ctx)
+		assert.NoError(t, err)
+	})
+	t.Run("With initial parsing failure", func(t *testing.T) {
+		ctx := context.TODO()
+
+		// create an instance of events stream
+		eventStream := eventstream.New()
+
+		// create an actor system
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithPassivationDisabled(),
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithActorInitMaxRetries(3))
+		require.NoError(t, err)
+		assert.NotNil(t, actorSystem)
+
+		// start the actor system
+		err = actorSystem.Start(ctx)
+		require.NoError(t, err)
+
+		lib.Pause(time.Second)
+
+		// create a persistence id
+		persistenceID := uuid.NewString()
+		// create the persistence behavior
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		latestEvent := &egopb.Event{
+			ResultingState: &anypb.Any{
+				TypeUrl: "invalid-type-url",
+				Value:   []byte("invalid-value"),
+			},
+		}
+
+		eventStore := new(mocks.EventsStore)
+		eventStore.EXPECT().Ping(mock.Anything).Return(nil)
+		eventStore.EXPECT().GetLatestEvent(mock.Anything, persistenceID).Return(latestEvent, nil)
+
+		// create the persistence actor using the behavior previously created
+		actor := newEventSourcedActor(behavior, eventStore, eventStream)
+		// spawn the actor
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor)
+		require.Error(t, err)
+		require.Nil(t, pid)
 
 		// close the stream
 		eventStream.Close()
