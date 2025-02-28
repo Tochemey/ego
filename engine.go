@@ -234,8 +234,14 @@ func (engine *Engine) AddProjection(ctx context.Context, name string, handler pr
 	actorSystem := engine.actorSystem
 	engine.mutex.Unlock()
 
-	// projections are long-lived goakt
-	if _, err := actorSystem.Spawn(ctx, name, actor, goakt.WithLongLived()); err != nil {
+	// projections are long-lived actors
+	// TODO: resuming the projection may not be a good option. Need to figure out the correlation between the handler
+	// TODO: retry policy and the backing actor behavior
+	supervisor := goakt.NewSupervisor(goakt.WithAnyErrorDirective(goakt.ResumeDirective))
+	if _, err := actorSystem.Spawn(ctx, name,
+		actor,
+		goakt.WithLongLived(),
+		goakt.WithSupervisor(supervisor)); err != nil {
 		return fmt.Errorf("failed to register the projection=(%s): %w", name, err)
 	}
 
