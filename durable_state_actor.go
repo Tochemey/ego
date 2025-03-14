@@ -78,8 +78,8 @@ func (entity *durableStateActor) PreStart(ctx context.Context) error {
 
 	return errorschain.
 		New(errorschain.ReturnFirst()).
-		AddError(entity.stateStore.Ping(ctx)).
-		AddError(entity.recoverFromStore(ctx)).
+		AddErrorFn(func() error { return entity.stateStore.Ping(ctx) }).
+		AddErrorFn(func() error { return entity.recoverFromStore(ctx) }).
 		Error()
 }
 
@@ -99,8 +99,8 @@ func (entity *durableStateActor) Receive(ctx *goakt.ReceiveContext) {
 func (entity *durableStateActor) PostStop(ctx context.Context) error {
 	return errorschain.
 		New(errorschain.ReturnFirst()).
-		AddError(entity.stateStore.Ping(ctx)).
-		AddError(entity.persistStateAndPublish(ctx)).
+		AddErrorFn(func() error { return entity.stateStore.Ping(ctx) }).
+		AddErrorFn(func() error { return entity.persistStateAndPublish(ctx) }).
 		Error()
 }
 
