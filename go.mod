@@ -8,7 +8,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/kapetan-io/tackle v0.11.0
 	github.com/stretchr/testify v1.10.0
-	github.com/tochemey/goakt/v3 v3.2.1
+	github.com/tochemey/goakt/v3 v3.2.2-0.20250413111853-ff6445d960b9
 	github.com/travisjeffery/go-dynaport v1.0.0
 	go.uber.org/atomic v1.11.0
 	go.uber.org/goleak v1.3.0
