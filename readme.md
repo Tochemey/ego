@@ -190,7 +190,7 @@ The following streaming connectors are implemented out of the box:
 ## 🌐 Cluster
 
 The cluster mode heavily relies on [Go-Akt](https://github.com/Tochemey/goakt#clustering) clustering. To enable clustering one need to use `WithCluster` option
-when creating the eGo engine.
+when creating the eGo engine. [`DurableStateBehavior`](./behavior.go) and [`EventSourcedBehavior`](./behavior.go) are not relocated during cluster topology changes when their running node leaves the cluster. More work will be done in the future to make them relocatable.
 
 ## 🧪 Testkit
 
