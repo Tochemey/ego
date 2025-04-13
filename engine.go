@@ -241,6 +241,7 @@ func (engine *Engine) AddProjection(ctx context.Context, name string, handler pr
 	if _, err := actorSystem.Spawn(ctx, name,
 		actor,
 		goakt.WithLongLived(),
+		goakt.WithRelocationDisabled(),
 		goakt.WithSupervisor(supervisor)); err != nil {
 		return fmt.Errorf("failed to register the projection=(%s): %w", name, err)
 	}
@@ -418,9 +419,13 @@ func (engine *Engine) Entity(ctx context.Context, behavior EventSourcedBehavior,
 
 	switch {
 	case config.passivateAfter > 0:
-		sOptions = append(sOptions, goakt.WithPassivateAfter(config.passivateAfter))
+		sOptions = append(sOptions,
+			goakt.WithRelocationDisabled(),
+			goakt.WithPassivateAfter(config.passivateAfter))
 	default:
-		sOptions = append(sOptions, goakt.WithLongLived())
+		sOptions = append(sOptions,
+			goakt.WithRelocationDisabled(),
+			goakt.WithLongLived())
 	}
 
 	_, err := actorSystem.Spawn(ctx,
@@ -471,9 +476,13 @@ func (engine *Engine) DurableStateEntity(ctx context.Context, behavior DurableSt
 
 	switch {
 	case config.passivateAfter > 0:
-		sOptions = append(sOptions, goakt.WithPassivateAfter(config.passivateAfter))
+		sOptions = append(sOptions,
+			goakt.WithRelocationDisabled(),
+			goakt.WithPassivateAfter(config.passivateAfter))
 	default:
-		sOptions = append(sOptions, goakt.WithLongLived())
+		sOptions = append(sOptions,
+			goakt.WithRelocationDisabled(),
+			goakt.WithLongLived())
 	}
 
 	_, err := actorSystem.Spawn(ctx,
@@ -738,7 +747,7 @@ func generateTopics(baseTopic string, partitionsCount uint64) []string {
 	case partitionsCount == 0:
 		topics = append(topics, fmt.Sprintf(baseTopic, 0))
 	default:
-		for i := 0; i < int(partitionsCount); i++ {
+		for i := range int(partitionsCount) {
 			topics = append(topics, fmt.Sprintf(baseTopic, i))
 		}
 	}
