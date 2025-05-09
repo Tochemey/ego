@@ -83,7 +83,7 @@ lint:
 local-test:
     FROM +vendor
 
-    RUN go-acc ./... -o coverage.out --ignore egopb,test,example,mocks -- -mod=vendor -timeout 0 -race -v
+    RUN go-acc ./... -o coverage.out --ignore egopb,test,example,mocks -- -mod=vendor -timeout 0 -race -v -p 1
 
     SAVE ARTIFACT coverage.out AS LOCAL coverage.out
 

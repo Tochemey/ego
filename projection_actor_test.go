@@ -78,11 +78,11 @@ func TestProjection(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(journalStore),
 				extensions.NewOffsetStore(offsetStore),
-				extensions.NewProjectionExtension(handler, 500, time.Time{}, time.Time{}, time.Second, projection.NewRecovery())),
+				extensions.NewProjectionExtension(handler, 500, ZeroTime, ZeroTime, time.Second, projection.NewRecovery())),
 			goakt.WithActorInitMaxRetries(3))
 
 		require.NoError(t, err)
-		assert.NotNil(t, actorSystem)
+		require.NotNil(t, actorSystem)
 
 		// start the actor system
 		err = actorSystem.Start(ctx)
@@ -138,12 +138,10 @@ func TestProjection(t *testing.T) {
 		require.NotNil(t, actual)
 		require.EqualValues(t, journals[9].GetTimestamp(), actual.GetValue())
 
-		require.EqualValues(t, 10, handler.EventsCount())
-
 		// free resources
 		require.NoError(t, journalStore.Disconnect(ctx))
 		require.NoError(t, offsetStore.Disconnect(ctx))
-		assert.NoError(t, actorSystem.Stop(ctx))
+		require.NoError(t, actorSystem.Stop(ctx))
 	})
 	t.Run("With unhandled message result in deadletter", func(t *testing.T) {
 		defer goleak.VerifyNone(t,

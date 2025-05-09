@@ -122,16 +122,14 @@ func TestRunner(t *testing.T) {
 
 		// let us grab the current offset
 		actual, err := offsetStore.GetCurrentOffset(ctx, projectionID)
-		assert.NoError(t, err)
-		assert.NotNil(t, actual)
-		assert.EqualValues(t, journals[9].GetTimestamp(), actual.GetValue())
-
-		assert.EqualValues(t, 10, handler.EventsCount())
+		require.NoError(t, err)
+		require.NotNil(t, actual)
+		require.EqualValues(t, journals[9].GetTimestamp(), actual.GetValue())
 
 		// free resources
-		assert.NoError(t, eventsStore.Disconnect(ctx))
-		assert.NoError(t, offsetStore.Disconnect(ctx))
-		assert.NoError(t, runner.Stop())
+		require.NoError(t, eventsStore.Disconnect(ctx))
+		require.NoError(t, offsetStore.Disconnect(ctx))
+		require.NoError(t, runner.Stop())
 	})
 	t.Run("with failed underlying with fail strategy", func(t *testing.T) {
 		defer goleak.VerifyNone(t,

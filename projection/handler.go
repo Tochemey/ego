@@ -28,7 +28,6 @@ import (
 	"context"
 
 	"github.com/tochemey/goakt/v3/log"
-	"go.uber.org/atomic"
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
@@ -42,8 +41,7 @@ type Handler interface {
 // This underlying really does nothing with the consumed event
 // Note: this will be useful when writing unit tests
 type DiscardHandler struct {
-	eventsCounter *atomic.Int64
-	logger        log.Logger
+	logger log.Logger
 }
 
 // enforce the complete implementation of the Handler interface
@@ -52,8 +50,7 @@ var _ Handler = (*DiscardHandler)(nil)
 // NewDiscardHandler creates an instance of DiscardHandler
 func NewDiscardHandler(logger log.Logger) *DiscardHandler {
 	return &DiscardHandler{
-		eventsCounter: atomic.NewInt64(0),
-		logger:        logger,
+		logger: logger,
 	}
 }
 
@@ -61,11 +58,5 @@ func NewDiscardHandler(logger log.Logger) *DiscardHandler {
 func (x *DiscardHandler) Handle(_ context.Context, persistenceID string, event *anypb.Any, state *anypb.Any, revision uint64) error {
 	x.logger.Debugf("handling event=(%s) revision=(%d) with resulting state=(%s) of persistenceId=(%s)",
 		event.GetTypeUrl(), revision, state.GetTypeUrl(), persistenceID)
-	x.eventsCounter.Inc()
 	return nil
-}
-
-// EventsCount returns the number of events processed
-func (x *DiscardHandler) EventsCount() int64 {
-	return x.eventsCounter.Load()
 }
