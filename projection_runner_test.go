@@ -1,7 +1,7 @@
 /*
  * MIT License
  *
- * Copyright (c) 2023-2025 Tochemey
+ * Copyright (c) 2022-2025 Arsene Tochemey Gandote
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-package projection
+package ego
 
 import (
 	"context"
@@ -44,13 +44,17 @@ import (
 	"github.com/tochemey/ego/v3/internal/lib"
 	mocksoffsetstore "github.com/tochemey/ego/v3/mocks/offsetstore"
 	mockseventstore "github.com/tochemey/ego/v3/mocks/persistence"
+	"github.com/tochemey/ego/v3/projection"
 	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
 	testkit2 "github.com/tochemey/ego/v3/testkit"
 )
 
 func TestRunner(t *testing.T) {
 	t.Run("with happy path", func(t *testing.T) {
-		defer goleak.VerifyNone(t)
+		defer goleak.VerifyNone(t,
+			goleak.IgnoreAnyFunction("github.com/panjf2000/ants/v2.(*poolCommon).purgeStaleWorkers"),
+			goleak.IgnoreTopFunction("github.com/panjf2000/ants/v2.(*poolCommon).ticktock"),
+		)
 		ctx := context.TODO()
 		projectionName := "db-writer"
 		persistenceID := uuid.NewString()
@@ -68,11 +72,11 @@ func TestRunner(t *testing.T) {
 		require.NoError(t, offsetStore.Connect(ctx))
 
 		// set up the projection
-		// create a handler that return successfully
-		handler := NewDiscardHandler(logger)
+		// create a underlying that return successfully
+		handler := projection.NewDiscardHandler(logger)
 
 		// create an instance of the projection
-		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithPullInterval(time.Millisecond), WithLogger(logger))
+		runner := newProjectionRunner(projectionName, handler, eventsStore, offsetStore, withPullInterval(time.Millisecond), withLogger(logger))
 		// start the projection
 		err := runner.Start(ctx)
 		require.NoError(t, err)
@@ -129,8 +133,11 @@ func TestRunner(t *testing.T) {
 		assert.NoError(t, offsetStore.Disconnect(ctx))
 		assert.NoError(t, runner.Stop())
 	})
-	t.Run("with failed handler with fail strategy", func(t *testing.T) {
-		defer goleak.VerifyNone(t)
+	t.Run("with failed underlying with fail strategy", func(t *testing.T) {
+		defer goleak.VerifyNone(t,
+			goleak.IgnoreAnyFunction("github.com/panjf2000/ants/v2.(*poolCommon).purgeStaleWorkers"),
+			goleak.IgnoreTopFunction("github.com/panjf2000/ants/v2.(*poolCommon).ticktock"),
+		)
 		ctx := context.TODO()
 		projectionName := "db-writer"
 		persistenceID := uuid.NewString()
@@ -146,10 +153,10 @@ func TestRunner(t *testing.T) {
 		require.NoError(t, offsetStore.Disconnect(ctx))
 
 		// set up the projection
-		// create a handler that return successfully
+		// create a underlying that return successfully
 		handler := &testHandler1{}
 
-		runner := newRunner(projectionName, handler, journalStore, offsetStore, WithPullInterval(time.Millisecond))
+		runner := newProjectionRunner(projectionName, handler, journalStore, offsetStore, withPullInterval(time.Millisecond))
 		// start the projection
 		err := runner.Start(ctx)
 		require.NoError(t, err)
@@ -191,8 +198,11 @@ func TestRunner(t *testing.T) {
 		assert.NoError(t, offsetStore.Disconnect(ctx))
 		assert.NoError(t, runner.Stop())
 	})
-	t.Run("with failed handler and retry_fail strategy", func(t *testing.T) {
-		defer goleak.VerifyNone(t)
+	t.Run("with failed underlying and retry_fail strategy", func(t *testing.T) {
+		defer goleak.VerifyNone(t,
+			goleak.IgnoreAnyFunction("github.com/panjf2000/ants/v2.(*poolCommon).purgeStaleWorkers"),
+			goleak.IgnoreTopFunction("github.com/panjf2000/ants/v2.(*poolCommon).ticktock"),
+		)
 		ctx := context.TODO()
 		projectionName := "db-writer"
 		persistenceID := uuid.NewString()
@@ -208,15 +218,15 @@ func TestRunner(t *testing.T) {
 		require.NoError(t, offsetStore.Disconnect(ctx))
 
 		// set up the projection
-		// create a handler that return successfully
+		// create a underlying that return successfully
 		handler := &testHandler1{}
 
-		runner := newRunner(projectionName, handler, journalStore, offsetStore,
-			WithPullInterval(time.Millisecond),
-			WithRecoveryStrategy(NewRecovery(
-				WithRecoveryPolicy(RetryAndFail),
-				WithRetries(2),
-				WithRetryDelay(100*time.Millisecond))))
+		runner := newProjectionRunner(projectionName, handler, journalStore, offsetStore,
+			withPullInterval(time.Millisecond),
+			withRecoveryStrategy(projection.NewRecovery(
+				projection.WithRecoveryPolicy(projection.RetryAndFail),
+				projection.WithRetries(2),
+				projection.WithRetryDelay(100*time.Millisecond))))
 
 		// start the projection
 		err := runner.Start(ctx)
@@ -259,8 +269,11 @@ func TestRunner(t *testing.T) {
 		assert.NoError(t, offsetStore.Disconnect(ctx))
 		assert.NoError(t, runner.Stop())
 	})
-	t.Run("with failed handler and skip strategy", func(t *testing.T) {
-		defer goleak.VerifyNone(t)
+	t.Run("with failed underlying and skip strategy", func(t *testing.T) {
+		defer goleak.VerifyNone(t,
+			goleak.IgnoreAnyFunction("github.com/panjf2000/ants/v2.(*poolCommon).purgeStaleWorkers"),
+			goleak.IgnoreTopFunction("github.com/panjf2000/ants/v2.(*poolCommon).ticktock"),
+		)
 		ctx := context.TODO()
 		projectionName := "db-writer"
 		persistenceID := uuid.NewString()
@@ -277,15 +290,15 @@ func TestRunner(t *testing.T) {
 		require.NoError(t, offsetStore.Connect(ctx))
 
 		// set up the projection
-		// create a handler that return successfully
+		// create a underlying that return successfully
 		handler := &testHandler2{counter: atomic.NewInt32(0)}
 
-		runner := newRunner(projectionName, handler, journalStore, offsetStore,
-			WithPullInterval(time.Millisecond),
-			WithRecoveryStrategy(NewRecovery(
-				WithRecoveryPolicy(Skip),
-				WithRetries(2),
-				WithRetryDelay(100*time.Millisecond))))
+		runner := newProjectionRunner(projectionName, handler, journalStore, offsetStore,
+			withPullInterval(time.Millisecond),
+			withRecoveryStrategy(projection.NewRecovery(
+				projection.WithRecoveryPolicy(projection.Skip),
+				projection.WithRetries(2),
+				projection.WithRetryDelay(100*time.Millisecond))))
 		// start the projection
 		err := runner.Start(ctx)
 		require.NoError(t, err)
@@ -335,8 +348,11 @@ func TestRunner(t *testing.T) {
 		assert.NoError(t, offsetStore.Disconnect(ctx))
 		assert.NoError(t, runner.Stop())
 	})
-	t.Run("with failed handler and skip retry strategy", func(t *testing.T) {
-		defer goleak.VerifyNone(t)
+	t.Run("with failed underlying and skip retry strategy", func(t *testing.T) {
+		defer goleak.VerifyNone(t,
+			goleak.IgnoreAnyFunction("github.com/panjf2000/ants/v2.(*poolCommon).purgeStaleWorkers"),
+			goleak.IgnoreTopFunction("github.com/panjf2000/ants/v2.(*poolCommon).ticktock"),
+		)
 		ctx := context.TODO()
 		projectionName := "db-writer"
 		persistenceID := uuid.NewString()
@@ -353,15 +369,15 @@ func TestRunner(t *testing.T) {
 		require.NoError(t, offsetStore.Connect(ctx))
 
 		// set up the projection
-		// create a handler that return successfully
+		// create a underlying that return successfully
 		handler := &testHandler2{counter: atomic.NewInt32(0)}
 
-		runner := newRunner(projectionName, handler, journalStore, offsetStore,
-			WithPullInterval(time.Millisecond),
-			WithRecoveryStrategy(NewRecovery(
-				WithRecoveryPolicy(RetryAndSkip),
-				WithRetries(2),
-				WithRetryDelay(100*time.Millisecond))))
+		runner := newProjectionRunner(projectionName, handler, journalStore, offsetStore,
+			withPullInterval(time.Millisecond),
+			withRecoveryStrategy(projection.NewRecovery(
+				projection.WithRecoveryPolicy(projection.RetryAndSkip),
+				projection.WithRetries(2),
+				projection.WithRetryDelay(100*time.Millisecond))))
 		// start the projection
 		err := runner.Start(ctx)
 		require.NoError(t, err)
@@ -413,7 +429,7 @@ func TestRunner(t *testing.T) {
 	})
 	t.Run("with events store is not defined", func(t *testing.T) {
 		ctx := context.Background()
-		handler := NewDiscardHandler(log.DiscardLogger)
+		handler := projection.NewDiscardHandler(log.DiscardLogger)
 		projectionName := "db-writer"
 		// set up the offset store
 		offsetStore := testkit2.NewOffsetStore()
@@ -421,7 +437,7 @@ func TestRunner(t *testing.T) {
 		require.NoError(t, offsetStore.Connect(ctx))
 
 		// create an instance of the projection
-		runner := newRunner(projectionName, handler, nil, offsetStore, WithPullInterval(time.Millisecond))
+		runner := newProjectionRunner(projectionName, handler, nil, offsetStore, withPullInterval(time.Millisecond))
 		// start the projection
 		err := runner.Start(ctx)
 		require.Error(t, err)
@@ -431,7 +447,7 @@ func TestRunner(t *testing.T) {
 	})
 	t.Run("with offset store is not defined", func(t *testing.T) {
 		ctx := context.Background()
-		handler := NewDiscardHandler(log.DiscardLogger)
+		handler := projection.NewDiscardHandler(log.DiscardLogger)
 		projectionName := "db-writer"
 		// set up the event store
 		eventsStore := testkit2.NewEventsStore()
@@ -439,7 +455,7 @@ func TestRunner(t *testing.T) {
 		require.NoError(t, eventsStore.Connect(ctx))
 
 		// create an instance of the projection
-		runner := newRunner(projectionName, handler, eventsStore, nil, WithPullInterval(time.Millisecond))
+		runner := newProjectionRunner(projectionName, handler, eventsStore, nil, withPullInterval(time.Millisecond))
 		// start the projection
 		err := runner.Start(ctx)
 		require.Error(t, err)
@@ -449,7 +465,7 @@ func TestRunner(t *testing.T) {
 	})
 	t.Run("with start when already started returns nil", func(t *testing.T) {
 		ctx := context.Background()
-		handler := NewDiscardHandler(log.DiscardLogger)
+		handler := projection.NewDiscardHandler(log.DiscardLogger)
 		projectionName := "db-writer"
 		// set up the event store
 		eventsStore := testkit2.NewEventsStore()
@@ -462,7 +478,7 @@ func TestRunner(t *testing.T) {
 		require.NoError(t, offsetStore.Connect(ctx))
 
 		// create an instance of the projection
-		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithPullInterval(time.Millisecond))
+		runner := newProjectionRunner(projectionName, handler, eventsStore, offsetStore, withPullInterval(time.Millisecond))
 		// start the projection
 		err := runner.Start(ctx)
 		require.NoError(t, err)
@@ -478,7 +494,7 @@ func TestRunner(t *testing.T) {
 	})
 	t.Run("with start when max retry to ping events store fails", func(t *testing.T) {
 		ctx := context.Background()
-		handler := NewDiscardHandler(log.DiscardLogger)
+		handler := projection.NewDiscardHandler(log.DiscardLogger)
 		projectionName := "db-writer"
 
 		// set up the offset store
@@ -490,7 +506,7 @@ func TestRunner(t *testing.T) {
 		eventsStore.EXPECT().Ping(mock.Anything).Return(errors.New("fail ping"))
 
 		// create an instance of the projection
-		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithPullInterval(time.Millisecond))
+		runner := newProjectionRunner(projectionName, handler, eventsStore, offsetStore, withPullInterval(time.Millisecond))
 		// start the projection
 		err := runner.Start(ctx)
 		require.Error(t, err)
@@ -501,7 +517,7 @@ func TestRunner(t *testing.T) {
 	})
 	t.Run("with start when max retry to ping offsets store store fails", func(t *testing.T) {
 		ctx := context.Background()
-		handler := NewDiscardHandler(log.DiscardLogger)
+		handler := projection.NewDiscardHandler(log.DiscardLogger)
 		projectionName := "db-writer"
 
 		// set up the event store
@@ -513,7 +529,7 @@ func TestRunner(t *testing.T) {
 		offsetStore.EXPECT().Ping(mock.Anything).Return(errors.New("fail ping"))
 
 		// create an instance of the projection
-		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithPullInterval(time.Millisecond))
+		runner := newProjectionRunner(projectionName, handler, eventsStore, offsetStore, withPullInterval(time.Millisecond))
 		// start the projection
 		err := runner.Start(ctx)
 		require.Error(t, err)
@@ -524,7 +540,7 @@ func TestRunner(t *testing.T) {
 	})
 	t.Run("with start when ResetOffset fails", func(t *testing.T) {
 		ctx := context.Background()
-		handler := NewDiscardHandler(log.DiscardLogger)
+		handler := projection.NewDiscardHandler(log.DiscardLogger)
 		projectionName := "db-writer"
 
 		eventsStore := new(mockseventstore.EventsStore)
@@ -536,7 +552,7 @@ func TestRunner(t *testing.T) {
 		offsetStore.EXPECT().ResetOffset(ctx, projectionName, resetOffsetTo.UnixMilli()).Return(errors.New("fail to reset offset"))
 
 		// create an instance of the projection
-		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithPullInterval(time.Millisecond))
+		runner := newProjectionRunner(projectionName, handler, eventsStore, offsetStore, withPullInterval(time.Millisecond))
 		// purposefully for test
 		runner.resetOffsetTo = resetOffsetTo
 
@@ -548,15 +564,18 @@ func TestRunner(t *testing.T) {
 		eventsStore.AssertExpectations(t)
 		require.NoError(t, runner.Stop())
 	})
-	t.Run("when fail to write the offset stops the runner", func(t *testing.T) {
-		defer goleak.VerifyNone(t)
+	t.Run("when fail to write the offset stops the projectionRunner", func(t *testing.T) {
+		defer goleak.VerifyNone(t,
+			goleak.IgnoreAnyFunction("github.com/panjf2000/ants/v2.(*poolCommon).purgeStaleWorkers"),
+			goleak.IgnoreTopFunction("github.com/panjf2000/ants/v2.(*poolCommon).ticktock"),
+		)
 		ctx := context.TODO()
 		projectionName := "db-writer"
 		persistenceID := uuid.NewString()
 		shardNumber := uint64(9)
 		timestamp := timestamppb.Now()
 		logger := log.DiscardLogger
-		handler := NewDiscardHandler(logger)
+		handler := projection.NewDiscardHandler(logger)
 
 		// create the projection id
 		projectionID := &egopb.ProjectionId{
@@ -603,7 +622,7 @@ func TestRunner(t *testing.T) {
 		eventsStore.EXPECT().GetShardEvents(mock.Anything, shardNumber, offset.GetValue(), uint64(maxBufferSize)).Return(events, nextOffsetValue.AsTime().UnixMilli(), nil)
 
 		// create an instance of the projection
-		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithPullInterval(time.Millisecond))
+		runner := newProjectionRunner(projectionName, handler, eventsStore, offsetStore, withPullInterval(time.Millisecond))
 		runner.resetOffsetTo = resetOffsetTo
 		runner.maxBufferSize = maxBufferSize
 
@@ -623,12 +642,15 @@ func TestRunner(t *testing.T) {
 
 		require.NoError(t, runner.Stop())
 	})
-	t.Run("when fail to fetch shard numbers stops the runner", func(t *testing.T) {
-		defer goleak.VerifyNone(t)
+	t.Run("when fail to fetch shard numbers stops the projectionRunner", func(t *testing.T) {
+		defer goleak.VerifyNone(t,
+			goleak.IgnoreAnyFunction("github.com/panjf2000/ants/v2.(*poolCommon).purgeStaleWorkers"),
+			goleak.IgnoreTopFunction("github.com/panjf2000/ants/v2.(*poolCommon).ticktock"),
+		)
 		ctx := context.TODO()
 		projectionName := "db-writer"
 		logger := log.DiscardLogger
-		handler := NewDiscardHandler(logger)
+		handler := projection.NewDiscardHandler(logger)
 
 		maxBufferSize := 10
 		resetOffsetTo := time.Now().UTC()
@@ -642,7 +664,7 @@ func TestRunner(t *testing.T) {
 		eventsStore.EXPECT().ShardNumbers(mock.Anything).Return(nil, assert.AnError)
 
 		// create an instance of the projection
-		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithPullInterval(time.Millisecond))
+		runner := newProjectionRunner(projectionName, handler, eventsStore, offsetStore, withPullInterval(time.Millisecond))
 		runner.resetOffsetTo = resetOffsetTo
 		runner.maxBufferSize = maxBufferSize
 
@@ -662,14 +684,17 @@ func TestRunner(t *testing.T) {
 
 		require.NoError(t, runner.Stop())
 	})
-	t.Run("when fail to get current offset stops the runner", func(t *testing.T) {
-		defer goleak.VerifyNone(t)
+	t.Run("when fail to get current offset stops the projectionRunner", func(t *testing.T) {
+		defer goleak.VerifyNone(t,
+			goleak.IgnoreAnyFunction("github.com/panjf2000/ants/v2.(*poolCommon).purgeStaleWorkers"),
+			goleak.IgnoreTopFunction("github.com/panjf2000/ants/v2.(*poolCommon).ticktock"),
+		)
 		ctx := context.TODO()
 		projectionName := "db-writer"
 		shardNumber := uint64(9)
 
 		logger := log.DiscardLogger
-		handler := NewDiscardHandler(logger)
+		handler := projection.NewDiscardHandler(logger)
 
 		// create the projection id
 		projectionID := &egopb.ProjectionId{
@@ -690,7 +715,7 @@ func TestRunner(t *testing.T) {
 		eventsStore.EXPECT().ShardNumbers(mock.Anything).Return([]uint64{shardNumber}, nil)
 
 		// create an instance of the projection
-		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithPullInterval(time.Millisecond))
+		runner := newProjectionRunner(projectionName, handler, eventsStore, offsetStore, withPullInterval(time.Millisecond))
 		runner.resetOffsetTo = resetOffsetTo
 		runner.maxBufferSize = maxBufferSize
 
@@ -710,15 +735,18 @@ func TestRunner(t *testing.T) {
 
 		require.NoError(t, runner.Stop())
 	})
-	t.Run("when fail to get shard events stops the runner", func(t *testing.T) {
-		defer goleak.VerifyNone(t)
+	t.Run("when fail to get shard events stops the projectionRunner", func(t *testing.T) {
+		defer goleak.VerifyNone(t,
+			goleak.IgnoreAnyFunction("github.com/panjf2000/ants/v2.(*poolCommon).purgeStaleWorkers"),
+			goleak.IgnoreTopFunction("github.com/panjf2000/ants/v2.(*poolCommon).ticktock"),
+		)
 		ctx := context.TODO()
 		projectionName := "db-writer"
 
 		shardNumber := uint64(9)
 		timestamp := timestamppb.Now()
 		logger := log.DiscardLogger
-		handler := NewDiscardHandler(logger)
+		handler := projection.NewDiscardHandler(logger)
 
 		// create the projection id
 		projectionID := &egopb.ProjectionId{
@@ -747,7 +775,7 @@ func TestRunner(t *testing.T) {
 		eventsStore.EXPECT().GetShardEvents(mock.Anything, shardNumber, offset.GetValue(), uint64(maxBufferSize)).Return(nil, 0, assert.AnError)
 
 		// create an instance of the projection
-		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithPullInterval(time.Millisecond))
+		runner := newProjectionRunner(projectionName, handler, eventsStore, offsetStore, withPullInterval(time.Millisecond))
 		runner.resetOffsetTo = resetOffsetTo
 		runner.maxBufferSize = maxBufferSize
 
@@ -768,14 +796,17 @@ func TestRunner(t *testing.T) {
 		require.NoError(t, runner.Stop())
 	})
 	t.Run("when current offset is zero", func(t *testing.T) {
-		defer goleak.VerifyNone(t)
+		defer goleak.VerifyNone(t,
+			goleak.IgnoreAnyFunction("github.com/panjf2000/ants/v2.(*poolCommon).purgeStaleWorkers"),
+			goleak.IgnoreTopFunction("github.com/panjf2000/ants/v2.(*poolCommon).ticktock"),
+		)
 		ctx := context.TODO()
 		projectionName := "db-writer"
 		persistenceID := uuid.NewString()
 		shardNumber := uint64(9)
 		timestamp := timestamppb.Now()
 		logger := log.DiscardLogger
-		handler := NewDiscardHandler(logger)
+		handler := projection.NewDiscardHandler(logger)
 
 		// create the projection id
 		projectionID := &egopb.ProjectionId{
@@ -822,7 +853,7 @@ func TestRunner(t *testing.T) {
 		eventsStore.EXPECT().GetShardEvents(mock.Anything, shardNumber, offset.GetValue(), uint64(maxBufferSize)).Return(events, nextOffsetValue.AsTime().UnixMilli(), nil)
 
 		// create an instance of the projection
-		runner := newRunner(projectionName, handler, eventsStore, offsetStore, WithPullInterval(time.Millisecond))
+		runner := newProjectionRunner(projectionName, handler, eventsStore, offsetStore, withPullInterval(time.Millisecond))
 		runner.resetOffsetTo = resetOffsetTo
 		runner.maxBufferSize = maxBufferSize
 
@@ -846,7 +877,7 @@ func TestRunner(t *testing.T) {
 
 type testHandler1 struct{}
 
-var _ Handler = &testHandler1{}
+var _ projection.Handler = &testHandler1{}
 
 func (x testHandler1) Handle(_ context.Context, _ string, _ *anypb.Any, _ *anypb.Any, _ uint64) error {
 	return errors.New("damn")
@@ -858,7 +889,7 @@ type testHandler2 struct {
 
 func (x testHandler2) Handle(_ context.Context, _ string, _ *anypb.Any, _ *anypb.Any, revision uint64) error {
 	if (int(revision) % 2) == 0 {
-		return errors.New("failed handler")
+		return errors.New("failed underlying")
 	}
 	x.counter.Inc()
 	return nil

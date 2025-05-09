@@ -39,7 +39,7 @@ type Handler interface {
 }
 
 // DiscardHandler implements the projection Handler interface
-// This handler really does nothing with the consumed event
+// This underlying really does nothing with the consumed event
 // Note: this will be useful when writing unit tests
 type DiscardHandler struct {
 	eventsCounter *atomic.Int64

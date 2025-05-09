@@ -31,6 +31,8 @@ type spawnConfig struct {
 	// passivateAfter sets the passivation time
 	// when this value is not defined then passivation is disabled
 	passivateAfter time.Duration
+	// specifies if the actor should be relocated
+	toRelocate bool
 }
 
 // newSpawnConfig creates an instance of spawnConfig
@@ -67,5 +69,28 @@ func (f spawnOption) Apply(c *spawnConfig) {
 func WithPassivateAfter(after time.Duration) SpawnOption {
 	return spawnOption(func(config *spawnConfig) {
 		config.passivateAfter = after
+	})
+}
+
+// WithRelocation controls whether an actor should be relocated to another node in the cluster
+// when its hosting node shuts down unexpectedly.
+//
+// In cluster mode, actors are relocatable by default to ensure system resilience and high availability.
+// When relocation is enabled, the actor will be automatically redeployed on a healthy node if the original
+// node becomes unavailable. This behavior is ideal for stateless or replicated actors that can resume
+// execution without requiring node-specific context.
+//
+// Setting toRelocate to false disables this default behavior. Use this option when you require strict
+// control over an actor's lifecycle or when the actor depends on node-specific resources, state, or hardware
+// that cannot be replicated or recovered on another node.
+//
+// Parameters:
+//   - toRelocate: If true, the actor is eligible for relocation on node failure.
+//     If false, the actor will not be redeployed after a node shutdown.
+//
+// Returns: SpawnOption: A functional option that updates the actor's relocation configuration.
+func WithRelocation(toRelocate bool) SpawnOption {
+	return spawnOption(func(config *spawnConfig) {
+		config.toRelocate = toRelocate
 	})
 }

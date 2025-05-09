@@ -1,7 +1,7 @@
 /*
  * MIT License
  *
- * Copyright (c) 2023-2025 Tochemey
+ * Copyright (c) 2022-2025 Arsene Tochemey Gandote
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-package projection
+package ego
 
 import (
 	"context"
@@ -41,22 +41,23 @@ import (
 	"github.com/tochemey/ego/v3/internal/ticker"
 	"github.com/tochemey/ego/v3/offsetstore"
 	"github.com/tochemey/ego/v3/persistence"
+	"github.com/tochemey/ego/v3/projection"
 )
 
-// runner defines the projection runner
-type runner struct {
-	// Name specifies the runner Name
+// projectionRunner defines the projection projectionRunner
+type projectionRunner struct {
+	// Name specifies the projectionRunner Name
 	name string
 	// Logger specifies the logger
 	logger log.Logger
 	// Handler specifies the projection handler
-	handler Handler
+	handler projection.Handler
 	// JournalStore specifies the journal store for reading events
 	eventsStore persistence.EventsStore
 	// OffsetStore specifies the offset store to commit offsets
 	offsetsStore offsetstore.OffsetStore
 	// Specifies the recovery setting
-	recovery *Recovery
+	recovery *projection.Recovery
 	// stop signal
 	stopSignal chan struct{}
 	// running status
@@ -73,26 +74,26 @@ type runner struct {
 	resetOffsetTo time.Time
 }
 
-// newRunner create an instance of runner given the name of the projection, the handler and the offsets store
+// newProjectionRunner create an instance of projectionRunner given the name of the projection, the underlying and the offsets store
 // The name of the projection should be unique
-func newRunner(name string,
-	handler Handler,
+func newProjectionRunner(name string,
+	handler projection.Handler,
 	eventsStore persistence.EventsStore,
 	offsetStore offsetstore.OffsetStore,
-	opts ...Option) *runner {
-	runner := &runner{
+	opts ...runnerOption) *projectionRunner {
+	runner := &projectionRunner{
 		name:           name,
 		logger:         log.New(log.ErrorLevel, os.Stderr),
 		handler:        handler,
 		eventsStore:    eventsStore,
 		offsetsStore:   offsetStore,
-		recovery:       NewRecovery(),
+		recovery:       projection.NewRecovery(),
 		stopSignal:     make(chan struct{}, 1),
 		running:        atomic.NewBool(false),
 		pullInterval:   time.Second,
 		maxBufferSize:  500,
-		startingOffset: time.Time{},
-		resetOffsetTo:  time.Time{},
+		startingOffset: ZeroTime,
+		resetOffsetTo:  ZeroTime,
 	}
 
 	for _, opt := range opts {
@@ -102,8 +103,8 @@ func newRunner(name string,
 	return runner
 }
 
-// Start starts the projection runner
-func (x *runner) Start(ctx context.Context) error {
+// Start starts the projection projectionRunner
+func (x *projectionRunner) Start(ctx context.Context) error {
 	if x.running.Load() {
 		return nil
 	}
@@ -151,8 +152,8 @@ func (x *runner) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop stops the projection runner
-func (x *runner) Stop() error {
+// Stop stops the projection projectionRunner
+func (x *projectionRunner) Stop() error {
 	if !x.running.Load() {
 		return nil
 	}
@@ -162,19 +163,19 @@ func (x *runner) Stop() error {
 	return nil
 }
 
-// Name returns the projection runner Name
-func (x *runner) Name() string {
+// Name returns the projection projectionRunner Name
+func (x *projectionRunner) Name() string {
 	return x.name
 }
 
-// Run start the runner
-func (x *runner) Run(ctx context.Context) {
+// Run start the projectionRunner
+func (x *projectionRunner) Run(ctx context.Context) {
 	// start processing
 	go x.processingLoop(ctx)
 }
 
 // processingLoop is a loop that continuously runs to process events persisted onto the journal store until the projection is stopped
-func (x *runner) processingLoop(ctx context.Context) {
+func (x *projectionRunner) processingLoop(ctx context.Context) {
 	ticker := ticker.New(x.pullInterval)
 	ticker.Start()
 
@@ -235,7 +236,7 @@ func (x *runner) processingLoop(ctx context.Context) {
 }
 
 // doProcess processes all events of a given persistent entity and hand them over to the handler
-func (x *runner) doProcess(ctx context.Context, shard uint64) error {
+func (x *projectionRunner) doProcess(ctx context.Context, shard uint64) error {
 	if !x.running.Load() {
 		return nil
 	}
@@ -276,21 +277,21 @@ func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 		seqNr := envelope.GetSequenceNumber()
 		persistenceID := envelope.GetPersistenceId()
 
-		// send the request to the handler based upon the recovery strategy in place
+		// send the request to the underlying based upon the recovery strategy in place
 		switch x.recovery.RecoveryPolicy() {
-		case Fail:
-			// send the data to the handler. In case of error we log the error and fail the projection
+		case projection.Fail:
+			// send the data to the underlying. In case of error we log the error and fail the projection
 			if err := x.handler.Handle(ctx, persistenceID, event, state, seqNr); err != nil {
 				x.logger.Error(fmt.Errorf("failed to process event for persistence id=%s, revision=%d: %w", persistenceID, seqNr, err))
 				return err
 			}
 
-		case RetryAndFail:
+		case projection.RetryAndFail:
 			retries := x.recovery.Retries()
 			delay := x.recovery.RetryDelay()
 			// create a new exponential backoff that will try a maximum of retries times
 			backoff := retry.NewRetrier(int(retries), delay, delay)
-			// pass the data to the projection handler
+			// pass the data to the projection underlying
 			if err := backoff.Run(func() error {
 				if err := x.handler.Handle(ctx, persistenceID, event, state, seqNr); err != nil {
 					x.logger.Error(fmt.Errorf("failed to process event for persistence id=%s, revision=%d: %w", persistenceID, seqNr, err))
@@ -302,12 +303,12 @@ func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 				return err
 			}
 
-		case RetryAndSkip:
+		case projection.RetryAndSkip:
 			retries := x.recovery.Retries()
 			delay := x.recovery.RetryDelay()
 			// create a new exponential backoff that will try a maximum of retries times
 			backoff := retry.NewRetrier(int(retries), delay, delay)
-			// pass the data to the projection handler
+			// pass the data to the projection underlying
 			if err := backoff.Run(func() error {
 				return x.handler.Handle(ctx, persistenceID, event, state, seqNr)
 			}); err != nil {
@@ -315,8 +316,8 @@ func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 				x.logger.Error(fmt.Errorf("failed to process event for persistence id=%s, revision=%d: %w", persistenceID, seqNr, err))
 			}
 
-		case Skip:
-			// send the data to the handler. In case of error we just log the error and skip the event by committing the offset
+		case projection.Skip:
+			// send the data to the underlying. In case of error we just log the error and skip the event by committing the offset
 			if err := x.handler.Handle(ctx, persistenceID, event, state, seqNr); err != nil {
 				x.logger.Error(fmt.Errorf("failed to process event for persistence id=%s, revision=%d: %w", persistenceID, seqNr, err))
 			}
@@ -340,7 +341,7 @@ func (x *runner) doProcess(ctx context.Context, shard uint64) error {
 }
 
 // preStart is used to perform some tasks before the projection starts
-func (x *runner) preStart(ctx context.Context) error {
+func (x *projectionRunner) preStart(ctx context.Context) error {
 	if !x.resetOffsetTo.IsZero() {
 		if err := x.offsetsStore.ResetOffset(ctx, x.name, x.resetOffsetTo.UnixMilli()); err != nil {
 			fmtErr := fmt.Errorf("failed to reset projection=%s: %w", x.name, err)

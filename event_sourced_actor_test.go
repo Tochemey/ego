@@ -41,6 +41,7 @@ import (
 
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/eventstream"
+	"github.com/tochemey/ego/v3/internal/extensions"
 	"github.com/tochemey/ego/v3/internal/lib"
 	mocks "github.com/tochemey/ego/v3/mocks/persistence"
 	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
@@ -50,10 +51,31 @@ import (
 func TestEventSourcedActor(t *testing.T) {
 	t.Run("with state reply", func(t *testing.T) {
 		ctx := context.TODO()
+
+		// create the event store
+		eventStore := testkit.NewEventsStore()
+		// create a persistence id
+		persistenceID := uuid.NewString()
+		// create the persistence behavior
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		// connect the event store
+		err := eventStore.Connect(ctx)
+		require.NoError(t, err)
+
+		lib.Pause(time.Second)
+
+		// create an instance of events stream
+		eventStream := eventstream.New()
+
 		// create an actor system
 		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
 			goakt.WithPassivationDisabled(),
 			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+			),
 			goakt.WithActorInitMaxRetries(3))
 		require.NoError(t, err)
 		assert.NotNil(t, actorSystem)
@@ -64,26 +86,10 @@ func TestEventSourcedActor(t *testing.T) {
 
 		lib.Pause(time.Second)
 
-		// create the event store
-		eventStore := testkit.NewEventsStore()
-		// create a persistence id
-		persistenceID := uuid.NewString()
-		// create the persistence behavior
-		behavior := NewAccountEventSourcedBehavior(persistenceID)
-
-		// connect the event store
-		err = eventStore.Connect(ctx)
-		require.NoError(t, err)
-
-		lib.Pause(time.Second)
-
-		// create an instance of events stream
-		eventStream := eventstream.New()
-
 		// create the persistence actor using the behavior previously created
-		actor := newEventSourcedActor(behavior, eventStore, eventStream)
+		actor := newEventSourcedActor()
 		// spawn the actor
-		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), actor)
+		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior))
 		require.NotNil(t, pid)
 
 		lib.Pause(time.Second)
@@ -156,10 +162,30 @@ func TestEventSourcedActor(t *testing.T) {
 	t.Run("with error reply", func(t *testing.T) {
 		ctx := context.TODO()
 
+		// create the event store
+		eventStore := testkit.NewEventsStore()
+		// create a persistence id
+		persistenceID := uuid.NewString()
+		// create the persistence behavior
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		// connect the event store
+		err := eventStore.Connect(ctx)
+		require.NoError(t, err)
+
+		lib.Pause(time.Second)
+
+		// create an instance of events stream
+		eventStream := eventstream.New()
+
 		// create an actor system
 		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
 			goakt.WithPassivationDisabled(),
 			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+			),
 			goakt.WithActorInitMaxRetries(3))
 		require.NoError(t, err)
 		assert.NotNil(t, actorSystem)
@@ -170,26 +196,10 @@ func TestEventSourcedActor(t *testing.T) {
 
 		lib.Pause(time.Second)
 
-		// create the event store
-		eventStore := testkit.NewEventsStore()
-		// create a persistence id
-		persistenceID := uuid.NewString()
-		// create the persistence behavior
-		behavior := NewAccountEventSourcedBehavior(persistenceID)
-
-		// connect the event store
-		err = eventStore.Connect(ctx)
-		require.NoError(t, err)
-
-		lib.Pause(time.Second)
-
-		// create an instance of events stream
-		eventStream := eventstream.New()
-
 		// create the persistence actor using the behavior previously created
-		persistentActor := newEventSourcedActor(behavior, eventStore, eventStream)
+		persistentActor := newEventSourcedActor()
 		// spawn the actor
-		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), persistentActor)
+		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), persistentActor, goakt.WithDependencies(behavior))
 		require.NotNil(t, pid)
 
 		lib.Pause(time.Second)
@@ -250,10 +260,28 @@ func TestEventSourcedActor(t *testing.T) {
 	t.Run("with unhandled command", func(t *testing.T) {
 		ctx := context.TODO()
 
+		// create the event store
+		eventStore := testkit.NewEventsStore()
+		// create a persistence id
+		persistenceID := uuid.NewString()
+		// create the persistence behavior
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		// connect the event store
+		err := eventStore.Connect(ctx)
+		require.NoError(t, err)
+
+		// create an instance of events stream
+		eventStream := eventstream.New()
+
 		// create an actor system
 		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
 			goakt.WithPassivationDisabled(),
 			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+			),
 			goakt.WithActorInitMaxRetries(3))
 		require.NoError(t, err)
 		assert.NotNil(t, actorSystem)
@@ -264,24 +292,10 @@ func TestEventSourcedActor(t *testing.T) {
 
 		lib.Pause(time.Second)
 
-		// create the event store
-		eventStore := testkit.NewEventsStore()
-		// create a persistence id
-		persistenceID := uuid.NewString()
-		// create the persistence behavior
-		behavior := NewAccountEventSourcedBehavior(persistenceID)
-
-		// connect the event store
-		err = eventStore.Connect(ctx)
-		require.NoError(t, err)
-
-		// create an instance of events stream
-		eventStream := eventstream.New()
-
 		// create the persistence actor using the behavior previously created
-		persistentActor := newEventSourcedActor(behavior, eventStore, eventStream)
+		persistentActor := newEventSourcedActor()
 		// spawn the actor
-		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), persistentActor)
+		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), persistentActor, goakt.WithDependencies(behavior))
 		require.NotNil(t, pid)
 
 		lib.Pause(time.Second)
@@ -311,21 +325,6 @@ func TestEventSourcedActor(t *testing.T) {
 	t.Run("with state recovery from event store", func(t *testing.T) {
 		ctx := context.TODO()
 
-		// create an actor system
-		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
-			goakt.WithPassivationDisabled(),
-			goakt.WithLogger(log.DiscardLogger),
-			goakt.WithActorInitMaxRetries(3),
-		)
-		require.NoError(t, err)
-		assert.NotNil(t, actorSystem)
-
-		// start the actor system
-		err = actorSystem.Start(ctx)
-		require.NoError(t, err)
-
-		lib.Pause(time.Second)
-
 		eventStore := testkit.NewEventsStore()
 		require.NoError(t, eventStore.Connect(ctx))
 
@@ -337,7 +336,7 @@ func TestEventSourcedActor(t *testing.T) {
 		behavior := NewAccountEventSourcedBehavior(persistenceID)
 
 		// connect the event store
-		err = eventStore.Connect(ctx)
+		err := eventStore.Connect(ctx)
 		require.NoError(t, err)
 
 		lib.Pause(time.Second)
@@ -345,10 +344,28 @@ func TestEventSourcedActor(t *testing.T) {
 		// create an instance of event stream
 		eventStream := eventstream.New()
 
+		// create an actor system
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithPassivationDisabled(),
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+			),
+			goakt.WithActorInitMaxRetries(3))
+		require.NoError(t, err)
+		assert.NotNil(t, actorSystem)
+
+		// start the actor system
+		err = actorSystem.Start(ctx)
+		require.NoError(t, err)
+
+		lib.Pause(time.Second)
+
 		// create the persistence actor using the behavior previously created
-		persistentActor := newEventSourcedActor(behavior, eventStore, eventStream)
+		persistentActor := newEventSourcedActor()
 		// spawn the actor
-		pid, err := actorSystem.Spawn(ctx, behavior.ID(), persistentActor)
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), persistentActor, goakt.WithDependencies(behavior))
 		require.NoError(t, err)
 		require.NotNil(t, pid)
 
@@ -448,10 +465,30 @@ func TestEventSourcedActor(t *testing.T) {
 	t.Run("with no event to persist", func(t *testing.T) {
 		ctx := context.TODO()
 
+		// create the event store
+		eventStore := testkit.NewEventsStore()
+		// create a persistence id
+		persistenceID := uuid.NewString()
+		// create the persistence behavior
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		// connect the event store
+		err := eventStore.Connect(ctx)
+		require.NoError(t, err)
+
+		lib.Pause(time.Second)
+
+		// create an instance of event stream
+		eventStream := eventstream.New()
+
 		// create an actor system
 		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
 			goakt.WithPassivationDisabled(),
 			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+			),
 			goakt.WithActorInitMaxRetries(3))
 		require.NoError(t, err)
 		assert.NotNil(t, actorSystem)
@@ -462,26 +499,10 @@ func TestEventSourcedActor(t *testing.T) {
 
 		lib.Pause(time.Second)
 
-		// create the event store
-		eventStore := testkit.NewEventsStore()
-		// create a persistence id
-		persistenceID := uuid.NewString()
-		// create the persistence behavior
-		behavior := NewAccountEventSourcedBehavior(persistenceID)
-
-		// connect the event store
-		err = eventStore.Connect(ctx)
-		require.NoError(t, err)
-
-		lib.Pause(time.Second)
-
-		// create an instance of event stream
-		eventStream := eventstream.New()
-
 		// create the persistence actor using the behavior previously created
-		actor := newEventSourcedActor(behavior, eventStore, eventStream)
+		actor := newEventSourcedActor()
 		// spawn the actor
-		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), actor)
+		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior))
 		require.NotNil(t, pid)
 
 		lib.Pause(time.Second)
@@ -575,10 +596,31 @@ func TestEventSourcedActor(t *testing.T) {
 	})
 	t.Run("with unhandled event", func(t *testing.T) {
 		ctx := context.TODO()
+
+		// create the event store
+		eventStore := testkit.NewEventsStore()
+		// create a persistence id
+		persistenceID := uuid.NewString()
+		// create the persistence behavior
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		// connect the event store
+		err := eventStore.Connect(ctx)
+		require.NoError(t, err)
+
+		lib.Pause(time.Second)
+
+		// create an instance of events stream
+		eventStream := eventstream.New()
+
 		// create an actor system
 		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
 			goakt.WithPassivationDisabled(),
 			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+			),
 			goakt.WithActorInitMaxRetries(3))
 		require.NoError(t, err)
 		assert.NotNil(t, actorSystem)
@@ -589,26 +631,10 @@ func TestEventSourcedActor(t *testing.T) {
 
 		lib.Pause(time.Second)
 
-		// create the event store
-		eventStore := testkit.NewEventsStore()
-		// create a persistence id
-		persistenceID := uuid.NewString()
-		// create the persistence behavior
-		behavior := NewAccountEventSourcedBehavior(persistenceID)
-
-		// connect the event store
-		err = eventStore.Connect(ctx)
-		require.NoError(t, err)
-
-		lib.Pause(time.Second)
-
-		// create an instance of events stream
-		eventStream := eventstream.New()
-
 		// create the persistence actor using the behavior previously created
-		actor := newEventSourcedActor(behavior, eventStore, eventStream)
+		actor := newEventSourcedActor()
 		// spawn the actor
-		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), actor)
+		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior))
 		require.NotNil(t, pid)
 
 		lib.Pause(time.Second)
@@ -658,63 +684,11 @@ func TestEventSourcedActor(t *testing.T) {
 		err = actorSystem.Stop(ctx)
 		assert.NoError(t, err)
 	})
-	t.Run("With events store not defined", func(t *testing.T) {
-		ctx := context.TODO()
-
-		// create an instance of events stream
-		eventStream := eventstream.New()
-
-		// create an actor system
-		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
-			goakt.WithPassivationDisabled(),
-			goakt.WithLogger(log.DiscardLogger),
-			goakt.WithActorInitMaxRetries(3))
-		require.NoError(t, err)
-		assert.NotNil(t, actorSystem)
-
-		// start the actor system
-		err = actorSystem.Start(ctx)
-		require.NoError(t, err)
-
-		lib.Pause(time.Second)
-
-		// create a persistence id
-		persistenceID := uuid.NewString()
-		// create the persistence behavior
-		behavior := NewAccountEventSourcedBehavior(persistenceID)
-
-		// create the persistence actor using the behavior previously created
-		actor := newEventSourcedActor(behavior, nil, eventStream)
-		// spawn the actor
-		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor)
-		require.Error(t, err)
-		require.Nil(t, pid)
-
-		// close the stream
-		eventStream.Close()
-		// stop the actor system
-		err = actorSystem.Stop(ctx)
-		assert.NoError(t, err)
-	})
 	t.Run("With events store ping failed", func(t *testing.T) {
 		ctx := context.TODO()
 
 		// create an instance of events stream
 		eventStream := eventstream.New()
-
-		// create an actor system
-		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
-			goakt.WithPassivationDisabled(),
-			goakt.WithLogger(log.DiscardLogger),
-			goakt.WithActorInitMaxRetries(3))
-		require.NoError(t, err)
-		assert.NotNil(t, actorSystem)
-
-		// start the actor system
-		err = actorSystem.Start(ctx)
-		require.NoError(t, err)
-
-		lib.Pause(time.Second)
 
 		// create a persistence id
 		persistenceID := uuid.NewString()
@@ -724,10 +698,28 @@ func TestEventSourcedActor(t *testing.T) {
 		eventStore := new(mocks.EventsStore)
 		eventStore.EXPECT().Ping(mock.Anything).Return(assert.AnError)
 
+		// create an actor system
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithPassivationDisabled(),
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+			),
+			goakt.WithActorInitMaxRetries(3))
+		require.NoError(t, err)
+		assert.NotNil(t, actorSystem)
+
+		// start the actor system
+		err = actorSystem.Start(ctx)
+		require.NoError(t, err)
+
+		lib.Pause(time.Second)
+
 		// create the persistence actor using the behavior previously created
-		actor := newEventSourcedActor(behavior, eventStore, eventStream)
+		actor := newEventSourcedActor()
 		// spawn the actor
-		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor)
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior))
 		require.Error(t, err)
 		require.Nil(t, pid)
 
@@ -743,10 +735,23 @@ func TestEventSourcedActor(t *testing.T) {
 		// create an instance of events stream
 		eventStream := eventstream.New()
 
+		// create a persistence id
+		persistenceID := uuid.NewString()
+		// create the persistence behavior
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		eventStore := new(mocks.EventsStore)
+		eventStore.EXPECT().Ping(mock.Anything).Return(nil)
+		eventStore.EXPECT().GetLatestEvent(mock.Anything, persistenceID).Return(nil, assert.AnError)
+
 		// create an actor system
 		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
 			goakt.WithPassivationDisabled(),
 			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+			),
 			goakt.WithActorInitMaxRetries(3))
 		require.NoError(t, err)
 		assert.NotNil(t, actorSystem)
@@ -757,19 +762,10 @@ func TestEventSourcedActor(t *testing.T) {
 
 		lib.Pause(time.Second)
 
-		// create a persistence id
-		persistenceID := uuid.NewString()
-		// create the persistence behavior
-		behavior := NewAccountEventSourcedBehavior(persistenceID)
-
-		eventStore := new(mocks.EventsStore)
-		eventStore.EXPECT().Ping(mock.Anything).Return(nil)
-		eventStore.EXPECT().GetLatestEvent(mock.Anything, persistenceID).Return(nil, assert.AnError)
-
 		// create the persistence actor using the behavior previously created
-		actor := newEventSourcedActor(behavior, eventStore, eventStream)
+		actor := newEventSourcedActor()
 		// spawn the actor
-		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor)
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior))
 		require.Error(t, err)
 		require.Nil(t, pid)
 
@@ -784,20 +780,6 @@ func TestEventSourcedActor(t *testing.T) {
 
 		// create an instance of events stream
 		eventStream := eventstream.New()
-
-		// create an actor system
-		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
-			goakt.WithPassivationDisabled(),
-			goakt.WithLogger(log.DiscardLogger),
-			goakt.WithActorInitMaxRetries(3))
-		require.NoError(t, err)
-		assert.NotNil(t, actorSystem)
-
-		// start the actor system
-		err = actorSystem.Start(ctx)
-		require.NoError(t, err)
-
-		lib.Pause(time.Second)
 
 		// create a persistence id
 		persistenceID := uuid.NewString()
@@ -815,10 +797,28 @@ func TestEventSourcedActor(t *testing.T) {
 		eventStore.EXPECT().Ping(mock.Anything).Return(nil)
 		eventStore.EXPECT().GetLatestEvent(mock.Anything, persistenceID).Return(latestEvent, nil)
 
+		// create an actor system
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithPassivationDisabled(),
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+			),
+			goakt.WithActorInitMaxRetries(3))
+		require.NoError(t, err)
+		assert.NotNil(t, actorSystem)
+
+		// start the actor system
+		err = actorSystem.Start(ctx)
+		require.NoError(t, err)
+
+		lib.Pause(time.Second)
+
 		// create the persistence actor using the behavior previously created
-		actor := newEventSourcedActor(behavior, eventStore, eventStream)
+		actor := newEventSourcedActor()
 		// spawn the actor
-		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor)
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior))
 		require.Error(t, err)
 		require.Nil(t, pid)
 

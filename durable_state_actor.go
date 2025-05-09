@@ -40,6 +40,7 @@ import (
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/eventstream"
 	"github.com/tochemey/ego/v3/internal/errorschain"
+	"github.com/tochemey/ego/v3/internal/extensions"
 	"github.com/tochemey/ego/v3/persistence"
 )
 
@@ -47,44 +48,57 @@ var (
 	statesTopic = "topic.states.%d"
 )
 
-// durableStateActor is a durable state based actor
-type durableStateActor struct {
-	DurableStateBehavior
+// DurableStateActor is a durable state based actor
+type DurableStateActor struct {
+	behavior        DurableStateBehavior
 	stateStore      persistence.StateStore
 	currentState    State
 	currentVersion  uint64
 	lastCommandTime time.Time
 	eventsStream    eventstream.Stream
 	actorSystem     goakt.ActorSystem
+	persistenceID   string
 }
 
 // implements the goakt.Actor interface
-var _ goakt.Actor = (*durableStateActor)(nil)
+var _ goakt.Actor = (*DurableStateActor)(nil)
 
-// newDurableStateActor creates an instance of actor provided the DurableStateBehavior
-func newDurableStateActor(behavior DurableStateBehavior, stateStore persistence.StateStore, eventsStream eventstream.Stream) *durableStateActor {
-	return &durableStateActor{
-		stateStore:           stateStore,
-		eventsStream:         eventsStream,
-		DurableStateBehavior: behavior,
-	}
+// newDurableStateActor creates an instance of an actor provided the DurableStateBehavior
+func newDurableStateActor() *DurableStateActor {
+	return &DurableStateActor{}
 }
 
 // PreStart pre-starts the actor
-func (entity *durableStateActor) PreStart(ctx context.Context) error {
-	if err := entity.durableStateRequired(); err != nil {
-		return err
+func (entity *DurableStateActor) PreStart(ctx *goakt.Context) error {
+	entity.stateStore = ctx.Extension(extensions.DurableStateStoreExtensionID).(*extensions.DurableStateStore).Underlying()
+	entity.eventsStream = ctx.Extension(extensions.EventsStreamExtensionID).(*extensions.EventsStream).Underlying()
+	entity.persistenceID = ctx.ActorName()
+
+	for _, dependency := range ctx.Dependencies() {
+		if dependency != nil {
+			if behavior, ok := dependency.(DurableStateBehavior); ok {
+				entity.behavior = behavior
+				break
+			}
+		}
 	}
 
 	return errorschain.
 		New(errorschain.ReturnFirst()).
-		AddErrorFn(func() error { return entity.stateStore.Ping(ctx) }).
-		AddErrorFn(func() error { return entity.recoverFromStore(ctx) }).
+		AddErrorFn(entity.durableStateRequired).
+		AddErrorFn(func() error {
+			if entity.behavior == nil {
+				return fmt.Errorf("behavior is required")
+			}
+			return nil
+		}).
+		AddErrorFn(func() error { return entity.stateStore.Ping(ctx.Context()) }).
+		AddErrorFn(func() error { return entity.recoverFromStore(ctx.Context()) }).
 		Error()
 }
 
 // Receive processes any message dropped into the actor mailbox.
-func (entity *durableStateActor) Receive(ctx *goakt.ReceiveContext) {
+func (entity *DurableStateActor) Receive(ctx *goakt.ReceiveContext) {
 	switch command := ctx.Message().(type) {
 	case *goaktpb.PostStart:
 		entity.actorSystem = ctx.ActorSystem()
@@ -96,28 +110,28 @@ func (entity *durableStateActor) Receive(ctx *goakt.ReceiveContext) {
 }
 
 // PostStop prepares the actor to gracefully shutdown
-func (entity *durableStateActor) PostStop(ctx context.Context) error {
+func (entity *DurableStateActor) PostStop(ctx *goakt.Context) error {
 	return errorschain.
 		New(errorschain.ReturnFirst()).
-		AddErrorFn(func() error { return entity.stateStore.Ping(ctx) }).
-		AddErrorFn(func() error { return entity.persistStateAndPublish(ctx) }).
+		AddErrorFn(func() error { return entity.stateStore.Ping(ctx.Context()) }).
+		AddErrorFn(func() error { return entity.persistStateAndPublish(ctx.Context()) }).
 		Error()
 }
 
 // recoverFromStore reset the persistent actor to the latest state in case there is one
 // this is vital when the entity actor is restarting.
-func (entity *durableStateActor) recoverFromStore(ctx context.Context) error {
-	durableState, err := entity.stateStore.GetLatestState(ctx, entity.ID())
+func (entity *DurableStateActor) recoverFromStore(ctx context.Context) error {
+	durableState, err := entity.stateStore.GetLatestState(ctx, entity.persistenceID)
 	if err != nil {
 		return fmt.Errorf("failed to get the latest state: %w", err)
 	}
 
 	if durableState == nil || proto.Equal(durableState, new(egopb.DurableState)) {
-		entity.currentState = entity.InitialState()
+		entity.currentState = entity.behavior.InitialState()
 		return nil
 	}
 
-	currentState := entity.InitialState()
+	currentState := entity.behavior.InitialState()
 	if resultingState := durableState.GetResultingState(); resultingState != nil {
 		if err := resultingState.UnmarshalTo(currentState); err != nil {
 			return fmt.Errorf("failed to unmarshal the latest state: %w", err)
@@ -130,9 +144,9 @@ func (entity *durableStateActor) recoverFromStore(ctx context.Context) error {
 }
 
 // processCommand processes the incoming command
-func (entity *durableStateActor) processCommand(receiveContext *goakt.ReceiveContext, command Command) {
+func (entity *DurableStateActor) processCommand(receiveContext *goakt.ReceiveContext, command Command) {
 	ctx := receiveContext.Context()
-	newState, newVersion, err := entity.HandleCommand(ctx, command, entity.currentVersion, entity.currentState)
+	newState, newVersion, err := entity.behavior.HandleCommand(ctx, command, entity.currentVersion, entity.currentState)
 	if err != nil {
 		entity.sendErrorReply(receiveContext, err)
 		return
@@ -158,12 +172,12 @@ func (entity *durableStateActor) processCommand(receiveContext *goakt.ReceiveCon
 }
 
 // sendStateReply sends a state reply message
-func (entity *durableStateActor) sendStateReply(ctx *goakt.ReceiveContext) {
+func (entity *DurableStateActor) sendStateReply(ctx *goakt.ReceiveContext) {
 	state, _ := anypb.New(entity.currentState)
 	ctx.Response(&egopb.CommandReply{
 		Reply: &egopb.CommandReply_StateReply{
 			StateReply: &egopb.StateReply{
-				PersistenceId:  entity.ID(),
+				PersistenceId:  entity.persistenceID,
 				State:          state,
 				SequenceNumber: entity.currentVersion,
 				Timestamp:      entity.lastCommandTime.Unix(),
@@ -173,7 +187,7 @@ func (entity *durableStateActor) sendStateReply(ctx *goakt.ReceiveContext) {
 }
 
 // sendErrorReply sends an error as a reply message
-func (entity *durableStateActor) sendErrorReply(ctx *goakt.ReceiveContext, err error) {
+func (entity *DurableStateActor) sendErrorReply(ctx *goakt.ReceiveContext, err error) {
 	ctx.Response(&egopb.CommandReply{
 		Reply: &egopb.CommandReply_ErrorReply{
 			ErrorReply: &egopb.ErrorReply{
@@ -184,7 +198,7 @@ func (entity *durableStateActor) sendErrorReply(ctx *goakt.ReceiveContext, err e
 }
 
 // checkAndSetPreconditions validates the newState and the newVersion
-func (entity *durableStateActor) checkPreconditions(newState State, newVersion uint64) error {
+func (entity *DurableStateActor) checkPreconditions(newState State, newVersion uint64) error {
 	currentState := entity.currentState
 	currentStateType := currentState.ProtoReflect().Descriptor().FullName()
 	latestStateType := newState.ProtoReflect().Descriptor().FullName()
@@ -195,7 +209,7 @@ func (entity *durableStateActor) checkPreconditions(newState State, newVersion u
 	proceed := int(math.Abs(float64(newVersion-entity.currentVersion))) == 1
 	if !proceed {
 		return fmt.Errorf("%s received version=(%d) while current version is (%d)",
-			entity.ID(),
+			entity.persistenceID,
 			newVersion,
 			entity.currentVersion)
 	}
@@ -203,7 +217,7 @@ func (entity *durableStateActor) checkPreconditions(newState State, newVersion u
 }
 
 // checks whether the durable state store is set or not
-func (entity *durableStateActor) durableStateRequired() error {
+func (entity *DurableStateActor) durableStateRequired() error {
 	if entity.stateStore == nil {
 		return ErrDurableStateStoreRequired
 	}
@@ -211,15 +225,15 @@ func (entity *durableStateActor) durableStateRequired() error {
 }
 
 // persistState persists the actor state
-func (entity *durableStateActor) persistStateAndPublish(ctx context.Context) error {
+func (entity *DurableStateActor) persistStateAndPublish(ctx context.Context) error {
 	resultingState, _ := anypb.New(entity.currentState)
-	shardNumber := entity.actorSystem.GetPartition(entity.ID())
+	shardNumber := entity.actorSystem.GetPartition(entity.persistenceID)
 	topic := fmt.Sprintf(statesTopic, shardNumber)
 
 	entity.actorSystem.Logger().Debugf("publishing durableState to topic: %s", topic)
 
 	durableState := &egopb.DurableState{
-		PersistenceId:  entity.ID(),
+		PersistenceId:  entity.persistenceID,
 		VersionNumber:  entity.currentVersion,
 		ResultingState: resultingState,
 		Timestamp:      entity.lastCommandTime.Unix(),

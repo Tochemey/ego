@@ -26,6 +26,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"os"
@@ -147,4 +148,26 @@ func (a *AccountBehavior) HandleCommand(_ context.Context, command ego.Command, 
 	default:
 		return nil, 0, errors.New("unhandled command")
 	}
+}
+
+func (x *AccountBehavior) MarshalBinary() (data []byte, err error) {
+	serializable := struct {
+		ID string `json:"id"`
+	}{
+		ID: x.id,
+	}
+	return json.Marshal(serializable)
+}
+
+func (x *AccountBehavior) UnmarshalBinary(data []byte) error {
+	serializable := struct {
+		ID string `json:"id"`
+	}{}
+
+	if err := json.Unmarshal(data, &serializable); err != nil {
+		return err
+	}
+
+	x.id = serializable.ID
+	return nil
 }

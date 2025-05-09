@@ -1,7 +1,7 @@
 /*
  * MIT License
  *
- * Copyright (c) 2023-2025 Tochemey
+ * Copyright (c) 2022-2025 Arsene Tochemey Gandote
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-package projection
+package ego
 
 import (
 	"context"
@@ -39,21 +39,48 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/tochemey/ego/v3/egopb"
+	"github.com/tochemey/ego/v3/internal/extensions"
 	"github.com/tochemey/ego/v3/internal/lib"
+	"github.com/tochemey/ego/v3/projection"
 	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
-	testkit2 "github.com/tochemey/ego/v3/testkit"
+	"github.com/tochemey/ego/v3/testkit"
 )
 
 func TestProjection(t *testing.T) {
 	t.Run("With happy path", func(t *testing.T) {
-		defer goleak.VerifyNone(t)
+		defer goleak.VerifyNone(t,
+			goleak.IgnoreAnyFunction("github.com/panjf2000/ants/v2.(*poolCommon).purgeStaleWorkers"),
+			goleak.IgnoreTopFunction("github.com/panjf2000/ants/v2.(*poolCommon).ticktock"),
+		)
 		ctx := context.TODO()
 		logger := log.DiscardLogger
+
+		projectionName := "db-writer"
+		persistenceID := uuid.NewString()
+		shardNumber := uint64(9)
+
+		// set up the event store
+		journalStore := testkit.NewEventsStore()
+		assert.NotNil(t, journalStore)
+		require.NoError(t, journalStore.Connect(ctx))
+
+		// set up the offset store
+		offsetStore := testkit.NewOffsetStore()
+		assert.NotNil(t, offsetStore)
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		handler := projection.NewDiscardHandler(logger)
+
 		// create an actor system
 		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
 			goakt.WithPassivationDisabled(),
 			goakt.WithLogger(logger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(journalStore),
+				extensions.NewOffsetStore(offsetStore),
+				extensions.NewProjectionExtension(handler, 500, time.Time{}, time.Time{}, time.Second, projection.NewRecovery())),
 			goakt.WithActorInitMaxRetries(3))
+
 		require.NoError(t, err)
 		assert.NotNil(t, actorSystem)
 
@@ -63,26 +90,10 @@ func TestProjection(t *testing.T) {
 
 		lib.Pause(time.Second)
 
-		projectionName := "db-writer"
-		persistenceID := uuid.NewString()
-		shardNumber := uint64(9)
-
-		// set up the event store
-		journalStore := testkit2.NewEventsStore()
-		assert.NotNil(t, journalStore)
-		require.NoError(t, journalStore.Connect(ctx))
-
-		// set up the offset store
-		offsetStore := testkit2.NewOffsetStore()
-		assert.NotNil(t, offsetStore)
-		require.NoError(t, offsetStore.Connect(ctx))
-
-		handler := NewDiscardHandler(logger)
-
 		// create the actor
-		actor := New(projectionName, handler, journalStore, offsetStore, WithPullInterval(time.Millisecond))
+		actor := NewProjectionActor()
 		// spawn the actor
-		pid, err := actorSystem.Spawn(ctx, persistenceID, actor)
+		pid, err := actorSystem.Spawn(ctx, projectionName, actor)
 		require.NoError(t, err)
 		require.NotNil(t, pid)
 
@@ -135,14 +146,37 @@ func TestProjection(t *testing.T) {
 		assert.NoError(t, actorSystem.Stop(ctx))
 	})
 	t.Run("With unhandled message result in deadletter", func(t *testing.T) {
-		defer goleak.VerifyNone(t)
+		defer goleak.VerifyNone(t,
+			goleak.IgnoreAnyFunction("github.com/panjf2000/ants/v2.(*poolCommon).purgeStaleWorkers"),
+			goleak.IgnoreTopFunction("github.com/panjf2000/ants/v2.(*poolCommon).ticktock"),
+		)
 		ctx := context.TODO()
-		logger := log.DefaultLogger
+		logger := log.DiscardLogger
+
+		projectionName := "db-writer"
+
+		// set up the event store
+		journalStore := testkit.NewEventsStore()
+		assert.NotNil(t, journalStore)
+		require.NoError(t, journalStore.Connect(ctx))
+
+		// set up the offset store
+		offsetStore := testkit.NewOffsetStore()
+		assert.NotNil(t, offsetStore)
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		handler := projection.NewDiscardHandler(logger)
+
 		// create an actor system
 		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
 			goakt.WithPassivationDisabled(),
 			goakt.WithLogger(logger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(journalStore),
+				extensions.NewOffsetStore(offsetStore),
+				extensions.NewProjectionExtension(handler, 500, time.Time{}, time.Time{}, time.Second, projection.NewRecovery())),
 			goakt.WithActorInitMaxRetries(3))
+
 		require.NoError(t, err)
 		assert.NotNil(t, actorSystem)
 
@@ -152,25 +186,10 @@ func TestProjection(t *testing.T) {
 
 		lib.Pause(time.Second)
 
-		projectionName := "db-writer"
-		persistenceID := uuid.NewString()
-
-		// set up the event store
-		journalStore := testkit2.NewEventsStore()
-		assert.NotNil(t, journalStore)
-		require.NoError(t, journalStore.Connect(ctx))
-
-		// set up the offset store
-		offsetStore := testkit2.NewOffsetStore()
-		assert.NotNil(t, offsetStore)
-		require.NoError(t, offsetStore.Connect(ctx))
-
-		handler := NewDiscardHandler(logger)
-
-		// create the projection actor
-		actor := New(projectionName, handler, journalStore, offsetStore, WithPullInterval(time.Millisecond))
+		// create the actor
+		actor := NewProjectionActor()
 		// spawn the actor
-		pid, err := actorSystem.Spawn(ctx, persistenceID, actor)
+		pid, err := actorSystem.Spawn(ctx, projectionName, actor)
 		require.NoError(t, err)
 		require.NotNil(t, pid)
 

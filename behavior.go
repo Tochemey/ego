@@ -27,6 +27,7 @@ package ego
 import (
 	"context"
 
+	"github.com/tochemey/goakt/v3/extension"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -34,11 +35,9 @@ type Command proto.Message
 type Event proto.Message
 type State proto.Message
 
-// EventSourcedBehavior defines an event sourced behavior when modeling a CQRS EventSourcedBehavior.
+// EventSourcedBehavior defines an event-sourced behavior when modeling a CQRS EventSourcedBehavior.
 type EventSourcedBehavior interface {
-	// ID defines the id that will be used in the event journal.
-	// This helps track the entity in the events store.
-	ID() string
+	extension.Dependency
 	// InitialState returns the event sourced actor initial state.
 	// This is set as the initial state when there are no snapshots found the entity
 	InitialState() State
@@ -72,9 +71,7 @@ type EventSourcedBehavior interface {
 // During a normal shutdown process, it will persist its current state to the durable store prior to shutting down.
 // This behavior help maintain some consistency across the actor state evolution.
 type DurableStateBehavior interface {
-	// ID defines the id that will be used in the event journal.
-	// This helps track the entity in the events store.
-	ID() string
+	extension.Dependency
 	// InitialState returns the durable state actor initial state.
 	// This is set as the initial state when there are no snapshots found the entity
 	InitialState() State

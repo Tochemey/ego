@@ -26,12 +26,16 @@ package ego
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/atomic"
 
 	"github.com/tochemey/goakt/v3/discovery/kubernetes"
 	"github.com/tochemey/goakt/v3/log"
+
+	"github.com/tochemey/ego/v3/projection"
 )
 
 func TestOptions(t *testing.T) {
@@ -56,7 +60,7 @@ func TestOptions(t *testing.T) {
 				peersPort:          1336,
 				remotingPort:       1334,
 				partitionsCount:    30,
-				enableCluster:      atomic.NewBool(true),
+				clusterEnabled:     atomic.NewBool(true),
 			},
 		},
 		{
@@ -72,4 +76,12 @@ func TestOptions(t *testing.T) {
 			assert.Equal(t, tc.expected, e)
 		})
 	}
+}
+
+func TestOptionWithProjection(t *testing.T) {
+	handler := projection.NewDiscardHandler(log.DiscardLogger)
+	engine := new(Engine)
+	opt := WithProjection(handler, 500, time.Time{}, time.Time{}, time.Second, nil)
+	opt.Apply(engine)
+	require.NotEmpty(t, engine.projectionExtension)
 }
