@@ -111,35 +111,35 @@ func NewAccountBehavior(id string) *AccountBehavior {
 
 // ID returns the id
 // nolint
-func (a *AccountBehavior) ID() string {
-	return a.id
+func (x *AccountBehavior) ID() string {
+	return x.id
 }
 
 // InitialState returns the initial state
 // nolint
-func (a *AccountBehavior) InitialState() ego.State {
+func (x *AccountBehavior) InitialState() ego.State {
 	return ego.State(new(samplepb.Account))
 }
 
 // HandleCommand handles every command that is sent to the persistent behavior
 // nolint
-func (a *AccountBehavior) HandleCommand(_ context.Context, command ego.Command, priorVersion uint64, priorState ego.State) (event ego.State, newVersion uint64, err error) {
+func (x *AccountBehavior) HandleCommand(_ context.Context, command ego.Command, priorVersion uint64, priorState ego.State) (event ego.State, newVersion uint64, err error) {
 	switch cmd := command.(type) {
 	case *samplepb.CreateAccount:
 		// TODO in production grid app validate the command using the prior state
 		return &samplepb.Account{
-			AccountId:      a.id,
+			AccountId:      x.id,
 			AccountBalance: cmd.GetAccountBalance(),
 		}, priorVersion + 1, nil
 
 	case *samplepb.CreditAccount:
-		if cmd.GetAccountId() == a.id {
+		if cmd.GetAccountId() == x.id {
 			// TODO in production grid app validate the command using the prior state
 			account := priorState.(*samplepb.Account)
 			bal := account.GetAccountBalance() + cmd.GetBalance()
 
 			return &samplepb.Account{
-				AccountId:      a.id,
+				AccountId:      x.id,
 				AccountBalance: bal,
 			}, priorVersion + 1, nil
 		}
