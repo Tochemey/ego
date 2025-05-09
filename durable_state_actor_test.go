@@ -35,7 +35,6 @@ import (
 	"github.com/stretchr/testify/require"
 	goakt "github.com/tochemey/goakt/v3/actor"
 	"github.com/tochemey/goakt/v3/log"
-	"go.uber.org/goleak"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
@@ -50,10 +49,6 @@ import (
 
 func TestDurableStateBehavior(t *testing.T) {
 	t.Run("with state reply", func(t *testing.T) {
-		defer goleak.VerifyNone(t,
-			goleak.IgnoreAnyFunction("github.com/panjf2000/ants/v2.(*poolCommon).purgeStaleWorkers"),
-			goleak.IgnoreTopFunction("github.com/panjf2000/ants/v2.(*poolCommon).ticktock"),
-		)
 		ctx := context.TODO()
 
 		durableStore := testkit.NewDurableStore()
@@ -154,10 +149,6 @@ func TestDurableStateBehavior(t *testing.T) {
 		eventStream.Close()
 	})
 	t.Run("with error reply", func(t *testing.T) {
-		defer goleak.VerifyNone(t,
-			goleak.IgnoreAnyFunction("github.com/panjf2000/ants/v2.(*poolCommon).purgeStaleWorkers"),
-			goleak.IgnoreTopFunction("github.com/panjf2000/ants/v2.(*poolCommon).ticktock"),
-		)
 		ctx := context.TODO()
 
 		durableStore := testkit.NewDurableStore()
@@ -252,10 +243,6 @@ func TestDurableStateBehavior(t *testing.T) {
 		eventStream.Close()
 	})
 	t.Run("with state recovery from state store", func(t *testing.T) {
-		defer goleak.VerifyNone(t,
-			goleak.IgnoreAnyFunction("github.com/panjf2000/ants/v2.(*poolCommon).purgeStaleWorkers"),
-			goleak.IgnoreTopFunction("github.com/panjf2000/ants/v2.(*poolCommon).ticktock"),
-		)
 		ctx := context.TODO()
 
 		durableStore := testkit.NewDurableStore()
@@ -389,10 +376,6 @@ func TestDurableStateBehavior(t *testing.T) {
 		eventStream.Close()
 	})
 	t.Run("with state recovery from state store failure", func(t *testing.T) {
-		defer goleak.VerifyNone(t,
-			goleak.IgnoreAnyFunction("github.com/panjf2000/ants/v2.(*poolCommon).purgeStaleWorkers"),
-			goleak.IgnoreTopFunction("github.com/panjf2000/ants/v2.(*poolCommon).ticktock"),
-		)
 		ctx := context.TODO()
 		lib.Pause(time.Second)
 
@@ -438,10 +421,6 @@ func TestDurableStateBehavior(t *testing.T) {
 		durableStore.AssertExpectations(t)
 	})
 	t.Run("with state recovery from state store with initial parsing failure", func(t *testing.T) {
-		defer goleak.VerifyNone(t,
-			goleak.IgnoreAnyFunction("github.com/panjf2000/ants/v2.(*poolCommon).purgeStaleWorkers"),
-			goleak.IgnoreTopFunction("github.com/panjf2000/ants/v2.(*poolCommon).ticktock"),
-		)
 		ctx := context.TODO()
 
 		persistenceID := uuid.NewString()

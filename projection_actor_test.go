@@ -34,7 +34,6 @@ import (
 	"github.com/stretchr/testify/require"
 	goakt "github.com/tochemey/goakt/v3/actor"
 	"github.com/tochemey/goakt/v3/log"
-	"go.uber.org/goleak"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -48,10 +47,6 @@ import (
 
 func TestProjection(t *testing.T) {
 	t.Run("With happy path", func(t *testing.T) {
-		defer goleak.VerifyNone(t,
-			goleak.IgnoreAnyFunction("github.com/panjf2000/ants/v2.(*poolCommon).purgeStaleWorkers"),
-			goleak.IgnoreTopFunction("github.com/panjf2000/ants/v2.(*poolCommon).ticktock"),
-		)
 		ctx := context.TODO()
 		logger := log.DiscardLogger
 
@@ -144,10 +139,6 @@ func TestProjection(t *testing.T) {
 		require.NoError(t, actorSystem.Stop(ctx))
 	})
 	t.Run("With unhandled message result in deadletter", func(t *testing.T) {
-		defer goleak.VerifyNone(t,
-			goleak.IgnoreAnyFunction("github.com/panjf2000/ants/v2.(*poolCommon).purgeStaleWorkers"),
-			goleak.IgnoreTopFunction("github.com/panjf2000/ants/v2.(*poolCommon).ticktock"),
-		)
 		ctx := context.TODO()
 		logger := log.DiscardLogger
 

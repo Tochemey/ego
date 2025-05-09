@@ -72,6 +72,7 @@ type projectionRunner struct {
 	startingOffset time.Time
 	// reset the projection offset to a given timestamp
 	resetOffsetTo time.Time
+	ticker        *ticker.Ticker
 }
 
 // newProjectionRunner create an instance of projectionRunner given the name of the projection, the underlying and the offsets store
@@ -147,6 +148,7 @@ func (x *projectionRunner) Start(ctx context.Context) error {
 		return err
 	}
 
+	x.ticker = ticker.New(x.pullInterval)
 	x.running.Store(true)
 
 	return nil
@@ -160,6 +162,7 @@ func (x *projectionRunner) Stop() error {
 
 	x.stopSignal <- struct{}{}
 	x.running.Store(false)
+	x.ticker.Stop()
 	return nil
 }
 
@@ -170,22 +173,18 @@ func (x *projectionRunner) Name() string {
 
 // Run start the projectionRunner
 func (x *projectionRunner) Run(ctx context.Context) {
-	// start processing
+	x.ticker.Start()
 	go x.processingLoop(ctx)
 }
 
 // processingLoop is a loop that continuously runs to process events persisted onto the journal store until the projection is stopped
 func (x *projectionRunner) processingLoop(ctx context.Context) {
-	ticker := ticker.New(x.pullInterval)
-	ticker.Start()
-
-	go func() {
-		for {
-			select {
-			case <-x.stopSignal:
-				ticker.Stop()
-				return
-			case <-ticker.Ticks:
+	for x.ticker.Ticking() {
+		select {
+		case <-x.stopSignal:
+			return
+		case <-x.ticker.Ticks:
+			if x.running.Load() {
 				g, ctx := errgroup.WithContext(ctx)
 				shardsChan := make(chan uint64, 1)
 
@@ -226,13 +225,13 @@ func (x *projectionRunner) processingLoop(ctx context.Context) {
 				// wait for all the processing to be done
 				if err := g.Wait(); err != nil {
 					x.logger.Error(err)
-					ticker.Stop()
+					x.ticker.Stop()
 					_ = x.Stop()
 					return
 				}
 			}
 		}
-	}()
+	}
 }
 
 // doProcess processes all events of a given persistent entity and hand them over to the handler

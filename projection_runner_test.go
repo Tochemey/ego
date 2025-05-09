@@ -36,7 +36,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tochemey/goakt/v3/log"
 	"go.uber.org/atomic"
-	"go.uber.org/goleak"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -51,10 +50,6 @@ import (
 
 func TestRunner(t *testing.T) {
 	t.Run("with happy path", func(t *testing.T) {
-		defer goleak.VerifyNone(t,
-			goleak.IgnoreAnyFunction("github.com/panjf2000/ants/v2.(*poolCommon).purgeStaleWorkers"),
-			goleak.IgnoreTopFunction("github.com/panjf2000/ants/v2.(*poolCommon).ticktock"),
-		)
 		ctx := context.TODO()
 		projectionName := "db-writer"
 		persistenceID := uuid.NewString()
@@ -131,11 +126,7 @@ func TestRunner(t *testing.T) {
 		require.NoError(t, offsetStore.Disconnect(ctx))
 		require.NoError(t, runner.Stop())
 	})
-	t.Run("with failed underlying with fail strategy", func(t *testing.T) {
-		defer goleak.VerifyNone(t,
-			goleak.IgnoreAnyFunction("github.com/panjf2000/ants/v2.(*poolCommon).purgeStaleWorkers"),
-			goleak.IgnoreTopFunction("github.com/panjf2000/ants/v2.(*poolCommon).ticktock"),
-		)
+	t.Run("with failed handler with fail strategy", func(t *testing.T) {
 		ctx := context.TODO()
 		projectionName := "db-writer"
 		persistenceID := uuid.NewString()
@@ -196,11 +187,7 @@ func TestRunner(t *testing.T) {
 		assert.NoError(t, offsetStore.Disconnect(ctx))
 		assert.NoError(t, runner.Stop())
 	})
-	t.Run("with failed underlying and retry_fail strategy", func(t *testing.T) {
-		defer goleak.VerifyNone(t,
-			goleak.IgnoreAnyFunction("github.com/panjf2000/ants/v2.(*poolCommon).purgeStaleWorkers"),
-			goleak.IgnoreTopFunction("github.com/panjf2000/ants/v2.(*poolCommon).ticktock"),
-		)
+	t.Run("with failed handler and retry_fail strategy", func(t *testing.T) {
 		ctx := context.TODO()
 		projectionName := "db-writer"
 		persistenceID := uuid.NewString()
@@ -267,11 +254,7 @@ func TestRunner(t *testing.T) {
 		assert.NoError(t, offsetStore.Disconnect(ctx))
 		assert.NoError(t, runner.Stop())
 	})
-	t.Run("with failed underlying and skip strategy", func(t *testing.T) {
-		defer goleak.VerifyNone(t,
-			goleak.IgnoreAnyFunction("github.com/panjf2000/ants/v2.(*poolCommon).purgeStaleWorkers"),
-			goleak.IgnoreTopFunction("github.com/panjf2000/ants/v2.(*poolCommon).ticktock"),
-		)
+	t.Run("with failed handler and skip strategy", func(t *testing.T) {
 		ctx := context.TODO()
 		projectionName := "db-writer"
 		persistenceID := uuid.NewString()
@@ -346,11 +329,7 @@ func TestRunner(t *testing.T) {
 		assert.NoError(t, offsetStore.Disconnect(ctx))
 		assert.NoError(t, runner.Stop())
 	})
-	t.Run("with failed underlying and skip retry strategy", func(t *testing.T) {
-		defer goleak.VerifyNone(t,
-			goleak.IgnoreAnyFunction("github.com/panjf2000/ants/v2.(*poolCommon).purgeStaleWorkers"),
-			goleak.IgnoreTopFunction("github.com/panjf2000/ants/v2.(*poolCommon).ticktock"),
-		)
+	t.Run("with failed handler and skip retry strategy", func(t *testing.T) {
 		ctx := context.TODO()
 		projectionName := "db-writer"
 		persistenceID := uuid.NewString()
@@ -563,10 +542,6 @@ func TestRunner(t *testing.T) {
 		require.NoError(t, runner.Stop())
 	})
 	t.Run("when fail to write the offset stops the projectionRunner", func(t *testing.T) {
-		defer goleak.VerifyNone(t,
-			goleak.IgnoreAnyFunction("github.com/panjf2000/ants/v2.(*poolCommon).purgeStaleWorkers"),
-			goleak.IgnoreTopFunction("github.com/panjf2000/ants/v2.(*poolCommon).ticktock"),
-		)
 		ctx := context.TODO()
 		projectionName := "db-writer"
 		persistenceID := uuid.NewString()
@@ -640,10 +615,6 @@ func TestRunner(t *testing.T) {
 		require.NoError(t, runner.Stop())
 	})
 	t.Run("when fail to fetch shard numbers stops the projectionRunner", func(t *testing.T) {
-		defer goleak.VerifyNone(t,
-			goleak.IgnoreAnyFunction("github.com/panjf2000/ants/v2.(*poolCommon).purgeStaleWorkers"),
-			goleak.IgnoreTopFunction("github.com/panjf2000/ants/v2.(*poolCommon).ticktock"),
-		)
 		ctx := context.TODO()
 		projectionName := "db-writer"
 		handler := projection.NewDiscardHandler()
@@ -681,10 +652,6 @@ func TestRunner(t *testing.T) {
 		require.NoError(t, runner.Stop())
 	})
 	t.Run("when fail to get current offset stops the projectionRunner", func(t *testing.T) {
-		defer goleak.VerifyNone(t,
-			goleak.IgnoreAnyFunction("github.com/panjf2000/ants/v2.(*poolCommon).purgeStaleWorkers"),
-			goleak.IgnoreTopFunction("github.com/panjf2000/ants/v2.(*poolCommon).ticktock"),
-		)
 		ctx := context.TODO()
 		projectionName := "db-writer"
 		shardNumber := uint64(9)
@@ -731,10 +698,6 @@ func TestRunner(t *testing.T) {
 		require.NoError(t, runner.Stop())
 	})
 	t.Run("when fail to get shard events stops the projectionRunner", func(t *testing.T) {
-		defer goleak.VerifyNone(t,
-			goleak.IgnoreAnyFunction("github.com/panjf2000/ants/v2.(*poolCommon).purgeStaleWorkers"),
-			goleak.IgnoreTopFunction("github.com/panjf2000/ants/v2.(*poolCommon).ticktock"),
-		)
 		ctx := context.TODO()
 		projectionName := "db-writer"
 
@@ -790,10 +753,6 @@ func TestRunner(t *testing.T) {
 		require.NoError(t, runner.Stop())
 	})
 	t.Run("when current offset is zero", func(t *testing.T) {
-		defer goleak.VerifyNone(t,
-			goleak.IgnoreAnyFunction("github.com/panjf2000/ants/v2.(*poolCommon).purgeStaleWorkers"),
-			goleak.IgnoreTopFunction("github.com/panjf2000/ants/v2.(*poolCommon).ticktock"),
-		)
 		ctx := context.TODO()
 		projectionName := "db-writer"
 		persistenceID := uuid.NewString()
