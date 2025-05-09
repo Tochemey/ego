@@ -88,7 +88,7 @@ func TestEngine(t *testing.T) {
 		provider.EXPECT().Close().Return(nil)
 
 		// create a projection message handler
-		handler := projection.NewDiscardHandler(log.DiscardLogger)
+		handler := projection.NewDiscardHandler()
 		// create the ego engine
 		// AutoGenerate TLS certs
 		conf := autotls.Config{
@@ -350,7 +350,7 @@ func TestEngine(t *testing.T) {
 		require.NoError(t, offsetStore.Connect(ctx))
 
 		// create a projection message handler
-		handler := projection.NewDiscardHandler(log.DiscardLogger)
+		handler := projection.NewDiscardHandler()
 
 		// create the ego engine
 		engine := NewEngine("Sample", eventStore,
@@ -665,7 +665,7 @@ func TestEngine(t *testing.T) {
 			})
 
 		// create a projection message handler
-		handler := projection.NewDiscardHandler(log.DiscardLogger)
+		handler := projection.NewDiscardHandler()
 		// create the ego engine
 		// AutoGenerate TLS certs
 		conf := autotls.Config{
@@ -1055,7 +1055,7 @@ func TestEngine(t *testing.T) {
 		offsetStore := testkit.NewOffsetStore()
 
 		// create a projection message handler
-		handler := projection.NewDiscardHandler(log.DiscardLogger)
+		handler := projection.NewDiscardHandler()
 
 		engine := NewEngine("Sample",
 			eventStore,
@@ -1078,7 +1078,7 @@ func TestEngine(t *testing.T) {
 		require.NoError(t, offsetStore.Connect(ctx))
 
 		// create a projection message handler
-		handler := projection.NewDiscardHandler(log.DiscardLogger)
+		handler := projection.NewDiscardHandler()
 		// create the ego engine
 		engine := NewEngine("Sample", eventStore,
 			WithOffsetStore(offsetStore),

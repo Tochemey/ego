@@ -69,7 +69,7 @@ func TestProjection(t *testing.T) {
 		assert.NotNil(t, offsetStore)
 		require.NoError(t, offsetStore.Connect(ctx))
 
-		handler := projection.NewDiscardHandler(logger)
+		handler := projection.NewDiscardHandler()
 
 		// create an actor system
 		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
@@ -163,7 +163,7 @@ func TestProjection(t *testing.T) {
 		assert.NotNil(t, offsetStore)
 		require.NoError(t, offsetStore.Connect(ctx))
 
-		handler := projection.NewDiscardHandler(logger)
+		handler := projection.NewDiscardHandler()
 
 		// create an actor system
 		actorSystem, err := goakt.NewActorSystem("TestActorSystem",

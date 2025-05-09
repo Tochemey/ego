@@ -73,7 +73,7 @@ func TestRunner(t *testing.T) {
 
 		// set up the projection
 		// create a underlying that return successfully
-		handler := projection.NewDiscardHandler(logger)
+		handler := projection.NewDiscardHandler()
 
 		// create an instance of the projection
 		runner := newProjectionRunner(projectionName, handler, eventsStore, offsetStore, withPullInterval(time.Millisecond), withLogger(logger))
@@ -427,7 +427,7 @@ func TestRunner(t *testing.T) {
 	})
 	t.Run("with events store is not defined", func(t *testing.T) {
 		ctx := context.Background()
-		handler := projection.NewDiscardHandler(log.DiscardLogger)
+		handler := projection.NewDiscardHandler()
 		projectionName := "db-writer"
 		// set up the offset store
 		offsetStore := testkit2.NewOffsetStore()
@@ -445,7 +445,7 @@ func TestRunner(t *testing.T) {
 	})
 	t.Run("with offset store is not defined", func(t *testing.T) {
 		ctx := context.Background()
-		handler := projection.NewDiscardHandler(log.DiscardLogger)
+		handler := projection.NewDiscardHandler()
 		projectionName := "db-writer"
 		// set up the event store
 		eventsStore := testkit2.NewEventsStore()
@@ -463,7 +463,7 @@ func TestRunner(t *testing.T) {
 	})
 	t.Run("with start when already started returns nil", func(t *testing.T) {
 		ctx := context.Background()
-		handler := projection.NewDiscardHandler(log.DiscardLogger)
+		handler := projection.NewDiscardHandler()
 		projectionName := "db-writer"
 		// set up the event store
 		eventsStore := testkit2.NewEventsStore()
@@ -492,7 +492,7 @@ func TestRunner(t *testing.T) {
 	})
 	t.Run("with start when max retry to ping events store fails", func(t *testing.T) {
 		ctx := context.Background()
-		handler := projection.NewDiscardHandler(log.DiscardLogger)
+		handler := projection.NewDiscardHandler()
 		projectionName := "db-writer"
 
 		// set up the offset store
@@ -515,7 +515,7 @@ func TestRunner(t *testing.T) {
 	})
 	t.Run("with start when max retry to ping offsets store store fails", func(t *testing.T) {
 		ctx := context.Background()
-		handler := projection.NewDiscardHandler(log.DiscardLogger)
+		handler := projection.NewDiscardHandler()
 		projectionName := "db-writer"
 
 		// set up the event store
@@ -538,7 +538,7 @@ func TestRunner(t *testing.T) {
 	})
 	t.Run("with start when ResetOffset fails", func(t *testing.T) {
 		ctx := context.Background()
-		handler := projection.NewDiscardHandler(log.DiscardLogger)
+		handler := projection.NewDiscardHandler()
 		projectionName := "db-writer"
 
 		eventsStore := new(mockseventstore.EventsStore)
@@ -572,8 +572,7 @@ func TestRunner(t *testing.T) {
 		persistenceID := uuid.NewString()
 		shardNumber := uint64(9)
 		timestamp := timestamppb.Now()
-		logger := log.DiscardLogger
-		handler := projection.NewDiscardHandler(logger)
+		handler := projection.NewDiscardHandler()
 
 		// create the projection id
 		projectionID := &egopb.ProjectionId{
@@ -647,8 +646,7 @@ func TestRunner(t *testing.T) {
 		)
 		ctx := context.TODO()
 		projectionName := "db-writer"
-		logger := log.DiscardLogger
-		handler := projection.NewDiscardHandler(logger)
+		handler := projection.NewDiscardHandler()
 
 		maxBufferSize := 10
 		resetOffsetTo := time.Now().UTC()
@@ -691,8 +689,7 @@ func TestRunner(t *testing.T) {
 		projectionName := "db-writer"
 		shardNumber := uint64(9)
 
-		logger := log.DiscardLogger
-		handler := projection.NewDiscardHandler(logger)
+		handler := projection.NewDiscardHandler()
 
 		// create the projection id
 		projectionID := &egopb.ProjectionId{
@@ -743,8 +740,7 @@ func TestRunner(t *testing.T) {
 
 		shardNumber := uint64(9)
 		timestamp := timestamppb.Now()
-		logger := log.DiscardLogger
-		handler := projection.NewDiscardHandler(logger)
+		handler := projection.NewDiscardHandler()
 
 		// create the projection id
 		projectionID := &egopb.ProjectionId{
@@ -803,8 +799,7 @@ func TestRunner(t *testing.T) {
 		persistenceID := uuid.NewString()
 		shardNumber := uint64(9)
 		timestamp := timestamppb.Now()
-		logger := log.DiscardLogger
-		handler := projection.NewDiscardHandler(logger)
+		handler := projection.NewDiscardHandler()
 
 		// create the projection id
 		projectionID := &egopb.ProjectionId{

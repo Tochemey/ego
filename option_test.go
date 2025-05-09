@@ -79,7 +79,7 @@ func TestOptions(t *testing.T) {
 }
 
 func TestOptionWithProjection(t *testing.T) {
-	handler := projection.NewDiscardHandler(log.DiscardLogger)
+	handler := projection.NewDiscardHandler()
 	engine := new(Engine)
 	opt := WithProjection(handler, 500, time.Time{}, time.Time{}, time.Second, nil)
 	opt.Apply(engine)
