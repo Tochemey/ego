@@ -54,13 +54,13 @@ The version format is as follows:
   changes.
 - The `PATCH` part of the version will cater for dependency upgrades, bug fixes, security patches, and co.
 
-The versioning will remain like `v3.x.x` until further notice. The current version is **`v3.4.0`**
+The versioning will remain like `v3.x.x` until further notice. The current version is **`v3.4.1`**
 
 ## 📦 Binaries and Minimum Go Versions
 
 | From     | To       | Minimum Go Version |  
 |----------|----------|--------------------|
-| `v3.3.2` | `v3.4.0` | `1.23.0`           |
+| `v3.3.2` | `latest` | `1.23.0`           |
 | `v2.0.2` | `v3.3.2` | `1.22.0`           |
 | `v1.1.3` | `v2.0.1` | `1.21.0`           |
 | `v1.0.0` | `v1.1.2` | `1.20.0`           |
@@ -184,13 +184,13 @@ To define a durable state entity, one needs to:
 | **State Reconstruction** | Rebuilds state by replaying stored events                     | Loads the latest persisted state directly             |
 | **History Tracking**     | Full event history is retained                                | No event history, only latest state is kept           |
 | **Versioning**           | Revision number per event                                     | Version number per full state snapshot                |
-| **Command Handling**     | Produces one or more events from each command                 | Produces a new state directly from each command       |
+| **Command Handlers**     | Produces one or more events from each command                 | Produces a new state directly from each command       |
 | **Event Handlers**       | Required to evolve state based on events                      | Not required (no events are emitted)                  |
 | **Auditability**         | High – event log can be replayed for audit or debugging       | Low – only the final state is available               |
 | **Complexity**           | Higher – requires modeling both events and state evolution    | Lower – simpler, especially for CRUD-style operations |
-| **Storage Backend**      | Typically event stores (e.g., Kafka, EventStoreDB)            | SQL, NoSQL, or any key-value store                    |
-| **Use Case Examples**    | Financial ledgers, domain-driven designs, traceable workflows | Caches, configuration entities, simple aggregates     |
-| **State Recovery**       | Via event replay                                              | Via full state rehydration                            |
+| **Storage**              | Typically event stores (e.g., Kafka, EventStoreDB)            | SQL, NoSQL, or any key-value store                    |
+| **Use Cases**            | Financial ledgers, domain-driven designs, traceable workflows | Caches, configuration entities, simple aggregates     |
+| **Recovery**             | Via event replay                                              | Via full state rehydration                            |
 | **Serialization**        | Serializable and relocatable                                  | Serializable and relocatable                          |
 
 
