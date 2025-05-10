@@ -3,7 +3,9 @@ name: build
 on:
   push:
     branches: [ main ]
-
+    paths-ignore:
+      - '**/README.md'
+      - '**/renovate.json'
 jobs:
   build:
     runs-on: ubuntu-latest

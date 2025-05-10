@@ -3,6 +3,9 @@ name: pull_request
 on:
   pull_request:
     branches: [ main ]
+    paths-ignore:
+      - '**/README.md'
+      - '**/renovate.json'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}

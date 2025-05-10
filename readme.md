@@ -6,9 +6,8 @@
 ![GitHub Release](https://img.shields.io/github/v/release/Tochemey/ego)
 [![codecov](https://codecov.io/gh/Tochemey/ego/branch/main/graph/badge.svg?token=Z5b9gM6Mnt)](https://codecov.io/gh/Tochemey/ego)
 
-eGo is a minimal library that help build event-sourcing and CQRS application through a simple interface, and it allows
-developers to describe their **_commands_**, **_events_** and **_states_** _**are defined using google protocol buffers**_
-.
+eGo is a minimal library that helps build event-sourcing and CQRS applications through a simple interface, and it allows
+developers to describe their **_commands_**, **_events_** and **_states_** _**are defined using google protocol buffers**_.
 Under the hood, ego leverages [Go-Akt](https://github.com/Tochemey/goakt) to scale out and guarantee performant,
 reliable persistence.
 
@@ -19,21 +18,24 @@ reliable persistence.
 - [Binaries and Go Versions](#-binaries-and-minimum-go-versions)
 - [Features](#-features)
     - [Event Sourced Behavior](#event-sourced-behavior)
+        - [Command Handlers](#command-handlers)
+        - [Event Handlers](#event-handlers)
         - [Howto](#howto)
         - [Events Stream](#events-stream)
         - [Projection](#projection)
         - [Events Store](#events-store)
         - [Offset Store](#offsets-store)
     - [Durable State Behavior](#durable-state-behavior)
+        - [State Recovery andPersistence](#state-recovery-and-persistence) 
         - [State Store](#state-store)
         - [Howto](#howto-1)
         - [State Stream](#events-stream-1)
+    - [Event Sourced vs. Durable State Behavior](#event-sourced-vs-durable-state-behavior)
     - [Publisher APIs](#publishers)
 - [Cluster](#-cluster)
 - [Testkit](#-testkit)
 - [Mocks](#-mocks)
 - [Examples](#-examples)
-- [Sample](#-sample)
 - [Contribution](#-contribution)
 
 ## 💻 Installation
@@ -48,9 +50,9 @@ The version system adopted in eGo deviates a bit from the standard semantic vers
 The version format is as follows:
 
 - The `MAJOR` part of the version will stay at `v3` for the meantime.
-- The `MINOR` part of the version will cater for any new _features_, _breaking changes_  with a note on the breaking
+- The `MINOR` part of the version will cater for any new _features_, _breaking changes_ with a note on the breaking
   changes.
-- The `PATCH` part of the version will cater for dependencies upgrades, bug fixes, security patches and co.
+- The `PATCH` part of the version will cater for dependency upgrades, bug fixes, security patches, and co.
 
 The versioning will remain like `v3.x.x` until further notice. The current version is **`v3.4.0`**
 
@@ -67,47 +69,48 @@ The versioning will remain like `v3.x.x` until further notice. The current versi
 
 ### Event Sourced Behavior
 
-The [`EventSourcedBehavior`](./behavior.go) is crucial for maintaining data consistency, especially in distributed
-systems. It defines how to handle the various commands (requests to perform actions) that are always directed at the
-event sourced entity.
-In eGo commands sent to the [`EventSourcedBehavior`](./behavior.go) are processed in order. When a command is processed,
-it may result in the generation of events, which are then stored in an event store. Every event persisted has a revision
-number
-and timestamp that can help track it. The [`EventSourcedBehavior`](./behavior.go) in eGo is responsible for defining how
-to handle events that are the result of command handlers.
-The end result of events handling is to build the new state of the event sourced entity. When running in cluster mode,
-aggregate root are sharded.
+The [`EventSourcedBehavior`](./behavior.go) is central to maintaining data consistency, particularly in distributed systems. 
+It defines how to handle commands—requests to perform actions—which are always directed at the event-sourced entity. 
+In eGo, `EventSourcedBehavior` instances are **serializable**, allowing them to be transported over the wire during relocation (e.g., in a clustered environment).
 
-- `Commands handler`: The command handlers define how to handle each incoming command,
-  which validations must be applied, and finally, which events will be persisted if any. When there is no event to be
-  persisted a nil can
-  be returned as a no-op. Command handlers are the meat of the event sourced actor.
-  They encode the business rules of your event sourced actor and act as a guardian of the event sourced entity
-  consistency.
-  The command handler must first validate that the incoming command can be applied to the current model state.
-  Any decision should be solely based on the data passed in the commands and the state of the Behavior.
-  In case of successful validation, one or more events expressing the mutations are persisted. Once the events are
-  persisted, they are applied to the state producing a new valid state.
-- `Events handler`: The event handlers are used to mutate the state of the event sourced entity by applying the events
-  to it.
-  Event handlers must be pure functions as they will be used when instantiating the event sourced entity and replaying
-  the event store.
+Commands sent to an `EventSourcedBehavior` are processed **sequentially**. 
+When a command is handled, it may produce one or more **events**, which are then persisted in an **event store**. 
+Each persisted event is tagged with a **revision number** and a **timestamp**, enabling precise tracking and versioning.
+
+The `EventSourcedBehavior` is also responsible for defining how these events are **applied** to update the internal state of the entity. 
+The ultimate goal of event handling is to **rebuild the current state** from a history of past events. 
+When running in **cluster mode**, aggregate roots are automatically **sharded** for scalability and fault tolerance.
+
+#### Command Handlers
+Command handlers define the business logic of the event-sourced actor. They are responsible for:
+
+ - Validating incoming commands against the current state. 
+ - Deciding which events, if any, should be generated and persisted. 
+ - Returning nil for no-op operations when no state changes are needed.
+
+A command handler acts as the **gatekeeper** of your system’s business rules, ensuring that commands are only applied when valid. 
+If validation succeeds, one or more **events** are returned, which express the state mutations. These events are then persisted and applied to produce a **new, valid state**.
+
+#### Event Handlers
+
+Event handlers define how the state should be updated in response to events. 
+These functions must be **pure and deterministic**, as they are used both when initially handling commands and when **replaying** the event log to reconstruct the entity’s state.
 
 #### Howto
 
-To define an event sourced entity, one needs to:
+To define an event-sourced entity, one needs to:
 
-1. define the state of the event sourced entity using google protocol buffers message
-2. define the various commands that will be handled by the event sourced entity
-3. define the various events that are result of the command handlers and that will be handled by the event sourced
-   entity to return the new state of the event sourced entity
+1. define the state of the event-sourced entity using google protocol buffers message
+2. define the various commands that will be handled by the event-sourced entity
+3. define the various events that are a result of the command handlers and that will be handled by the event sourced
+   entity to return the new state of the event-sourced entity
 4. define and make sure the [`events store`](./persistence/events_store.go) is properly implemented.
 5. implement the [`EventSourcedBehavior`](./behavior.go) interface.
 6. call the `Entity` method of eGo [engine](./engine.go)
 
 #### Events Stream
 
-Every event handled by event sourced entity are pushed to an events stream. That enables real-time processing of events
+Every event handled by an event-sourced entity is pushed to an events stream. That enables real-time processing of events
 without having to interact with the events store.
 Just use `Subscribe` method of [Engine](./engine.go) and start iterating through the messages and cast every message to
 the [Event](./protos/ego/v3/ego.proto).
@@ -116,7 +119,7 @@ the [Event](./protos/ego/v3/ego.proto).
 
 One can add a projection to the eGo engine to help build a read model. Projections in eGo rely on an [offset store](#offsets-store) to
 track how far they have consumed events
-persisted by the write model. The offset used in eGo is a _timestamp-based offset_. One can also:
+persisted by the write-model. The offset used in eGo is a _timestamp-based offset_. One can also:
 
 - remove a given projection: this will stop the projection and remove it from the system
 - check the status of a given projection
@@ -133,22 +136,29 @@ There are some pre-built offsets stores one can use out of the box. See [Contrib
 
 ### Durable State Behavior
 
-The [`DurableStateBehavior`](./behavior.go) represents a type of Actor that persists its full state after processing
-each command instead of using event sourcing.
-This type of Actor keeps its current state in memory during command handling and based upon the command response
-persists its full state into a durable store. The store can be a SQL or NoSQL database.
-The whole concept is given the current state of the actor and a command produce a new state with a higher version as
-shown in this diagram: (State, Command) => State
-[`DurableStateBehavior`](./behavior.go) reacts to commands which result in a new version of the actor state. Only the
-latest version of the actor state is persisted to the durable store.
-There is no concept of history regarding the actor state since this is not an event sourced actor.
-However, one can rely on the _version number_ of the actor state and exactly know how the actor state has evolved
-overtime.
-[`DurableStateBehavior`](./behavior.go) version number are numerically incremented by the command handler which means it
-is imperative that the newer version of the state is greater than the current version by one.
-[`DurableStateBehavior`](./behavior.go) will attempt to recover its state whenever available from the durable state.
-During a normal shutdown process, it will persist its current state to the durable store prior to shutting down. This
-behavior help maintain some consistency across the actor state evolution.
+The [`DurableStateBehavior`](./behavior.go) represents a type of actor that **persists its entire state** after processing each command—unlike event-sourced actors, which persist only the events. 
+Like its event-sourced counterpart, DurableStateBehavior is **serializable**, meaning the actor can be moved across the network during relocation in distributed systems.
+
+This actor maintains its current state **in memory** while handling commands. Based on the outcome of a command, it **persists the full**, **updated state** to a **durable store** (such as a SQL or NoSQL database). 
+The behavior follows a simple and predictable model:
+
+```
+ (State, Command) => State
+```
+
+Each command results in a **new version** of the actor’s state. Only **the latest version** is stored—there is no retained event history. 
+Therefore, `DurableStateBehavior` is suitable for use cases where **audit trails or state reconstruction** are not required.
+
+Although history is not tracked, each state version is tagged with a **version number**. 
+This version must **increment by one** with every successful state transition. It is the responsibility of the **command handler** to ensure that the new state has a version exactly one greater than the previous
+
+#### State Recovery and Persistence
+
+- Upon startup, `DurableStateBehavior` will attempt to **recover the last known state** from the durable store. 
+- During a graceful shutdown, it **persists the current state** before stopping. 
+- This ensures **consistency and resilience**, even in clustered or distributed deployments.
+
+`DurableStateBehavior` is ideal for scenarios where simplicity, low-overhead persistence, and state durability are required—without the complexity of full event sourcing.
 
 #### Durable Store
 
@@ -165,6 +175,24 @@ To define a durable state entity, one needs to:
 4. implements the [`DurableStateBehavior`](./behavior.go) interface
 5. start eGo engine with the option durable store using `WithStateStore`
 6. call the `DurableStateEntity` method of eGo [engine](./engine.go)
+
+### Event Sourced vs. Durable State Behavior
+
+| Aspect                   | `EventSourcedBehavior`                                        | `DurableStateBehavior`                                |
+|--------------------------|---------------------------------------------------------------|-------------------------------------------------------|
+| **Persistence Model**    | Persists events that describe state changes                   | Persists the full state after each command            |
+| **State Reconstruction** | Rebuilds state by replaying stored events                     | Loads the latest persisted state directly             |
+| **History Tracking**     | Full event history is retained                                | No event history, only latest state is kept           |
+| **Versioning**           | Revision number per event                                     | Version number per full state snapshot                |
+| **Command Handling**     | Produces one or more events from each command                 | Produces a new state directly from each command       |
+| **Event Handlers**       | Required to evolve state based on events                      | Not required (no events are emitted)                  |
+| **Auditability**         | High – event log can be replayed for audit or debugging       | Low – only the final state is available               |
+| **Complexity**           | Higher – requires modeling both events and state evolution    | Lower – simpler, especially for CRUD-style operations |
+| **Storage Backend**      | Typically event stores (e.g., Kafka, EventStoreDB)            | SQL, NoSQL, or any key-value store                    |
+| **Use Case Examples**    | Financial ledgers, domain-driven designs, traceable workflows | Caches, configuration entities, simple aggregates     |
+| **State Recovery**       | Via event replay                                              | Via full state rehydration                            |
+| **Serialization**        | Serializable and relocatable                                  | Serializable and relocatable                          |
+
 
 #### Events Stream
 
@@ -190,7 +218,7 @@ The following streaming connectors are implemented out of the box:
 ## 🌐 Cluster
 
 The cluster mode heavily relies on [Go-Akt](https://github.com/Tochemey/goakt#clustering) clustering. To enable clustering one need to use `WithCluster` option
-when creating the eGo engine. [`DurableStateBehavior`](./behavior.go) and [`EventSourcedBehavior`](./behavior.go) are not relocated during cluster topology changes when their running node leaves the cluster. More work will be done in the future to make them relocatable.
+when creating the eGo engine.
 
 ## 🧪 Testkit
 
