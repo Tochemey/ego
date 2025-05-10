@@ -26,7 +26,6 @@ package ego
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -38,6 +37,8 @@ import (
 
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/eventstream"
+	"github.com/tochemey/ego/v3/internal/errorschain"
+	"github.com/tochemey/ego/v3/internal/extensions"
 	"github.com/tochemey/ego/v3/persistence"
 )
 
@@ -45,43 +46,55 @@ var (
 	eventsTopic = "topic.events.%d"
 )
 
-// eventSourcedActor is an event sourced based actor
-type eventSourcedActor struct {
-	EventSourcedBehavior
+// EventSourcedActor is an event sourced based actor
+type EventSourcedActor struct {
+	behavior        EventSourcedBehavior
 	eventsStore     persistence.EventsStore
 	currentState    State
 	eventsCounter   uint64
 	lastCommandTime time.Time
 	eventsStream    eventstream.Stream
+	persistenceID   string
 }
 
 // implements the goakt.Actor interface
-var _ goakt.Actor = (*eventSourcedActor)(nil)
+var _ goakt.Actor = (*EventSourcedActor)(nil)
 
 // newEventSourcedActor creates an instance of actor provided the eventSourcedHandler and the events store
-func newEventSourcedActor(behavior EventSourcedBehavior, eventsStore persistence.EventsStore, eventsStream eventstream.Stream) *eventSourcedActor {
-	return &eventSourcedActor{
-		eventsStore:          eventsStore,
-		EventSourcedBehavior: behavior,
-		eventsStream:         eventsStream,
-	}
+func newEventSourcedActor() *EventSourcedActor {
+	return &EventSourcedActor{}
 }
 
 // PreStart pre-starts the actor
-func (entity *eventSourcedActor) PreStart(ctx context.Context) error {
-	if entity.eventsStore == nil {
-		return errors.New("events store is not defined")
+func (entity *EventSourcedActor) PreStart(ctx *goakt.Context) error {
+	entity.eventsStore = ctx.Extension(extensions.EventsStoreExtensionID).(*extensions.EventsStore).Underlying()
+	entity.eventsStream = ctx.Extension(extensions.EventsStreamExtensionID).(*extensions.EventsStream).Underlying()
+	entity.persistenceID = ctx.ActorName()
+
+	for _, dependency := range ctx.Dependencies() {
+		if dependency != nil {
+			if behavior, ok := dependency.(EventSourcedBehavior); ok {
+				entity.behavior = behavior
+				break
+			}
+		}
 	}
 
-	if err := entity.eventsStore.Ping(ctx); err != nil {
-		return fmt.Errorf("failed to connect to the events store: %w", err)
-	}
-
-	return entity.recoverFromSnapshot(ctx)
+	return errorschain.
+		New(errorschain.ReturnFirst()).
+		AddErrorFn(func() error {
+			if entity.behavior == nil {
+				return fmt.Errorf("behavior is required")
+			}
+			return nil
+		}).
+		AddErrorFn(func() error { return entity.eventsStore.Ping(ctx.Context()) }).
+		AddErrorFn(func() error { return entity.recoverFromSnapshot(ctx.Context()) }).
+		Error()
 }
 
 // Receive processes any message dropped into the actor mailbox.
-func (entity *eventSourcedActor) Receive(ctx *goakt.ReceiveContext) {
+func (entity *EventSourcedActor) Receive(ctx *goakt.ReceiveContext) {
 	switch command := ctx.Message().(type) {
 	case *goaktpb.PostStart:
 		// pass
@@ -94,25 +107,25 @@ func (entity *eventSourcedActor) Receive(ctx *goakt.ReceiveContext) {
 
 // PostStop prepares the actor to gracefully shutdown
 // nolint
-func (entity *eventSourcedActor) PostStop(ctx context.Context) error {
+func (entity *EventSourcedActor) PostStop(*goakt.Context) error {
 	entity.eventsCounter = 0
 	return nil
 }
 
 // recoverFromSnapshot reset the persistent actor to the latest snapshot in case there is one
 // this is vital when the entity actor is restarting.
-func (entity *eventSourcedActor) recoverFromSnapshot(ctx context.Context) error {
-	event, err := entity.eventsStore.GetLatestEvent(ctx, entity.ID())
+func (entity *EventSourcedActor) recoverFromSnapshot(ctx context.Context) error {
+	event, err := entity.eventsStore.GetLatestEvent(ctx, entity.persistenceID)
 	if err != nil {
 		return fmt.Errorf("failed to recover the latest journal: %w", err)
 	}
 
 	if event == nil || event.GetResultingState() == nil {
-		entity.currentState = entity.InitialState()
+		entity.currentState = entity.behavior.InitialState()
 		return nil
 	}
 
-	currentState := entity.InitialState()
+	currentState := entity.behavior.InitialState()
 	if err := event.GetResultingState().UnmarshalTo(currentState); err != nil {
 		return fmt.Errorf("failed to unmarshal the latest state: %w", err)
 	}
@@ -123,7 +136,7 @@ func (entity *eventSourcedActor) recoverFromSnapshot(ctx context.Context) error 
 }
 
 // sendErrorReply sends an error as a reply message
-func (entity *eventSourcedActor) sendErrorReply(ctx *goakt.ReceiveContext, err error) {
+func (entity *EventSourcedActor) sendErrorReply(ctx *goakt.ReceiveContext, err error) {
 	reply := &egopb.CommandReply{
 		Reply: &egopb.CommandReply_ErrorReply{
 			ErrorReply: &egopb.ErrorReply{
@@ -136,8 +149,8 @@ func (entity *eventSourcedActor) sendErrorReply(ctx *goakt.ReceiveContext, err e
 }
 
 // getStateAndReply returns the current state of the entity
-func (entity *eventSourcedActor) getStateAndReply(ctx *goakt.ReceiveContext) {
-	latestEvent, err := entity.eventsStore.GetLatestEvent(ctx.Context(), entity.ID())
+func (entity *EventSourcedActor) getStateAndReply(ctx *goakt.ReceiveContext) {
+	latestEvent, err := entity.eventsStore.GetLatestEvent(ctx.Context(), entity.persistenceID)
 	if err != nil {
 		entity.sendErrorReply(ctx, err)
 		return
@@ -147,7 +160,7 @@ func (entity *eventSourcedActor) getStateAndReply(ctx *goakt.ReceiveContext) {
 	reply := &egopb.CommandReply{
 		Reply: &egopb.CommandReply_StateReply{
 			StateReply: &egopb.StateReply{
-				PersistenceId:  entity.ID(),
+				PersistenceId:  entity.persistenceID,
 				State:          resultingState,
 				SequenceNumber: latestEvent.GetSequenceNumber(),
 				Timestamp:      latestEvent.GetTimestamp(),
@@ -159,9 +172,9 @@ func (entity *eventSourcedActor) getStateAndReply(ctx *goakt.ReceiveContext) {
 }
 
 // processCommandAndReply processes the incoming command
-func (entity *eventSourcedActor) processCommandAndReply(ctx *goakt.ReceiveContext, command Command) {
+func (entity *EventSourcedActor) processCommandAndReply(ctx *goakt.ReceiveContext, command Command) {
 	goCtx := ctx.Context()
-	events, err := entity.HandleCommand(goCtx, command, entity.currentState)
+	events, err := entity.behavior.HandleCommand(goCtx, command, entity.currentState)
 	if err != nil {
 		entity.sendErrorReply(ctx, err)
 		return
@@ -173,7 +186,7 @@ func (entity *eventSourcedActor) processCommandAndReply(ctx *goakt.ReceiveContex
 		reply := &egopb.CommandReply{
 			Reply: &egopb.CommandReply_StateReply{
 				StateReply: &egopb.StateReply{
-					PersistenceId:  entity.ID(),
+					PersistenceId:  entity.persistenceID,
 					State:          resultingState,
 					SequenceNumber: entity.eventsCounter,
 					Timestamp:      entity.lastCommandTime.Unix(),
@@ -184,13 +197,13 @@ func (entity *eventSourcedActor) processCommandAndReply(ctx *goakt.ReceiveContex
 		return
 	}
 
-	shardNumber := ctx.ActorSystem().GetPartition(entity.ID())
+	shardNumber := ctx.ActorSystem().GetPartition(entity.persistenceID)
 	topic := fmt.Sprintf(eventsTopic, shardNumber)
 
 	var envelopes []*egopb.Event
 	// process all events
 	for _, event := range events {
-		resultingState, err := entity.HandleEvent(goCtx, event, entity.currentState)
+		resultingState, err := entity.behavior.HandleEvent(goCtx, event, entity.currentState)
 		if err != nil {
 			entity.sendErrorReply(ctx, err)
 			return
@@ -204,7 +217,7 @@ func (entity *eventSourcedActor) processCommandAndReply(ctx *goakt.ReceiveContex
 		state, _ := anypb.New(resultingState)
 
 		envelope := &egopb.Event{
-			PersistenceId:  entity.ID(),
+			PersistenceId:  entity.persistenceID,
 			SequenceNumber: entity.eventsCounter,
 			IsDeleted:      false,
 			Event:          event,
@@ -237,7 +250,7 @@ func (entity *eventSourcedActor) processCommandAndReply(ctx *goakt.ReceiveContex
 	reply := &egopb.CommandReply{
 		Reply: &egopb.CommandReply_StateReply{
 			StateReply: &egopb.StateReply{
-				PersistenceId:  entity.ID(),
+				PersistenceId:  entity.persistenceID,
 				State:          state,
 				SequenceNumber: entity.eventsCounter,
 				Timestamp:      entity.lastCommandTime.Unix(),

@@ -26,6 +26,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"os"
@@ -107,17 +108,17 @@ func NewAccountBehavior(id string) *AccountBehavior {
 }
 
 // ID returns the id
-func (a *AccountBehavior) ID() string {
-	return a.id
+func (x *AccountBehavior) ID() string {
+	return x.id
 }
 
 // InitialState returns the initial state
-func (a *AccountBehavior) InitialState() ego.State {
+func (x *AccountBehavior) InitialState() ego.State {
 	return ego.State(new(samplepb.Account))
 }
 
 // HandleCommand handles every command that is sent to the persistent behavior
-func (a *AccountBehavior) HandleCommand(_ context.Context, command ego.Command, _ ego.State) (events []ego.Event, err error) {
+func (x *AccountBehavior) HandleCommand(_ context.Context, command ego.Command, _ ego.State) (events []ego.Event, err error) {
 	switch cmd := command.(type) {
 	case *samplepb.CreateAccount:
 		// TODO in production grid app validate the command using the prior state
@@ -143,7 +144,7 @@ func (a *AccountBehavior) HandleCommand(_ context.Context, command ego.Command, 
 }
 
 // HandleEvent handles every event emitted
-func (a *AccountBehavior) HandleEvent(_ context.Context, event ego.Event, priorState ego.State) (state ego.State, err error) {
+func (x *AccountBehavior) HandleEvent(_ context.Context, event ego.Event, priorState ego.State) (state ego.State, err error) {
 	switch evt := event.(type) {
 	case *samplepb.AccountCreated:
 		return &samplepb.Account{
@@ -162,4 +163,26 @@ func (a *AccountBehavior) HandleEvent(_ context.Context, event ego.Event, priorS
 	default:
 		return nil, errors.New("unhandled event")
 	}
+}
+
+func (x *AccountBehavior) MarshalBinary() (data []byte, err error) {
+	serializable := struct {
+		ID string `json:"id"`
+	}{
+		ID: x.id,
+	}
+	return json.Marshal(serializable)
+}
+
+func (x *AccountBehavior) UnmarshalBinary(data []byte) error {
+	serializable := struct {
+		ID string `json:"id"`
+	}{}
+
+	if err := json.Unmarshal(data, &serializable); err != nil {
+		return err
+	}
+
+	x.id = serializable.ID
+	return nil
 }

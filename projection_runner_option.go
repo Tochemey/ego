@@ -1,7 +1,7 @@
 /*
  * MIT License
  *
- * Copyright (c) 2023-2025 Tochemey
+ * Copyright (c) 2022-2025 Arsene Tochemey Gandote
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,70 +22,72 @@
  * SOFTWARE.
  */
 
-package projection
+package ego
 
 import (
 	"time"
 
 	"github.com/tochemey/goakt/v3/log"
+
+	"github.com/tochemey/ego/v3/projection"
 )
 
 // Option is the interface that applies a configuration option.
-type Option interface {
+type runnerOption interface {
 	// Apply sets the Option value of a config.
-	Apply(runner *runner)
+	Apply(runner *projectionRunner)
 }
 
-var _ Option = OptionFunc(nil)
+var _ runnerOption = runnerOptionFunc(nil)
 
 // OptionFunc implements the Option interface.
-type OptionFunc func(*runner)
+type runnerOptionFunc func(*projectionRunner)
 
 // Apply applies the options to Engine
-func (f OptionFunc) Apply(runner *runner) {
+func (f runnerOptionFunc) Apply(runner *projectionRunner) {
 	f(runner)
 }
 
 // WithPullInterval sets the events pull interval
 // This defines how often the projection will fetch events
-func WithPullInterval(interval time.Duration) Option {
-	return OptionFunc(func(runner *runner) {
+func withPullInterval(interval time.Duration) runnerOption {
+	return runnerOptionFunc(func(runner *projectionRunner) {
 		runner.pullInterval = interval
 	})
 }
 
-// WithMaxBufferSize sets the max buffer size.
+// withMaxBufferSize sets the max buffer size.
 // This defines how many events are fetched on a single run of the projection
-func WithMaxBufferSize(bufferSize int) Option {
-	return OptionFunc(func(runner *runner) {
+func withMaxBufferSize(bufferSize int) runnerOption {
+	return runnerOptionFunc(func(runner *projectionRunner) {
 		runner.maxBufferSize = bufferSize
 	})
 }
 
-// WithStartOffset sets the starting point where to read the events
-func WithStartOffset(startOffset time.Time) Option {
-	return OptionFunc(func(runner *runner) {
+// withStartOffset sets the starting point where to read the events
+func withStartOffset(startOffset time.Time) runnerOption {
+	return runnerOptionFunc(func(runner *projectionRunner) {
 		runner.startingOffset = startOffset
 	})
 }
 
-// WithResetOffset helps reset the offset to a given timestamp.
-func WithResetOffset(resetOffset time.Time) Option {
-	return OptionFunc(func(runner *runner) {
+// withResetOffset helps reset the offset to a given timestamp.
+func withResetOffset(resetOffset time.Time) runnerOption {
+	return runnerOptionFunc(func(runner *projectionRunner) {
 		runner.resetOffsetTo = resetOffset
 	})
 }
 
 // WithLogger sets the actor system custom log
-func WithLogger(logger log.Logger) Option {
-	return OptionFunc(func(runner *runner) {
+func withLogger(logger log.Logger) runnerOption {
+	return runnerOptionFunc(func(runner *projectionRunner) {
 		runner.logger = logger
 	})
 }
 
-// WithRecoveryStrategy sets the recovery strategy
-func WithRecoveryStrategy(strategy *Recovery) Option {
-	return OptionFunc(func(runner *runner) {
+// withRecoveryStrategy sets the recovery strategy
+func withRecoveryStrategy(strategy *projection.Recovery) runnerOption {
+	return runnerOptionFunc(func(runner *projectionRunner) {
 		runner.recovery = strategy
 	})
 }

@@ -42,10 +42,10 @@ import (
 
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/eventstream"
+	"github.com/tochemey/ego/v3/internal/extensions"
 	"github.com/tochemey/ego/v3/internal/syncmap"
 	"github.com/tochemey/ego/v3/offsetstore"
 	"github.com/tochemey/ego/v3/persistence"
-	"github.com/tochemey/ego/v3/projection"
 )
 
 var (
@@ -53,10 +53,12 @@ var (
 	ErrEngineNotStarted = errors.New("eGo engine has not started")
 	// ErrUndefinedEntityID is returned when sending a command to an undefined entity
 	ErrUndefinedEntityID = errors.New("eGo entity id is not defined")
-	// ErrCommandReplyUnmarshalling is returned when unmarshalling command reply failed
+	// ErrCommandReplyUnmarshalling is returned when the unmarshalling command reply failed
 	ErrCommandReplyUnmarshalling = errors.New("failed to parse command reply")
 	// ErrDurableStateStoreRequired is returned when the eGo engine durable store is not set
 	ErrDurableStateStoreRequired = errors.New("durable state store is required")
+	// ZeroTime is the zero time
+	ZeroTime = time.Time{}
 )
 
 // Done is a signal that an operation has completed
@@ -79,7 +81,8 @@ type Engine struct {
 	name               string                  // name is the application name
 	eventsStore        persistence.EventsStore // eventsStore is the events store
 	stateStore         persistence.StateStore  // stateStore is the durable state store
-	enableCluster      *atomic.Bool            // enableCluster enable/disable cluster mode
+	offsetStore        offsetstore.OffsetStore // offsetStore is the offset store
+	clusterEnabled     *atomic.Bool            // clusterEnabled enable/disable cluster mode
 	actorSystem        goakt.ActorSystem       // actorSystem is the underlying actor system
 	logger             log.Logger              // logger is the logging engine to use
 	discoveryProvider  discovery.Provider      // discoveryProvider is the discovery provider for clustering
@@ -95,8 +98,9 @@ type Engine struct {
 	remoting           *goakt.Remoting
 	tls                *TLS
 
-	eventsStreams *syncmap.Map[string, *eventsStream]
-	statesStreams *syncmap.Map[string, *statesStream]
+	eventsStreams       *syncmap.Map[string, *eventsStream]
+	statesStreams       *syncmap.Map[string, *statesStream]
+	projectionExtension *extensions.ProjectionExtension
 }
 
 // NewEngine creates and initializes a new instance of the eGo engine.
@@ -114,16 +118,16 @@ type Engine struct {
 //   - A pointer to the newly created Engine instance.
 func NewEngine(name string, eventsStore persistence.EventsStore, opts ...Option) *Engine {
 	e := &Engine{
-		name:          name,
-		eventsStore:   eventsStore,
-		enableCluster: atomic.NewBool(false),
-		logger:        log.New(log.ErrorLevel, os.Stderr),
-		eventStream:   eventstream.New(),
-		mutex:         &sync.Mutex{},
-		bindAddr:      "0.0.0.0",
-		remoting:      goakt.NewRemoting(),
-		eventsStreams: syncmap.New[string, *eventsStream](),
-		statesStreams: syncmap.New[string, *statesStream](),
+		name:           name,
+		eventsStore:    eventsStore,
+		clusterEnabled: atomic.NewBool(false),
+		logger:         log.New(log.ErrorLevel, os.Stderr),
+		eventStream:    eventstream.New(),
+		mutex:          &sync.Mutex{},
+		bindAddr:       "0.0.0.0",
+		remoting:       goakt.NewRemoting(),
+		eventsStreams:  syncmap.New[string, *eventsStream](),
+		statesStreams:  syncmap.New[string, *statesStream](),
 	}
 
 	for _, opt := range opts {
@@ -154,6 +158,25 @@ func (engine *Engine) Start(ctx context.Context) error {
 		goakt.WithLogger(engine.logger),
 		goakt.WithPassivationDisabled(),
 		goakt.WithActorInitMaxRetries(1),
+		goakt.WithExtensions(
+			extensions.NewEventsStore(engine.eventsStore),
+			extensions.NewEventsStream(engine.eventStream),
+		),
+	}
+
+	if engine.stateStore != nil {
+		opts = append(opts, goakt.WithExtensions(extensions.NewDurableStateStore(engine.stateStore)))
+	}
+
+	if engine.offsetStore != nil {
+		opts = append(opts, goakt.WithExtensions(extensions.NewOffsetStore(engine.offsetStore)))
+	}
+
+	if engine.projectionExtension != nil {
+		if engine.offsetStore == nil {
+			return fmt.Errorf("projection extension requires an offset store")
+		}
+		opts = append(opts, goakt.WithExtensions(engine.projectionExtension))
 	}
 
 	if engine.tls != nil {
@@ -163,7 +186,7 @@ func (engine *Engine) Start(ctx context.Context) error {
 		}))
 	}
 
-	if engine.enableCluster.Load() {
+	if engine.clusterEnabled.Load() {
 		if engine.bindAddr == "" {
 			engine.bindAddr, _ = os.Hostname()
 		}
@@ -182,8 +205,8 @@ func (engine *Engine) Start(ctx context.Context) error {
 			WithReplicaCount(uint32(replicaCount)).
 			WithPartitionCount(engine.partitionsCount).
 			WithKinds(
-				new(eventSourcedActor),
-				new(durableStateActor),
+				new(EventSourcedActor),
+				new(DurableStateActor),
 			)
 
 		opts = append(opts,
@@ -223,12 +246,12 @@ func (engine *Engine) Start(ctx context.Context) error {
 //   - opts: Optional configuration settings that modify projection behavior.
 //
 // Returns an error if the projection fails to start due to misconfiguration or underlying system issues.
-func (engine *Engine) AddProjection(ctx context.Context, name string, handler projection.Handler, offsetStore offsetstore.OffsetStore, opts ...projection.Option) error {
+func (engine *Engine) AddProjection(ctx context.Context, name string) error {
 	if !engine.Started() {
 		return ErrEngineNotStarted
 	}
 
-	actor := projection.New(name, handler, engine.eventsStore, offsetStore, opts...)
+	actor := NewProjectionActor()
 
 	engine.mutex.Lock()
 	actorSystem := engine.actorSystem
@@ -354,7 +377,7 @@ func (engine *Engine) Started() bool {
 	return engine.started.Load()
 }
 
-// Subscribe creates an events subscriber.
+// Subscribe creates an events' subscriber.
 //
 // This function initializes a new subscriber for the event stream managed by the eGo engine. The subscriber
 // will receive events from the topics specified by the engine's configuration.
@@ -410,27 +433,25 @@ func (engine *Engine) Entity(ctx context.Context, behavior EventSourcedBehavior,
 
 	engine.mutex.Lock()
 	actorSystem := engine.actorSystem
-	eventsStore := engine.eventsStore
-	eventStream := engine.eventStream
 	engine.mutex.Unlock()
 
 	config := newSpawnConfig(opts...)
-	var sOptions []goakt.SpawnOption
+	sOptions := []goakt.SpawnOption{
+		goakt.WithDependencies(behavior),
+		goakt.WithLongLived(),
+	}
 
-	switch {
-	case config.passivateAfter > 0:
-		sOptions = append(sOptions,
-			goakt.WithRelocationDisabled(),
-			goakt.WithPassivateAfter(config.passivateAfter))
-	default:
-		sOptions = append(sOptions,
-			goakt.WithRelocationDisabled(),
-			goakt.WithLongLived())
+	if config.passivateAfter > 0 {
+		sOptions = append(sOptions, goakt.WithPassivateAfter(config.passivateAfter))
+	}
+
+	if !config.toRelocate {
+		sOptions = append(sOptions, goakt.WithRelocationDisabled())
 	}
 
 	_, err := actorSystem.Spawn(ctx,
 		behavior.ID(),
-		newEventSourcedActor(behavior, eventsStore, eventStream),
+		newEventSourcedActor(),
 		sOptions...)
 	return err
 }
@@ -464,7 +485,6 @@ func (engine *Engine) DurableStateEntity(ctx context.Context, behavior DurableSt
 	engine.mutex.Lock()
 	actorSystem := engine.actorSystem
 	durableStateStore := engine.stateStore
-	eventStream := engine.eventStream
 	engine.mutex.Unlock()
 
 	if durableStateStore == nil {
@@ -472,22 +492,22 @@ func (engine *Engine) DurableStateEntity(ctx context.Context, behavior DurableSt
 	}
 
 	config := newSpawnConfig(opts...)
-	var sOptions []goakt.SpawnOption
+	sOptions := []goakt.SpawnOption{
+		goakt.WithDependencies(behavior),
+		goakt.WithLongLived(),
+	}
 
-	switch {
-	case config.passivateAfter > 0:
-		sOptions = append(sOptions,
-			goakt.WithRelocationDisabled(),
-			goakt.WithPassivateAfter(config.passivateAfter))
-	default:
-		sOptions = append(sOptions,
-			goakt.WithRelocationDisabled(),
-			goakt.WithLongLived())
+	if config.passivateAfter > 0 {
+		sOptions = append(sOptions, goakt.WithPassivateAfter(config.passivateAfter))
+	}
+
+	if !config.toRelocate {
+		sOptions = append(sOptions, goakt.WithRelocationDisabled())
 	}
 
 	_, err := actorSystem.Spawn(ctx,
 		behavior.ID(),
-		newDurableStateActor(behavior, durableStateStore, eventStream),
+		newDurableStateActor(),
 		sOptions...)
 	return err
 }

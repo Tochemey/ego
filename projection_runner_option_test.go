@@ -1,7 +1,7 @@
 /*
  * MIT License
  *
- * Copyright (c) 2023-2025 Tochemey
+ * Copyright (c) 2022-2025 Arsene Tochemey Gandote
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-package projection
+package ego
 
 import (
 	"testing"
@@ -30,52 +30,54 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/tochemey/goakt/v3/log"
+
+	"github.com/tochemey/ego/v3/projection"
 )
 
 func TestOption(t *testing.T) {
 	ts := time.Second
 	from := time.Now()
 	to := time.Now().Add(ts)
-	recovery := NewRecovery()
+	recovery := projection.NewRecovery()
 	testCases := []struct {
 		name     string
-		option   Option
-		expected runner
+		option   runnerOption
+		expected projectionRunner
 	}{
 		{
 			name:     "WithRefreshInterval",
-			option:   WithPullInterval(ts),
-			expected: runner{pullInterval: ts},
+			option:   withPullInterval(ts),
+			expected: projectionRunner{pullInterval: ts},
 		},
 		{
 			name:     "WithMaxBufferSize",
-			option:   WithMaxBufferSize(5),
-			expected: runner{maxBufferSize: 5},
+			option:   withMaxBufferSize(5),
+			expected: projectionRunner{maxBufferSize: 5},
 		},
 		{
 			name:     "WithStartOffset",
-			option:   WithStartOffset(from),
-			expected: runner{startingOffset: from},
+			option:   withStartOffset(from),
+			expected: projectionRunner{startingOffset: from},
 		},
 		{
 			name:     "WithResetOffset",
-			option:   WithResetOffset(to),
-			expected: runner{resetOffsetTo: to},
+			option:   withResetOffset(to),
+			expected: projectionRunner{resetOffsetTo: to},
 		},
 		{
 			name:     "WithLogger",
-			option:   WithLogger(log.DefaultLogger),
-			expected: runner{logger: log.DefaultLogger},
+			option:   withLogger(log.DefaultLogger),
+			expected: projectionRunner{logger: log.DefaultLogger},
 		},
 		{
 			name:     "WithRecoveryStrategy",
-			option:   WithRecoveryStrategy(recovery),
-			expected: runner{recovery: recovery},
+			option:   withRecoveryStrategy(recovery),
+			expected: projectionRunner{recovery: recovery},
 		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			var e runner
+			var e projectionRunner
 			tc.option.Apply(&e)
 			assert.Equal(t, tc.expected, e)
 		})

@@ -25,12 +25,17 @@
 package ego
 
 import (
+	"time"
+
 	"go.uber.org/atomic"
 
 	"github.com/tochemey/goakt/v3/discovery"
 	"github.com/tochemey/goakt/v3/log"
 
+	"github.com/tochemey/ego/v3/internal/extensions"
+	"github.com/tochemey/ego/v3/offsetstore"
 	"github.com/tochemey/ego/v3/persistence"
+	"github.com/tochemey/ego/v3/projection"
 )
 
 // Option defines a configuration option that can be applied to a Engine.
@@ -71,7 +76,7 @@ func (f OptionFunc) Apply(e *Engine) {
 //   - Option: A functional option that configures the cluster settings.
 func WithCluster(provider discovery.Provider, partitionCount uint64, minimumPeersQuorum uint16, host string, remotingPort, discoveryPort, peersPort int) Option {
 	return OptionFunc(func(e *Engine) {
-		e.enableCluster = atomic.NewBool(true)
+		e.clusterEnabled = atomic.NewBool(true)
 		e.discoveryProvider = provider
 		e.partitionsCount = partitionCount
 		e.peersPort = peersPort
@@ -110,6 +115,32 @@ func WithStateStore(stateStore persistence.StateStore) Option {
 	})
 }
 
+// WithOffsetStore sets a custom offset store to the Engine for tracking the processing position
+// of projections.
+//
+// An offset store is responsible for persisting and retrieving the last processed offset,
+// enabling reliable and resumable event processing across restarts or failures.
+// This option allows plugging in a custom implementation of persistence.OffsetStore,
+// which can be backed by a database, message queue metadata, or any other durable mechanism.
+//
+// Parameters:
+//   - offsetStore: An implementation of the persistence.OffsetStore interface
+//     used to persist and retrieve offset positions.
+//
+// Returns:
+//   - Option: A functional option that applies the custom offset store to the Engine.
+//
+// Example:
+//
+//	engine := NewEngine(
+//	    WithOffsetStore(myOffsetStore),
+//	)
+func WithOffsetStore(offsetStore offsetstore.OffsetStore) Option {
+	return OptionFunc(func(e *Engine) {
+		e.offsetStore = offsetStore
+	})
+}
+
 // WithTLS configures TLS settings for both the server and client, ensuring
 // secure communication through encryption and authentication.
 //
@@ -129,5 +160,47 @@ func WithStateStore(stateStore persistence.StateStore) Option {
 func WithTLS(tls *TLS) Option {
 	return OptionFunc(func(e *Engine) {
 		e.tls = tls
+	})
+}
+
+// WithProjection configures the Engine to use a projection extension for processing persisted events.
+// It sets up the projection handler along with buffering and recovery parameters.
+//
+// Parameters:
+//   - handler: A projection.Handler implementation that defines how events are processed.
+//   - bufferSize: The number of events to buffer in memory before processing.
+//   - startOffset: The time from which to begin processing events.
+//   - resetOffset: The fallback time to reset the offset in case of recovery or replay scenarios.
+//   - pullInterval: The interval between polling the event store for new events.
+//   - recovery: Optional recovery strategy that defines how the projection behaves on failure.
+//
+// Returns:
+//   - Option: A functional option that applies the projection configuration to the Engine.
+//
+// Example usage:
+//
+//	engine := NewEngine(
+//	    WithProjection(
+//	        myHandler,
+//	        100,
+//	        time.Now().Add(-24*time.Hour),
+//	        time.Time{},
+//	        5*time.Second,
+//	        projection.NewRecovery(WithRetries(3)),
+//	    ),
+//	)
+func WithProjection(handler projection.Handler, bufferSize int, startOffset, resetOffset time.Time, pullInterval time.Duration, recovery *projection.Recovery) Option {
+	return OptionFunc(func(e *Engine) {
+		if recovery == nil {
+			recovery = projection.NewRecovery()
+		}
+		e.projectionExtension = extensions.NewProjectionExtension(
+			handler,
+			bufferSize,
+			startOffset,
+			resetOffset,
+			pullInterval,
+			recovery,
+		)
 	})
 }

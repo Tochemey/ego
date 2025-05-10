@@ -27,6 +27,7 @@ package ego
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"net"
 	"strconv"
@@ -87,7 +88,7 @@ func TestEngine(t *testing.T) {
 		provider.EXPECT().Close().Return(nil)
 
 		// create a projection message handler
-		handler := projection.NewDiscardHandler(log.DiscardLogger)
+		handler := projection.NewDiscardHandler()
 		// create the ego engine
 		// AutoGenerate TLS certs
 		conf := autotls.Config{
@@ -103,6 +104,8 @@ func TestEngine(t *testing.T) {
 				ClientTLS: conf.ClientTLS,
 				ServerTLS: conf.ServerTLS,
 			}),
+			WithOffsetStore(offsetStore),
+			WithProjection(handler, 500, ZeroTime, ZeroTime, time.Second, projection.NewRecovery()),
 			WithCluster(provider, 4, 1, host, remotingPort, gossipPort, clusterPort))
 		// start ego engine
 		err := engine.Start(ctx)
@@ -111,7 +114,7 @@ func TestEngine(t *testing.T) {
 		lib.Pause(time.Second)
 
 		// add projection
-		err = engine.AddProjection(ctx, "discard", handler, offsetStore)
+		err = engine.AddProjection(ctx, "discard")
 		require.NoError(t, err)
 
 		lib.Pause(time.Second)
@@ -346,17 +349,21 @@ func TestEngine(t *testing.T) {
 		offsetStore := testkit.NewOffsetStore()
 		require.NoError(t, offsetStore.Connect(ctx))
 
+		// create a projection message handler
+		handler := projection.NewDiscardHandler()
+
 		// create the ego engine
-		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		engine := NewEngine("Sample", eventStore,
+			WithOffsetStore(offsetStore),
+			WithProjection(handler, 500, ZeroTime, ZeroTime, time.Second, projection.NewRecovery()),
+			WithLogger(log.DiscardLogger))
 		// start ego engine
 		err := engine.Start(ctx)
 		require.NoError(t, err)
 
-		// create a projection message handler
-		handler := projection.NewDiscardHandler(log.DiscardLogger)
 		// add projection
 		projectionName := "projection"
-		err = engine.AddProjection(ctx, projectionName, handler, offsetStore)
+		err = engine.AddProjection(ctx, projectionName)
 		require.NoError(t, err)
 
 		lib.Pause(time.Second)
@@ -658,7 +665,7 @@ func TestEngine(t *testing.T) {
 			})
 
 		// create a projection message handler
-		handler := projection.NewDiscardHandler(log.DiscardLogger)
+		handler := projection.NewDiscardHandler()
 		// create the ego engine
 		// AutoGenerate TLS certs
 		conf := autotls.Config{
@@ -674,6 +681,8 @@ func TestEngine(t *testing.T) {
 				ClientTLS: conf.ClientTLS,
 				ServerTLS: conf.ServerTLS,
 			}),
+			WithOffsetStore(offsetStore),
+			WithProjection(handler, 500, ZeroTime, ZeroTime, time.Second, projection.NewRecovery()),
 			WithCluster(provider, 4, 1, host, remotingPort, discoveryPort, clusterPort))
 
 		// start ego engine
@@ -687,7 +696,7 @@ func TestEngine(t *testing.T) {
 		require.NoError(t, err)
 
 		// add projection
-		err = engine.AddProjection(ctx, "discard", handler, offsetStore)
+		err = engine.AddProjection(ctx, "discard")
 		require.NoError(t, err)
 
 		lib.Pause(time.Second)
@@ -1046,13 +1055,16 @@ func TestEngine(t *testing.T) {
 		offsetStore := testkit.NewOffsetStore()
 
 		// create a projection message handler
-		handler := projection.NewDiscardHandler(log.DiscardLogger)
+		handler := projection.NewDiscardHandler()
 
-		engine := NewEngine("Sample", eventStore,
+		engine := NewEngine("Sample",
+			eventStore,
+			WithOffsetStore(offsetStore),
+			WithProjection(handler, 500, ZeroTime, ZeroTime, time.Second, projection.NewRecovery()),
 			WithLogger(log.DiscardLogger))
 
 		projectionName := "projection"
-		err := engine.AddProjection(ctx, projectionName, handler, offsetStore)
+		err := engine.AddProjection(ctx, projectionName)
 		require.Error(t, err)
 	})
 	t.Run("With AddProjection when projection name is invalid", func(t *testing.T) {
@@ -1065,19 +1077,23 @@ func TestEngine(t *testing.T) {
 		offsetStore := testkit.NewOffsetStore()
 		require.NoError(t, offsetStore.Connect(ctx))
 
+		// create a projection message handler
+		handler := projection.NewDiscardHandler()
 		// create the ego engine
-		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		engine := NewEngine("Sample", eventStore,
+			WithOffsetStore(offsetStore),
+			WithProjection(handler, 500, ZeroTime, ZeroTime, time.Second, projection.NewRecovery()),
+			WithLogger(log.DiscardLogger))
+
 		// start ego engine
 		err := engine.Start(ctx)
 		require.NoError(t, err)
 
 		lib.Pause(time.Second)
 
-		// create a projection message handler
-		handler := projection.NewDiscardHandler(log.DiscardLogger)
 		// add projection
 		projectionName := strings.Repeat("a", 256)
-		err = engine.AddProjection(ctx, projectionName, handler, offsetStore)
+		err = engine.AddProjection(ctx, projectionName)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to register the projection")
 
@@ -1234,4 +1250,26 @@ func (a *EventSourcedEntity) HandleEvent(_ context.Context, event Event, priorSt
 	default:
 		return nil, errors.New("unhandled event")
 	}
+}
+
+func (a *EventSourcedEntity) MarshalBinary() (data []byte, err error) {
+	serializable := struct {
+		ID string `json:"id"`
+	}{
+		ID: a.id,
+	}
+	return json.Marshal(serializable)
+}
+
+func (a *EventSourcedEntity) UnmarshalBinary(data []byte) error {
+	serializable := struct {
+		ID string `json:"id"`
+	}{}
+
+	if err := json.Unmarshal(data, &serializable); err != nil {
+		return err
+	}
+
+	a.id = serializable.ID
+	return nil
 }

@@ -1,7 +1,7 @@
 /*
  * MIT License
  *
- * Copyright (c) 2023-2025 Tochemey
+ * Copyright (c) 2022-2025 Arsene Tochemey Gandote
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -22,54 +22,58 @@
  * SOFTWARE.
  */
 
-package projection
+package ego
 
 import (
-	"context"
-
 	goakt "github.com/tochemey/goakt/v3/actor"
 	"github.com/tochemey/goakt/v3/goaktpb"
 
-	"github.com/tochemey/ego/v3/offsetstore"
-	"github.com/tochemey/ego/v3/persistence"
+	"github.com/tochemey/ego/v3/internal/extensions"
 )
 
-// Projection defines the projection actor
+// ProjectionActor defines the projection actor
 // Only a single instance of this will run throughout the cluster
-type Projection struct {
-	runner *runner
+type ProjectionActor struct {
+	runner *projectionRunner
 }
 
 // implements the Actor contract
-var _ goakt.Actor = (*Projection)(nil)
+var _ goakt.Actor = (*ProjectionActor)(nil)
 
-// New creates an instance of Projection
-func New(name string,
-	handler Handler,
-	eventsStore persistence.EventsStore,
-	offsetStore offsetstore.OffsetStore,
-	opts ...Option) *Projection {
-	// create the instance of the runner
-	runner := newRunner(name, handler, eventsStore, offsetStore, opts...)
-	return &Projection{runner: runner}
+// NewProjectionActor creates an instance of ProjectionActor
+func NewProjectionActor() *ProjectionActor {
+	return &ProjectionActor{}
 }
 
 // PreStart prepares the projection
-func (proj *Projection) PreStart(ctx context.Context) error {
-	return proj.runner.Start(ctx)
+func (x *ProjectionActor) PreStart(ctx *goakt.Context) error {
+	offsetStore := ctx.Extension(extensions.OffsetStoreExtensionID).(*extensions.OffsetStore).Underlying()
+	eventsStore := ctx.Extension(extensions.EventsStoreExtensionID).(*extensions.EventsStore).Underlying()
+	projection := ctx.Extension(extensions.ProjectionExtensionID).(*extensions.ProjectionExtension)
+
+	x.runner = newProjectionRunner(ctx.ActorName(), projection.Handler(), eventsStore, offsetStore,
+		withLogger(ctx.ActorSystem().Logger()),
+		withRecoveryStrategy(projection.Recovery()),
+		withStartOffset(projection.StartOffset()),
+		withResetOffset(projection.ResetOffset()),
+		withMaxBufferSize(projection.BufferSize()),
+		withPullInterval(projection.PullInterval()),
+	)
+
+	return x.runner.Start(ctx.Context())
 }
 
 // Receive handle the message sent to the projection actor
-func (proj *Projection) Receive(ctx *goakt.ReceiveContext) {
+func (x *ProjectionActor) Receive(ctx *goakt.ReceiveContext) {
 	switch ctx.Message().(type) {
 	case *goaktpb.PostStart:
-		proj.runner.Run(ctx.Context())
+		x.runner.Run(ctx.Context())
 	default:
 		ctx.Unhandled()
 	}
 }
 
 // PostStop prepares the actor to gracefully shutdown
-func (proj *Projection) PostStop(context.Context) error {
-	return proj.runner.Stop()
+func (x *ProjectionActor) PostStop(*goakt.Context) error {
+	return x.runner.Stop()
 }

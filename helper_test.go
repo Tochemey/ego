@@ -26,6 +26,7 @@ package ego
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -44,26 +45,26 @@ var _ EventSourcedBehavior = (*AccountEventSourcedBehavior)(nil)
 func NewAccountEventSourcedBehavior(id string) *AccountEventSourcedBehavior {
 	return &AccountEventSourcedBehavior{id: id}
 }
-func (t *AccountEventSourcedBehavior) ID() string {
-	return t.id
+func (x *AccountEventSourcedBehavior) ID() string {
+	return x.id
 }
 
-func (t *AccountEventSourcedBehavior) InitialState() State {
+func (x *AccountEventSourcedBehavior) InitialState() State {
 	return new(testpb.Account)
 }
 
-func (t *AccountEventSourcedBehavior) HandleCommand(_ context.Context, command Command, _ State) (events []Event, err error) {
+func (x *AccountEventSourcedBehavior) HandleCommand(_ context.Context, command Command, _ State) (events []Event, err error) {
 	switch cmd := command.(type) {
 	case *testpb.CreateAccount:
 		return []Event{
 			&testpb.AccountCreated{
-				AccountId:      t.id,
+				AccountId:      x.id,
 				AccountBalance: cmd.GetAccountBalance(),
 			},
 		}, nil
 
 	case *testpb.CreditAccount:
-		if cmd.GetAccountId() == t.id {
+		if cmd.GetAccountId() == x.id {
 			return []Event{
 				&testpb.AccountCredited{
 					AccountId:      cmd.GetAccountId(),
@@ -85,7 +86,7 @@ func (t *AccountEventSourcedBehavior) HandleCommand(_ context.Context, command C
 	}
 }
 
-func (t *AccountEventSourcedBehavior) HandleEvent(_ context.Context, event Event, priorState State) (state State, err error) {
+func (x *AccountEventSourcedBehavior) HandleEvent(_ context.Context, event Event, priorState State) (state State, err error) {
 	switch evt := event.(type) {
 	case *testpb.AccountCreated:
 		return &testpb.Account{
@@ -104,6 +105,28 @@ func (t *AccountEventSourcedBehavior) HandleEvent(_ context.Context, event Event
 	default:
 		return nil, errors.New("unhandled event")
 	}
+}
+
+func (x *AccountEventSourcedBehavior) MarshalBinary() (data []byte, err error) {
+	serializable := struct {
+		ID string `json:"id"`
+	}{
+		ID: x.id,
+	}
+	return json.Marshal(serializable)
+}
+
+func (x *AccountEventSourcedBehavior) UnmarshalBinary(data []byte) error {
+	serializable := struct {
+		ID string `json:"id"`
+	}{}
+
+	if err := json.Unmarshal(data, &serializable); err != nil {
+		return err
+	}
+
+	x.id = serializable.ID
+	return nil
 }
 
 type AccountDurableStateBehavior struct {
@@ -150,4 +173,26 @@ func (x *AccountDurableStateBehavior) HandleCommand(ctx context.Context, command
 	default:
 		return nil, 0, errors.New("unhandled command")
 	}
+}
+
+func (x *AccountDurableStateBehavior) MarshalBinary() (data []byte, err error) {
+	serializable := struct {
+		ID string `json:"id"`
+	}{
+		ID: x.id,
+	}
+	return json.Marshal(serializable)
+}
+
+func (x *AccountDurableStateBehavior) UnmarshalBinary(data []byte) error {
+	serializable := struct {
+		ID string `json:"id"`
+	}{}
+
+	if err := json.Unmarshal(data, &serializable); err != nil {
+		return err
+	}
+
+	x.id = serializable.ID
+	return nil
 }
