@@ -6,7 +6,7 @@ toolchain go1.24.3
 
 require (
 	github.com/apache/pulsar-client-go v0.15.0
-	github.com/tochemey/ego/v3 v3.4.1
+	github.com/tochemey/ego/v3 v3.5.0
 	github.com/tochemey/gopack v0.2.0
 	go.uber.org/atomic v1.11.0
 	google.golang.org/protobuf v1.36.6
@@ -82,7 +82,7 @@ require (
 	github.com/tidwall/btree v1.7.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/redcon v1.6.2 // indirect
-	github.com/tochemey/goakt/v3 v3.4.2 // indirect
+	github.com/tochemey/goakt/v3 v3.4.3 // indirect
 	github.com/tochemey/olric v0.2.2 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
