@@ -4,7 +4,7 @@ FROM tochemey/docker-go:1.24.0-5.2.1
 
 RUN go install github.com/ory/go-acc@latest
 # install vektra/mockery
-RUN go install github.com/vektra/mockery/v2@v2.52.1
+RUN go install github.com/vektra/mockery/v2@v2.53.2
 
 protogen:
     # copy the proto files to generate
