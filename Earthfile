@@ -1,6 +1,6 @@
 VERSION 0.8
 
-FROM tochemey/docker-go:1.23.4-5.1.1
+FROM tochemey/docker-go:1.24.0-5.2.1
 
 RUN go install github.com/ory/go-acc@latest
 # install vektra/mockery
