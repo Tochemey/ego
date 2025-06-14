@@ -68,7 +68,6 @@ func TestProjection(t *testing.T) {
 
 		// create an actor system
 		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
-			goakt.WithPassivationDisabled(),
 			goakt.WithLogger(logger),
 			goakt.WithExtensions(
 				extensions.NewEventsStore(journalStore),
@@ -88,7 +87,7 @@ func TestProjection(t *testing.T) {
 		// create the actor
 		actor := NewProjectionActor()
 		// spawn the actor
-		pid, err := actorSystem.Spawn(ctx, projectionName, actor)
+		pid, err := actorSystem.Spawn(ctx, projectionName, actor, goakt.WithLongLived())
 		require.NoError(t, err)
 		require.NotNil(t, pid)
 
@@ -158,7 +157,6 @@ func TestProjection(t *testing.T) {
 
 		// create an actor system
 		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
-			goakt.WithPassivationDisabled(),
 			goakt.WithLogger(logger),
 			goakt.WithExtensions(
 				extensions.NewEventsStore(journalStore),
@@ -178,7 +176,7 @@ func TestProjection(t *testing.T) {
 		// create the actor
 		actor := NewProjectionActor()
 		// spawn the actor
-		pid, err := actorSystem.Spawn(ctx, projectionName, actor)
+		pid, err := actorSystem.Spawn(ctx, projectionName, actor, goakt.WithLongLived())
 		require.NoError(t, err)
 		require.NotNil(t, pid)
 

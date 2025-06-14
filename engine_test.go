@@ -318,7 +318,7 @@ func TestEngine(t *testing.T) {
 
 		_, _, err = engine.SendCommand(ctx, entityID, new(samplepb.CreateAccount), time.Minute)
 		require.Error(t, err)
-		assert.EqualError(t, err, actors.ErrActorNotFound(entityID).Error())
+		assert.ErrorIs(t, err, actors.ErrActorNotFound)
 
 		assert.NoError(t, eventStore.Disconnect(ctx))
 		assert.NoError(t, engine.Stop(ctx))
@@ -620,7 +620,7 @@ func TestEngine(t *testing.T) {
 
 		_, _, err = engine.SendCommand(ctx, entityID, new(testpb.CreateAccount), time.Minute)
 		require.Error(t, err)
-		assert.EqualError(t, err, actors.ErrActorNotFound(entityID).Error())
+		assert.ErrorIs(t, err, actors.ErrActorNotFound)
 		assert.NoError(t, engine.Stop(ctx))
 		assert.NoError(t, stateStore.Disconnect(ctx))
 	})

@@ -43,4 +43,10 @@ func TestSpawnOption(t *testing.T) {
 		option.Apply(config)
 		require.Equal(t, &spawnConfig{passivateAfter: second}, config)
 	})
+	t.Run("WithRelocation", func(t *testing.T) {
+		config := &spawnConfig{}
+		option := WithRelocation(true)
+		option.Apply(config)
+		require.Equal(t, &spawnConfig{toRelocate: true}, config)
+	})
 }

@@ -63,7 +63,6 @@ func TestDurableStateBehavior(t *testing.T) {
 
 		// create an actor system
 		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
-			goakt.WithPassivationDisabled(),
 			goakt.WithLogger(log.DiscardLogger),
 			goakt.WithExtensions(
 				extensions.NewDurableStateStore(durableStore),
@@ -80,7 +79,7 @@ func TestDurableStateBehavior(t *testing.T) {
 		lib.Pause(time.Second)
 
 		actor := newDurableStateActor()
-		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior))
+		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior), goakt.WithLongLived())
 		require.NotNil(t, pid)
 
 		lib.Pause(time.Second)
@@ -167,7 +166,6 @@ func TestDurableStateBehavior(t *testing.T) {
 
 		// create an actor system
 		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
-			goakt.WithPassivationDisabled(),
 			goakt.WithLogger(log.DiscardLogger),
 			goakt.WithExtensions(
 				extensions.NewDurableStateStore(durableStore),
@@ -186,7 +184,7 @@ func TestDurableStateBehavior(t *testing.T) {
 		// create the persistence actor using the behavior previously created
 		persistentActor := newDurableStateActor()
 		// spawn the actor
-		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), persistentActor, goakt.WithDependencies(behavior))
+		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), persistentActor, goakt.WithDependencies(behavior), goakt.WithLongLived())
 		require.NotNil(t, pid)
 
 		lib.Pause(time.Second)
@@ -262,7 +260,6 @@ func TestDurableStateBehavior(t *testing.T) {
 
 		// create an actor system
 		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
-			goakt.WithPassivationDisabled(),
 			goakt.WithLogger(log.DiscardLogger),
 			goakt.WithExtensions(
 				extensions.NewDurableStateStore(durableStore),
@@ -279,7 +276,7 @@ func TestDurableStateBehavior(t *testing.T) {
 		lib.Pause(time.Second)
 
 		persistentActor := newDurableStateActor()
-		pid, err := actorSystem.Spawn(ctx, behavior.ID(), persistentActor, goakt.WithDependencies(behavior))
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), persistentActor, goakt.WithDependencies(behavior), goakt.WithLongLived())
 		require.NoError(t, err)
 		require.NotNil(t, pid)
 
@@ -390,7 +387,6 @@ func TestDurableStateBehavior(t *testing.T) {
 
 		// create an actor system
 		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
-			goakt.WithPassivationDisabled(),
 			goakt.WithLogger(log.DiscardLogger),
 			goakt.WithExtensions(
 				extensions.NewDurableStateStore(durableStore),
@@ -407,7 +403,7 @@ func TestDurableStateBehavior(t *testing.T) {
 		lib.Pause(time.Second)
 
 		persistentActor := newDurableStateActor()
-		pid, err := actorSystem.Spawn(ctx, behavior.ID(), persistentActor, goakt.WithDependencies(behavior))
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), persistentActor, goakt.WithDependencies(behavior), goakt.WithLongLived())
 		require.Error(t, err)
 		require.Nil(t, pid)
 
@@ -440,7 +436,6 @@ func TestDurableStateBehavior(t *testing.T) {
 
 		// create an actor system
 		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
-			goakt.WithPassivationDisabled(),
 			goakt.WithLogger(log.DiscardLogger),
 			goakt.WithExtensions(
 				extensions.NewDurableStateStore(durableStore),
@@ -457,7 +452,7 @@ func TestDurableStateBehavior(t *testing.T) {
 		lib.Pause(time.Second)
 
 		persistentActor := newDurableStateActor()
-		pid, err := actorSystem.Spawn(ctx, behavior.ID(), persistentActor, goakt.WithDependencies(behavior))
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), persistentActor, goakt.WithDependencies(behavior), goakt.WithLongLived())
 		require.Error(t, err)
 		require.Nil(t, pid)
 

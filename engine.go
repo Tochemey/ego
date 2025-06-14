@@ -36,6 +36,7 @@ import (
 	"github.com/tochemey/goakt/v3/address"
 	"github.com/tochemey/goakt/v3/discovery"
 	"github.com/tochemey/goakt/v3/log"
+	"github.com/tochemey/goakt/v3/passivation"
 	"github.com/tochemey/goakt/v3/remote"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
@@ -156,7 +157,6 @@ func NewEngine(name string, eventsStore persistence.EventsStore, opts ...Option)
 func (engine *Engine) Start(ctx context.Context) error {
 	opts := []goakt.Option{
 		goakt.WithLogger(engine.logger),
-		goakt.WithPassivationDisabled(),
 		goakt.WithActorInitMaxRetries(1),
 		goakt.WithExtensions(
 			extensions.NewEventsStore(engine.eventsStore),
@@ -442,7 +442,7 @@ func (engine *Engine) Entity(ctx context.Context, behavior EventSourcedBehavior,
 	}
 
 	if config.passivateAfter > 0 {
-		sOptions = append(sOptions, goakt.WithPassivateAfter(config.passivateAfter))
+		sOptions = append(sOptions, goakt.WithPassivationStrategy(passivation.NewTimeBasedStrategy(config.passivateAfter)))
 	}
 
 	if !config.toRelocate {
@@ -498,7 +498,7 @@ func (engine *Engine) DurableStateEntity(ctx context.Context, behavior DurableSt
 	}
 
 	if config.passivateAfter > 0 {
-		sOptions = append(sOptions, goakt.WithPassivateAfter(config.passivateAfter))
+		sOptions = append(sOptions, goakt.WithPassivationStrategy(passivation.NewTimeBasedStrategy(config.passivateAfter)))
 	}
 
 	if !config.toRelocate {

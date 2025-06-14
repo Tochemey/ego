@@ -70,7 +70,6 @@ func TestEventSourcedActor(t *testing.T) {
 
 		// create an actor system
 		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
-			goakt.WithPassivationDisabled(),
 			goakt.WithLogger(log.DiscardLogger),
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
@@ -89,7 +88,7 @@ func TestEventSourcedActor(t *testing.T) {
 		// create the persistence actor using the behavior previously created
 		actor := newEventSourcedActor()
 		// spawn the actor
-		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior))
+		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior), goakt.WithLongLived())
 		require.NotNil(t, pid)
 
 		lib.Pause(time.Second)
@@ -180,7 +179,6 @@ func TestEventSourcedActor(t *testing.T) {
 
 		// create an actor system
 		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
-			goakt.WithPassivationDisabled(),
 			goakt.WithLogger(log.DiscardLogger),
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
@@ -199,7 +197,7 @@ func TestEventSourcedActor(t *testing.T) {
 		// create the persistence actor using the behavior previously created
 		persistentActor := newEventSourcedActor()
 		// spawn the actor
-		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), persistentActor, goakt.WithDependencies(behavior))
+		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), persistentActor, goakt.WithDependencies(behavior), goakt.WithLongLived())
 		require.NotNil(t, pid)
 
 		lib.Pause(time.Second)
@@ -276,7 +274,6 @@ func TestEventSourcedActor(t *testing.T) {
 
 		// create an actor system
 		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
-			goakt.WithPassivationDisabled(),
 			goakt.WithLogger(log.DiscardLogger),
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
@@ -295,7 +292,7 @@ func TestEventSourcedActor(t *testing.T) {
 		// create the persistence actor using the behavior previously created
 		persistentActor := newEventSourcedActor()
 		// spawn the actor
-		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), persistentActor, goakt.WithDependencies(behavior))
+		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), persistentActor, goakt.WithDependencies(behavior), goakt.WithLongLived())
 		require.NotNil(t, pid)
 
 		lib.Pause(time.Second)
@@ -346,7 +343,6 @@ func TestEventSourcedActor(t *testing.T) {
 
 		// create an actor system
 		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
-			goakt.WithPassivationDisabled(),
 			goakt.WithLogger(log.DiscardLogger),
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
@@ -365,7 +361,7 @@ func TestEventSourcedActor(t *testing.T) {
 		// create the persistence actor using the behavior previously created
 		persistentActor := newEventSourcedActor()
 		// spawn the actor
-		pid, err := actorSystem.Spawn(ctx, behavior.ID(), persistentActor, goakt.WithDependencies(behavior))
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), persistentActor, goakt.WithDependencies(behavior), goakt.WithLongLived())
 		require.NoError(t, err)
 		require.NotNil(t, pid)
 
@@ -483,7 +479,6 @@ func TestEventSourcedActor(t *testing.T) {
 
 		// create an actor system
 		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
-			goakt.WithPassivationDisabled(),
 			goakt.WithLogger(log.DiscardLogger),
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
@@ -502,7 +497,7 @@ func TestEventSourcedActor(t *testing.T) {
 		// create the persistence actor using the behavior previously created
 		actor := newEventSourcedActor()
 		// spawn the actor
-		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior))
+		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior), goakt.WithLongLived())
 		require.NotNil(t, pid)
 
 		lib.Pause(time.Second)
@@ -615,7 +610,6 @@ func TestEventSourcedActor(t *testing.T) {
 
 		// create an actor system
 		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
-			goakt.WithPassivationDisabled(),
 			goakt.WithLogger(log.DiscardLogger),
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
@@ -634,7 +628,7 @@ func TestEventSourcedActor(t *testing.T) {
 		// create the persistence actor using the behavior previously created
 		actor := newEventSourcedActor()
 		// spawn the actor
-		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior))
+		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior), goakt.WithLongLived())
 		require.NotNil(t, pid)
 
 		lib.Pause(time.Second)
@@ -700,7 +694,6 @@ func TestEventSourcedActor(t *testing.T) {
 
 		// create an actor system
 		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
-			goakt.WithPassivationDisabled(),
 			goakt.WithLogger(log.DiscardLogger),
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
@@ -719,7 +712,7 @@ func TestEventSourcedActor(t *testing.T) {
 		// create the persistence actor using the behavior previously created
 		actor := newEventSourcedActor()
 		// spawn the actor
-		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior))
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithLongLived(), goakt.WithDependencies(behavior))
 		require.Error(t, err)
 		require.Nil(t, pid)
 
@@ -746,7 +739,6 @@ func TestEventSourcedActor(t *testing.T) {
 
 		// create an actor system
 		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
-			goakt.WithPassivationDisabled(),
 			goakt.WithLogger(log.DiscardLogger),
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
@@ -765,7 +757,7 @@ func TestEventSourcedActor(t *testing.T) {
 		// create the persistence actor using the behavior previously created
 		actor := newEventSourcedActor()
 		// spawn the actor
-		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior))
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior), goakt.WithLongLived())
 		require.Error(t, err)
 		require.Nil(t, pid)
 
@@ -799,7 +791,6 @@ func TestEventSourcedActor(t *testing.T) {
 
 		// create an actor system
 		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
-			goakt.WithPassivationDisabled(),
 			goakt.WithLogger(log.DiscardLogger),
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
@@ -818,7 +809,7 @@ func TestEventSourcedActor(t *testing.T) {
 		// create the persistence actor using the behavior previously created
 		actor := newEventSourcedActor()
 		// spawn the actor
-		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior))
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior), goakt.WithLongLived())
 		require.Error(t, err)
 		require.Nil(t, pid)
 
