@@ -6,7 +6,7 @@ toolchain go1.24.3
 
 require (
 	github.com/IBM/sarama v1.45.2
-	github.com/tochemey/ego/v3 v3.5.0
+	github.com/tochemey/ego/v3 v3.5.1
 	go.uber.org/atomic v1.11.0
 	google.golang.org/protobuf v1.36.6
 )
@@ -37,7 +37,7 @@ require (
 	github.com/hashicorp/golang-lru v1.0.2 // indirect
 	github.com/hashicorp/logutils v1.0.0 // indirect
 	github.com/hashicorp/memberlist v0.5.3 // indirect
-	github.com/klauspost/cpuid/v2 v2.2.10 // indirect
+	github.com/klauspost/cpuid/v2 v2.2.11 // indirect
 	github.com/miekg/dns v1.1.66 // indirect
 	github.com/mschoch/smat v0.2.0 // indirect
 	github.com/panjf2000/ants/v2 v2.11.3 // indirect
@@ -54,9 +54,9 @@ require (
 	github.com/zeebo/xxh3 v1.0.2 // indirect
 	go.akshayshah.org/connectproto v0.6.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
-	go.opentelemetry.io/otel v1.36.0 // indirect
-	go.opentelemetry.io/otel/metric v1.36.0 // indirect
-	go.opentelemetry.io/otel/trace v1.36.0 // indirect
+	go.opentelemetry.io/otel v1.37.0 // indirect
+	go.opentelemetry.io/otel/metric v1.37.0 // indirect
+	go.opentelemetry.io/otel/trace v1.37.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/mod v0.25.0 // indirect
