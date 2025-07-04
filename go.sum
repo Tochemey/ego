@@ -256,6 +256,8 @@ github.com/tidwall/redcon v1.6.2/go.mod h1:p5Wbsgeyi2VSTBWOcA5vRXrOb9arFTcU2+ZzF
 github.com/tinylib/msgp v1.1.5/go.mod h1:eQsjooMTnV42mHu917E26IogZ2930nFyBQdofk10Udg=
 github.com/tochemey/goakt/v3 v3.6.6 h1:k49elZB9FG0VJIbU3wICiMwQVrTzv+EhOlt6A+MYPz8=
 github.com/tochemey/goakt/v3 v3.6.6/go.mod h1:H5k7JYBbM+4wJkV8i9rWG407+ySS+P8+k1rRcvCcQ6k=
+github.com/tochemey/goakt/v3 v3.7.0 h1:KacHCh3wZEnBC21CxrpYynIqbTU1jvC9O/4UzB5L7N4=
+github.com/tochemey/goakt/v3 v3.7.0/go.mod h1:yZxy4C2zVLQJXsC+/pNPsTOaJX9iy+7i4YjB7A2J2ZM=
 github.com/tochemey/olric v0.2.3 h1:LGmsHLQBSEs3uasZNLT5MdS2pBMNJ71gSrXnYfkb62M=
 github.com/tochemey/olric v0.2.3/go.mod h1:BAD82xys8R8IAWFV+GC0B8I+J4QsYZvmPS5NT/dhmtI=
 github.com/travisjeffery/go-dynaport v1.0.0 h1:m/qqf5AHgB96CMMSworIPyo1i7NZueRsnwdzdCJ8Ajw=
@@ -402,6 +404,8 @@ k8s.io/klog/v2 v2.130.1 h1:n9Xl7H1Xvksem4KFG4PYbdQCQxqc/tTUyrgXaOhHSzk=
 k8s.io/klog/v2 v2.130.1/go.mod h1:3Jpz1GvMt720eyJH1ckRHK1EDfpxISzJ7I9OYgaDtPE=
 k8s.io/kube-openapi v0.0.0-20250628140032-d90c4fd18f59 h1:Jc4GiFTK2HHOpfQFoQEGXTBTs2pETwHukmoD4yoTqwo=
 k8s.io/kube-openapi v0.0.0-20250628140032-d90c4fd18f59/go.mod h1:GLOk5B+hDbRROvt0X2+hqX64v/zO3vXN7J78OUmBSKw=
+k8s.io/kube-openapi v0.0.0-20250701173324-9bd5c66d9911 h1:gAXU86Fmbr/ktY17lkHwSjw5aoThQvhnstGGIYKlKYc=
+k8s.io/kube-openapi v0.0.0-20250701173324-9bd5c66d9911/go.mod h1:GLOk5B+hDbRROvt0X2+hqX64v/zO3vXN7J78OUmBSKw=
 k8s.io/utils v0.0.0-20250604170112-4c0f3b243397 h1:hwvWFiBzdWw1FhfY1FooPn3kzWuJ8tmbZBHi4zVsl1Y=
 k8s.io/utils v0.0.0-20250604170112-4c0f3b243397/go.mod h1:OLgZIPagt7ERELqWJFomSt595RzquPNLL48iOWgYOg0=
 sigs.k8s.io/json v0.0.0-20241014173422-cfa47c3a1cc8 h1:gBQPwqORJ8d8/YNZWEjoZs7npUVDpVXUUOFfW6CgAqE=
