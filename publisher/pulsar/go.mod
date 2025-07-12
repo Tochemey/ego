@@ -2,7 +2,7 @@ module github.com/tochemey/ego/v3/publisher/pulsar
 
 go 1.24.0
 
-toolchain go1.24.3
+toolchain go1.24.5
 
 require (
 	github.com/apache/pulsar-client-go v0.15.1
