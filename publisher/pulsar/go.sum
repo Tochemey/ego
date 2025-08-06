@@ -27,6 +27,8 @@ github.com/alecthomas/units v0.0.0-20190717042225-c3de453c63f4/go.mod h1:ybxpYRF
 github.com/alecthomas/units v0.0.0-20190924025748-f65c72e2690d/go.mod h1:rBZYJk541a8SKzHPHnH3zbiI+7dagKZ0cgpgrD7Fyho=
 github.com/apache/pulsar-client-go v0.15.1 h1:/BtkKA0WnGLDRJe1GJGhhRcpfxZ85IBHHOktmbz6fME=
 github.com/apache/pulsar-client-go v0.15.1/go.mod h1:ow9PhLoGUY6ncrKOtjnWeJycFnTKOwrIV39j3kNV54M=
+github.com/apache/pulsar-client-go v0.16.0 h1:SnmGzqcTu6WpK4D6I2Jdwe/VCFkMUk516OiIF3DHqI8=
+github.com/apache/pulsar-client-go v0.16.0/go.mod h1:ow9PhLoGUY6ncrKOtjnWeJycFnTKOwrIV39j3kNV54M=
 github.com/ardielle/ardielle-go v1.5.2 h1:TilHTpHIQJ27R1Tl/iITBzMwiUGSlVfiVhwDNGM3Zj4=
 github.com/ardielle/ardielle-go v1.5.2/go.mod h1:I4hy1n795cUhaVt/ojz83SNVCYIGsAFAONtv2Dr7HUI=
 github.com/armon/go-metrics v0.4.1 h1:hR91U9KYmb6bLBYLQjyM+3j+rcd/UhE+G78SFnF8gJA=
