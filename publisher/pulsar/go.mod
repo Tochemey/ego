@@ -5,7 +5,7 @@ go 1.24.0
 toolchain go1.24.5
 
 require (
-	github.com/apache/pulsar-client-go v0.15.1
+	github.com/apache/pulsar-client-go v0.16.0
 	github.com/tochemey/ego/v3 v3.5.1
 	github.com/tochemey/gopack v0.2.0
 	go.uber.org/atomic v1.11.0
