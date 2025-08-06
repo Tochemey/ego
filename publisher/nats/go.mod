@@ -2,7 +2,7 @@ module github.com/tochemey/ego/v3/publisher/nats
 
 go 1.24.0
 
-toolchain go1.24.5
+toolchain go1.24.6
 
 require (
 	github.com/nats-io/nats.go v1.44.0
