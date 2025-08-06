@@ -254,6 +254,8 @@ github.com/redis/go-redis/v9 v9.11.0 h1:E3S08Gl/nJNn5vkxd2i78wZxWAPNZgUNTp8WIJUA
 github.com/redis/go-redis/v9 v9.11.0/go.mod h1:huWgSWd8mW6+m0VPhJjSSQ+d6Nh1VICQ6Q5lHuCH/Iw=
 github.com/reugn/go-quartz v0.14.0 h1:KlIBAsOIw1JI8Rc7/f8VrrHBHOr+BiqrTiB35pRe84M=
 github.com/reugn/go-quartz v0.14.0/go.mod h1:00DVnBKq2Fxag/HlR9mGXjmHNlMFQ1n/LNM+Fn0jUaE=
+github.com/reugn/go-quartz v0.15.1 h1:8hMtC+ERa9G5tiL9fiuBpPreId+Tu1Xt2pkXVeTZAy0=
+github.com/reugn/go-quartz v0.15.1/go.mod h1:00DVnBKq2Fxag/HlR9mGXjmHNlMFQ1n/LNM+Fn0jUaE=
 github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529 h1:nn5Wsu0esKSJiIVhscUtVbo7ada43DJhG55ua/hjS5I=
 github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529/go.mod h1:DxrIzT+xaE7yg65j358z/aeFdxmN0P9QXhEzd20vsDc=
 github.com/sirupsen/logrus v1.2.0/go.mod h1:LxeOpSwHxABJmUn/MG1IvRgCAasNZTLOkJPxbbu5VWo=
@@ -300,6 +302,8 @@ github.com/tochemey/goakt/v3 v3.7.2 h1:TxZ3HsiJ37mXHIIjppCWGQKV+uASgw+dMPfjT9Pex
 github.com/tochemey/goakt/v3 v3.7.2/go.mod h1:zOV6ibP+V/e4l0pRN4vRJncgPENvhD2YDSPs1ZK1bcc=
 github.com/tochemey/goakt/v3 v3.8.0 h1:G/nnMFUEybFXXM60fPXH7nToqAJA1cuCqXHpmEXW6gU=
 github.com/tochemey/goakt/v3 v3.8.0/go.mod h1:0SrxZwnnBrJmx1M7zSCkvvdEVL14n+FnBdUqQtNf+4k=
+github.com/tochemey/goakt/v3 v3.8.1 h1:bocHJaC45AG57AjCK0yrTZoQSWISS2i7SuSiPn1klQY=
+github.com/tochemey/goakt/v3 v3.8.1/go.mod h1:Laqjx0i0kkt/3kfnD4Ct8bhscJRePU09fKFWS94kQdw=
 github.com/tochemey/olric v0.2.3 h1:LGmsHLQBSEs3uasZNLT5MdS2pBMNJ71gSrXnYfkb62M=
 github.com/tochemey/olric v0.2.3/go.mod h1:BAD82xys8R8IAWFV+GC0B8I+J4QsYZvmPS5NT/dhmtI=
 github.com/travisjeffery/go-dynaport v1.0.0 h1:m/qqf5AHgB96CMMSworIPyo1i7NZueRsnwdzdCJ8Ajw=
