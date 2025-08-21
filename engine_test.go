@@ -40,7 +40,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	actors "github.com/tochemey/goakt/v3/actor"
+	gerrors "github.com/tochemey/goakt/v3/errors"
 	"github.com/tochemey/goakt/v3/log"
 	mockdisco "github.com/tochemey/goakt/v3/mocks/discovery"
 	"github.com/travisjeffery/go-dynaport"
@@ -318,7 +318,7 @@ func TestEngine(t *testing.T) {
 
 		_, _, err = engine.SendCommand(ctx, entityID, new(samplepb.CreateAccount), time.Minute)
 		require.Error(t, err)
-		assert.ErrorIs(t, err, actors.ErrActorNotFound)
+		assert.ErrorIs(t, err, gerrors.ErrActorNotFound)
 
 		assert.NoError(t, eventStore.Disconnect(ctx))
 		assert.NoError(t, engine.Stop(ctx))
@@ -620,7 +620,7 @@ func TestEngine(t *testing.T) {
 
 		_, _, err = engine.SendCommand(ctx, entityID, new(testpb.CreateAccount), time.Minute)
 		require.Error(t, err)
-		assert.ErrorIs(t, err, actors.ErrActorNotFound)
+		assert.ErrorIs(t, err, gerrors.ErrActorNotFound)
 		assert.NoError(t, engine.Stop(ctx))
 		assert.NoError(t, stateStore.Disconnect(ctx))
 	})
@@ -735,9 +735,9 @@ func TestEngine(t *testing.T) {
 		account, ok := resultingState.(*samplepb.Account)
 		require.True(t, ok)
 
-		assert.EqualValues(t, 500.00, account.GetAccountBalance())
-		assert.Equal(t, entityID, account.GetAccountId())
-		assert.EqualValues(t, 1, revision)
+		require.EqualValues(t, 500.00, account.GetAccountBalance())
+		require.Equal(t, entityID, account.GetAccountId())
+		require.EqualValues(t, 1, revision)
 
 		// send another command to credit the balance
 		command = &samplepb.CreditAccount{
@@ -750,9 +750,9 @@ func TestEngine(t *testing.T) {
 		newAccount, ok := newState.(*samplepb.Account)
 		require.True(t, ok)
 
-		assert.EqualValues(t, 750.00, newAccount.GetAccountBalance())
-		assert.Equal(t, entityID, newAccount.GetAccountId())
-		assert.EqualValues(t, 2, revision)
+		require.EqualValues(t, 750.00, newAccount.GetAccountBalance())
+		require.Equal(t, entityID, newAccount.GetAccountId())
+		require.EqualValues(t, 2, revision)
 
 		for message := range subscriber.Iterator() {
 			payload := message.Payload()
@@ -761,16 +761,16 @@ func TestEngine(t *testing.T) {
 			require.True(t, ok)
 			switch envelope.GetSequenceNumber() {
 			case 1:
-				assert.True(t, event.MessageIs(new(samplepb.AccountCreated)))
+				require.True(t, event.MessageIs(new(samplepb.AccountCreated)))
 			case 2:
-				assert.True(t, event.MessageIs(new(samplepb.AccountCredited)))
+				require.True(t, event.MessageIs(new(samplepb.AccountCredited)))
 			}
 		}
 
 		// free resources
-		assert.NoError(t, eventStore.Disconnect(ctx))
-		assert.NoError(t, offsetStore.Disconnect(ctx))
-		assert.NoError(t, engine.Stop(ctx))
+		require.NoError(t, eventStore.Disconnect(ctx))
+		require.NoError(t, offsetStore.Disconnect(ctx))
+		require.NoError(t, engine.Stop(ctx))
 		lib.Pause(time.Second)
 
 		publisher.AssertExpectations(t)
