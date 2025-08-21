@@ -38,6 +38,7 @@ import (
 	"github.com/tochemey/goakt/v3/log"
 	"github.com/tochemey/goakt/v3/passivation"
 	"github.com/tochemey/goakt/v3/remote"
+	gtls "github.com/tochemey/goakt/v3/tls"
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 
@@ -96,7 +97,7 @@ type Engine struct {
 	minimumPeersQuorum uint16
 	eventStream        eventstream.Stream
 	mutex              *sync.Mutex
-	remoting           *goakt.Remoting
+	remoting           remote.Remoting
 	tls                *TLS
 
 	eventsStreams       *syncmap.Map[string, *eventsStream]
@@ -126,7 +127,7 @@ func NewEngine(name string, eventsStore persistence.EventsStore, opts ...Option)
 		eventStream:    eventstream.New(),
 		mutex:          &sync.Mutex{},
 		bindAddr:       "0.0.0.0",
-		remoting:       goakt.NewRemoting(),
+		remoting:       remote.NewRemoting(),
 		eventsStreams:  syncmap.New[string, *eventsStream](),
 		statesStreams:  syncmap.New[string, *statesStream](),
 	}
@@ -136,7 +137,7 @@ func NewEngine(name string, eventsStore persistence.EventsStore, opts ...Option)
 	}
 
 	if e.tls != nil {
-		e.remoting = goakt.NewRemoting(goakt.WithRemotingTLS(e.tls.ClientTLS))
+		e.remoting = remote.NewRemoting(remote.WithRemotingTLS(e.tls.ClientTLS))
 	}
 
 	e.started.Store(false)
@@ -180,9 +181,9 @@ func (engine *Engine) Start(ctx context.Context) error {
 	}
 
 	if engine.tls != nil {
-		opts = append(opts, goakt.WithTLS(&goakt.TLSInfo{
-			ClientTLS: engine.tls.ClientTLS,
-			ServerTLS: engine.tls.ServerTLS,
+		opts = append(opts, goakt.WithTLS(&gtls.Info{
+			ClientConfig: engine.tls.ClientTLS,
+			ServerConfig: engine.tls.ServerTLS,
 		}))
 	}
 
@@ -533,6 +534,8 @@ func (engine *Engine) DurableStateEntity(ctx context.Context, behavior DurableSt
 //   - resultingState: The updated state of the entity after handling the command, or `nil` if no state change occurred.
 //   - revision: A monotonically increasing revision number representing the persisted state version.
 //   - err: An error if the command processing fails.
+//
+// nolint
 func (engine *Engine) SendCommand(ctx context.Context, entityID string, cmd Command, timeout time.Duration) (resultingState State, revision uint64, err error) {
 	if !engine.Started() {
 		return nil, 0, ErrEngineNotStarted
@@ -558,9 +561,8 @@ func (engine *Engine) SendCommand(ctx context.Context, entityID string, cmd Comm
 	case pid != nil:
 		reply, err = goakt.Ask(ctx, pid, cmd, timeout)
 	case addr != nil:
-		res, err := engine.remoting.RemoteAsk(ctx, address.NoSender(), addr, cmd, timeout)
-		if err == nil {
-			// let us unmarshal the response
+		res, rerr := engine.remoting.RemoteAsk(ctx, address.NoSender(), addr, cmd, timeout)
+		if rerr == nil {
 			reply, err = res.UnmarshalNew()
 		}
 	}
@@ -708,10 +710,9 @@ func (engine *Engine) sendEvent(stream *eventsStream) {
 				continue
 			}
 
-			publisher := stream.publisher
-			if err := publisher.Publish(context.Background(), event); err != nil {
+			if err := stream.publisher.Publish(context.Background(), event); err != nil {
 				engine.logger.Errorf("(%s) failed to publish event=[persistenceID=%s, sequenceNumber=%d]: %s",
-					publisher.ID(),
+					stream.publisher.ID(),
 					event.GetPersistenceId(),
 					event.GetSequenceNumber(),
 					err.Error())
@@ -719,7 +720,7 @@ func (engine *Engine) sendEvent(stream *eventsStream) {
 			}
 
 			engine.logger.Infof("(%s) successfully published event=[persistenceID=%s, sequenceNumber=%d]: %s",
-				publisher.ID(),
+				stream.publisher.ID(),
 				event.GetPersistenceId(),
 				event.GetSequenceNumber())
 		}
@@ -763,8 +764,8 @@ func (engine *Engine) sendState(stream *statesStream) {
 // generateTopics generates a list of topics based on the base topic name and partitions count.
 func generateTopics(baseTopic string, partitionsCount uint64) []string {
 	var topics []string
-	switch {
-	case partitionsCount == 0:
+	switch partitionsCount {
+	case 0:
 		topics = append(topics, fmt.Sprintf(baseTopic, 0))
 	default:
 		for i := range int(partitionsCount) {

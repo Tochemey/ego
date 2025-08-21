@@ -1,49 +1,60 @@
-# See https://golangci-lint.run/usage/configuration/
+version: "2"
 run:
-  # The default concurrency value is the number of available CPU.
   concurrency: 4
-  # Timeout for analysis, e.g. 30s, 5m.
-  # Default: 1m
-  timeout: 5m
-  # Exit code when at least one issue was found.
-  # Default: 1
   issues-exit-code: 2
-  # Include test files or not.
-  # Default: true
   tests: true
-
+  modules-download-mode: vendor
+  relative-path-mode: gomod
+output:
+  path-prefix: ""
 linters:
-  disable-all: true
+  default: none
   enable:
-    - misspell
-    - goimports
-    - revive
-    - gofmt
-    - whitespace
-    - gosec
-    - gosimple
     - gocyclo
-
-
-issues:
-  exclude-rules:
-    # helpers in tests often (rightfully) pass a *testing.T as their first argument
-    - path: _test\.go
-      text: "context.Context should be the first parameter of a function"
-      linters:
-        - revive
-    # Yes, they are, but it's okay in a test
-    - path: _test\.go
-      text: "exported func.*returns unexported type.*which can be annoying to use"
-      linters:
-        - revive
-
-linters-settings:
-  gosec:
-    excludes:
-      - G115
-  misspell:
-    locale: US
-    ignore-words:
-      - cancelled
-      - behaviour
+    - gosec
+    - misspell
+    - revive
+    - staticcheck
+    - whitespace
+    - govet
+  settings:
+    gosec:
+      excludes:
+        - G115
+    misspell:
+      locale: US
+      ignore-rules:
+        - cancelled
+        - behaviour
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      - linters:
+          - revive
+        path: _test\.go
+        text: context.Context should be the first parameter of a function
+      - linters:
+          - revive
+        path: _test\.go
+        text: exported func.*returns unexported type.*which can be annoying to use
+    paths:
+      - mocks
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: lax
+    paths:
+      - mocks
+      - third_party$
+      - builtin$
+      - examples$
