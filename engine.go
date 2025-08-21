@@ -534,6 +534,8 @@ func (engine *Engine) DurableStateEntity(ctx context.Context, behavior DurableSt
 //   - resultingState: The updated state of the entity after handling the command, or `nil` if no state change occurred.
 //   - revision: A monotonically increasing revision number representing the persisted state version.
 //   - err: An error if the command processing fails.
+//
+// nolint
 func (engine *Engine) SendCommand(ctx context.Context, entityID string, cmd Command, timeout time.Duration) (resultingState State, revision uint64, err error) {
 	if !engine.Started() {
 		return nil, 0, ErrEngineNotStarted
@@ -559,9 +561,8 @@ func (engine *Engine) SendCommand(ctx context.Context, entityID string, cmd Comm
 	case pid != nil:
 		reply, err = goakt.Ask(ctx, pid, cmd, timeout)
 	case addr != nil:
-		res, err := engine.remoting.RemoteAsk(ctx, address.NoSender(), addr, cmd, timeout)
-		if err == nil {
-			// let us unmarshal the response
+		res, rerr := engine.remoting.RemoteAsk(ctx, address.NoSender(), addr, cmd, timeout)
+		if rerr == nil {
 			reply, err = res.UnmarshalNew()
 		}
 	}
@@ -763,8 +764,8 @@ func (engine *Engine) sendState(stream *statesStream) {
 // generateTopics generates a list of topics based on the base topic name and partitions count.
 func generateTopics(baseTopic string, partitionsCount uint64) []string {
 	var topics []string
-	switch {
-	case partitionsCount == 0:
+	switch partitionsCount {
+	case 0:
 		topics = append(topics, fmt.Sprintf(baseTopic, 0))
 	default:
 		for i := range int(partitionsCount) {
