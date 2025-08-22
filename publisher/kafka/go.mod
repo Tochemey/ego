@@ -8,7 +8,7 @@ require (
 	github.com/IBM/sarama v1.45.2
 	github.com/tochemey/ego/v3 v3.5.1
 	go.uber.org/atomic v1.11.0
-	google.golang.org/protobuf v1.36.7
+	google.golang.org/protobuf v1.36.8
 )
 
 require (
