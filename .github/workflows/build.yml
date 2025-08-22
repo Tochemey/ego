@@ -43,7 +43,11 @@ jobs:
       - name: Run tests
         shell: bash
         run: |
-          go test -mod=vendor -p 1 -timeout 0 -race -v -coverprofile=coverage.out -covermode=atomic -coverpkg=./... $(go list -mod=vendor ./... | grep -v -E "(egopb|test|example|mocks)")
+          PKGS=$(go list -mod=vendor ./... | grep -v -E "(egopb|test|example|mocks)")
+          go test -mod=vendor -p 1 -timeout 0 -race -v \
+            -coverprofile=coverage.out -covermode=atomic \
+            -coverpkg=$(echo $PKGS | tr ' ' ',') \
+            $PKGS
       - uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
