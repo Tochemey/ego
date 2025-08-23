@@ -40,7 +40,6 @@ import (
 	"github.com/tochemey/goakt/v3/remote"
 	gtls "github.com/tochemey/goakt/v3/tls"
 	"go.uber.org/atomic"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/eventstream"
@@ -189,7 +188,7 @@ func (engine *Engine) Start(ctx context.Context) error {
 
 	if engine.clusterEnabled.Load() {
 		if engine.bindAddr == "" {
-			engine.bindAddr, _ = os.Hostname()
+			engine.bindAddr = "0.0.0.0"
 		}
 
 		replicaCount := 1
@@ -550,23 +549,7 @@ func (engine *Engine) SendCommand(ctx context.Context, entityID string, cmd Comm
 	actorSystem := engine.actorSystem
 	engine.mutex.Unlock()
 
-	// locate the given actor
-	addr, pid, err := actorSystem.ActorOf(ctx, entityID)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	var reply proto.Message
-	switch {
-	case pid != nil:
-		reply, err = goakt.Ask(ctx, pid, cmd, timeout)
-	case addr != nil:
-		res, rerr := engine.remoting.RemoteAsk(ctx, address.NoSender(), addr, cmd, timeout)
-		if rerr == nil {
-			reply, err = res.UnmarshalNew()
-		}
-	}
-
+	reply, err := actorSystem.NoSender().SendSync(ctx, entityID, cmd, timeout)
 	if err != nil {
 		return nil, 0, err
 	}

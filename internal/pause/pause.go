@@ -22,14 +22,14 @@
  * SOFTWARE.
  */
 
-package lib
+package pause
 
 import (
 	"time"
 )
 
-// Pause pauses the running process for some time period
-func Pause(duration time.Duration) {
+// For pauses the running process for some time period
+func For(duration time.Duration) {
 	stopCh := make(chan struct{}, 1)
 	timer := time.AfterFunc(duration, func() {
 		stopCh <- struct{}{}

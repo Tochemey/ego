@@ -41,9 +41,9 @@ import (
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/eventstream"
 	"github.com/tochemey/ego/v3/internal/extensions"
-	"github.com/tochemey/ego/v3/internal/lib"
+	"github.com/tochemey/ego/v3/internal/pause"
 	mocks "github.com/tochemey/ego/v3/mocks/persistence"
-	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
+	testpb "github.com/tochemey/ego/v3/test/data/testpb"
 	"github.com/tochemey/ego/v3/testkit"
 )
 
@@ -76,13 +76,13 @@ func TestDurableStateBehavior(t *testing.T) {
 		err = actorSystem.Start(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		actor := newDurableStateActor()
 		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior), goakt.WithLongLived())
 		require.NotNil(t, pid)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		var command proto.Message
 
@@ -144,7 +144,7 @@ func TestDurableStateBehavior(t *testing.T) {
 		err = durableStore.Disconnect(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 		eventStream.Close()
 	})
 	t.Run("with error reply", func(t *testing.T) {
@@ -159,7 +159,7 @@ func TestDurableStateBehavior(t *testing.T) {
 		err := durableStore.Connect(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// create an instance of events stream
 		eventStream := eventstream.New()
@@ -179,7 +179,7 @@ func TestDurableStateBehavior(t *testing.T) {
 		err = actorSystem.Start(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// create the persistence actor using the behavior previously created
 		persistentActor := newDurableStateActor()
@@ -187,7 +187,7 @@ func TestDurableStateBehavior(t *testing.T) {
 		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), persistentActor, goakt.WithDependencies(behavior), goakt.WithLongLived())
 		require.NotNil(t, pid)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		var command proto.Message
 
@@ -237,7 +237,7 @@ func TestDurableStateBehavior(t *testing.T) {
 		err = durableStore.Disconnect(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 		eventStream.Close()
 	})
 	t.Run("with state recovery from state store", func(t *testing.T) {
@@ -246,7 +246,7 @@ func TestDurableStateBehavior(t *testing.T) {
 		durableStore := testkit.NewDurableStore()
 		require.NoError(t, durableStore.Connect(ctx))
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		persistenceID := uuid.NewString()
 		behavior := NewAccountDurableStateBehavior(persistenceID)
@@ -254,7 +254,7 @@ func TestDurableStateBehavior(t *testing.T) {
 		err := durableStore.Connect(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		eventStream := eventstream.New()
 
@@ -273,14 +273,14 @@ func TestDurableStateBehavior(t *testing.T) {
 		err = actorSystem.Start(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		persistentActor := newDurableStateActor()
 		pid, err := actorSystem.Spawn(ctx, behavior.ID(), persistentActor, goakt.WithDependencies(behavior), goakt.WithLongLived())
 		require.NoError(t, err)
 		require.NotNil(t, pid)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		var command proto.Message
 
@@ -336,13 +336,13 @@ func TestDurableStateBehavior(t *testing.T) {
 
 		assert.True(t, proto.Equal(expected, resultingState))
 		// wait a while
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// restart the actor
 		pid, err = actorSystem.ReSpawn(ctx, behavior.ID())
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// fetch the current state
 		command = &egopb.GetStateCommand{}
@@ -366,7 +366,7 @@ func TestDurableStateBehavior(t *testing.T) {
 		err = actorSystem.Stop(ctx)
 		assert.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// free resources
 		assert.NoError(t, durableStore.Disconnect(ctx))
@@ -374,7 +374,7 @@ func TestDurableStateBehavior(t *testing.T) {
 	})
 	t.Run("with state recovery from state store failure", func(t *testing.T) {
 		ctx := context.TODO()
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		persistenceID := uuid.NewString()
 		behavior := NewAccountDurableStateBehavior(persistenceID)
@@ -400,19 +400,19 @@ func TestDurableStateBehavior(t *testing.T) {
 		err = actorSystem.Start(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		persistentActor := newDurableStateActor()
 		pid, err := actorSystem.Spawn(ctx, behavior.ID(), persistentActor, goakt.WithDependencies(behavior), goakt.WithLongLived())
 		require.Error(t, err)
 		require.Nil(t, pid)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		err = actorSystem.Stop(ctx)
 		assert.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 		eventStream.Close()
 		durableStore.AssertExpectations(t)
 	})
@@ -449,19 +449,19 @@ func TestDurableStateBehavior(t *testing.T) {
 		err = actorSystem.Start(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		persistentActor := newDurableStateActor()
 		pid, err := actorSystem.Spawn(ctx, behavior.ID(), persistentActor, goakt.WithDependencies(behavior), goakt.WithLongLived())
 		require.Error(t, err)
 		require.Nil(t, pid)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		err = actorSystem.Stop(ctx)
 		assert.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		eventStream.Close()
 		durableStore.AssertExpectations(t)

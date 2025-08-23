@@ -40,11 +40,11 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/tochemey/ego/v3/egopb"
-	"github.com/tochemey/ego/v3/internal/lib"
+	"github.com/tochemey/ego/v3/internal/pause"
 	mocksoffsetstore "github.com/tochemey/ego/v3/mocks/offsetstore"
 	mockseventstore "github.com/tochemey/ego/v3/mocks/persistence"
 	"github.com/tochemey/ego/v3/projection"
-	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
+	testpb "github.com/tochemey/ego/v3/test/data/testpb"
 	testkit2 "github.com/tochemey/ego/v3/testkit"
 )
 
@@ -107,7 +107,7 @@ func TestRunner(t *testing.T) {
 		require.True(t, runner.running.Load())
 
 		// wait for the data to be persisted by the database since this an eventual consistency case
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// create the projection id
 		projectionID := &egopb.ProjectionId{
@@ -178,7 +178,7 @@ func TestRunner(t *testing.T) {
 		require.True(t, runner.running.Load())
 
 		// wait for the data to be persisted by the database since this an eventual consistency case
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// here due to the default recovery strategy the projection is stopped
 		require.False(t, runner.running.Load())
@@ -244,7 +244,7 @@ func TestRunner(t *testing.T) {
 		require.True(t, runner.running.Load())
 
 		// wait for the data to be persisted by the database since this an eventual consistency case
-		lib.Pause(1 * time.Second)
+		pause.For(1 * time.Second)
 
 		// let us grab the current offset
 		require.False(t, runner.running.Load())
@@ -311,7 +311,7 @@ func TestRunner(t *testing.T) {
 		require.True(t, runner.running.Load())
 
 		// wait for the data to be persisted by the database since this an eventual consistency case
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		projectionID := &egopb.ProjectionId{
 			ProjectionName: projectionName,
@@ -386,7 +386,7 @@ func TestRunner(t *testing.T) {
 		require.True(t, runner.running.Load())
 
 		// wait for the data to be persisted by the database since this an eventual consistency case
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		projectionID := &egopb.ProjectionId{
 			ProjectionName: projectionName,
@@ -460,7 +460,7 @@ func TestRunner(t *testing.T) {
 		err := runner.Start(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		require.NoError(t, runner.Start(ctx))
 
@@ -605,7 +605,7 @@ func TestRunner(t *testing.T) {
 		// run the projection
 		runner.Run(ctx)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		eventsStore.AssertExpectations(t)
 		offsetStore.AssertExpectations(t)
@@ -642,7 +642,7 @@ func TestRunner(t *testing.T) {
 		// run the projection
 		runner.Run(ctx)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		eventsStore.AssertExpectations(t)
 		offsetStore.AssertExpectations(t)
@@ -688,7 +688,7 @@ func TestRunner(t *testing.T) {
 		// run the projection
 		runner.Run(ctx)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		eventsStore.AssertExpectations(t)
 		offsetStore.AssertExpectations(t)
@@ -743,7 +743,7 @@ func TestRunner(t *testing.T) {
 		// run the projection
 		runner.Run(ctx)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		eventsStore.AssertExpectations(t)
 		offsetStore.AssertExpectations(t)
@@ -816,7 +816,7 @@ func TestRunner(t *testing.T) {
 		// run the projection
 		runner.Run(ctx)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		eventsStore.AssertExpectations(t)
 		offsetStore.AssertExpectations(t)

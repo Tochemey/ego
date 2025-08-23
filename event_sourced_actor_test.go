@@ -42,9 +42,9 @@ import (
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/eventstream"
 	"github.com/tochemey/ego/v3/internal/extensions"
-	"github.com/tochemey/ego/v3/internal/lib"
+	"github.com/tochemey/ego/v3/internal/pause"
 	mocks "github.com/tochemey/ego/v3/mocks/persistence"
-	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
+	testpb "github.com/tochemey/ego/v3/test/data/testpb"
 	"github.com/tochemey/ego/v3/testkit"
 )
 
@@ -63,7 +63,7 @@ func TestEventSourcedActor(t *testing.T) {
 		err := eventStore.Connect(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// create an instance of events stream
 		eventStream := eventstream.New()
@@ -83,7 +83,7 @@ func TestEventSourcedActor(t *testing.T) {
 		err = actorSystem.Start(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// create the persistence actor using the behavior previously created
 		actor := newEventSourcedActor()
@@ -91,7 +91,7 @@ func TestEventSourcedActor(t *testing.T) {
 		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior), goakt.WithLongLived())
 		require.NotNil(t, pid)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		var command proto.Message
 
@@ -150,7 +150,7 @@ func TestEventSourcedActor(t *testing.T) {
 		err = eventStore.Disconnect(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// close the stream
 		eventStream.Close()
@@ -172,7 +172,7 @@ func TestEventSourcedActor(t *testing.T) {
 		err := eventStore.Connect(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// create an instance of events stream
 		eventStream := eventstream.New()
@@ -192,7 +192,7 @@ func TestEventSourcedActor(t *testing.T) {
 		err = actorSystem.Start(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// create the persistence actor using the behavior previously created
 		persistentActor := newEventSourcedActor()
@@ -200,7 +200,7 @@ func TestEventSourcedActor(t *testing.T) {
 		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), persistentActor, goakt.WithDependencies(behavior), goakt.WithLongLived())
 		require.NotNil(t, pid)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		var command proto.Message
 
@@ -249,7 +249,7 @@ func TestEventSourcedActor(t *testing.T) {
 		// close the stream
 		eventStream.Close()
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// stop the actor system
 		err = actorSystem.Stop(ctx)
@@ -287,7 +287,7 @@ func TestEventSourcedActor(t *testing.T) {
 		err = actorSystem.Start(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// create the persistence actor using the behavior previously created
 		persistentActor := newEventSourcedActor()
@@ -295,7 +295,7 @@ func TestEventSourcedActor(t *testing.T) {
 		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), persistentActor, goakt.WithDependencies(behavior), goakt.WithLongLived())
 		require.NotNil(t, pid)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		command := &testpb.TestSend{}
 		// send the command to the actor
@@ -325,7 +325,7 @@ func TestEventSourcedActor(t *testing.T) {
 		eventStore := testkit.NewEventsStore()
 		require.NoError(t, eventStore.Connect(ctx))
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// create a persistence id
 		persistenceID := uuid.NewString()
@@ -336,7 +336,7 @@ func TestEventSourcedActor(t *testing.T) {
 		err := eventStore.Connect(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// create an instance of event stream
 		eventStream := eventstream.New()
@@ -356,7 +356,7 @@ func TestEventSourcedActor(t *testing.T) {
 		err = actorSystem.Start(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// create the persistence actor using the behavior previously created
 		persistentActor := newEventSourcedActor()
@@ -365,7 +365,7 @@ func TestEventSourcedActor(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, pid)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		var command proto.Message
 
@@ -421,13 +421,13 @@ func TestEventSourcedActor(t *testing.T) {
 
 		assert.True(t, proto.Equal(expected, resultingState))
 		// wait a while
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// restart the actor
 		pid, err = actorSystem.ReSpawn(ctx, behavior.ID())
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// fetch the current state
 		command = &egopb.GetStateCommand{}
@@ -453,7 +453,7 @@ func TestEventSourcedActor(t *testing.T) {
 		// close the stream
 		eventStream.Close()
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		err = actorSystem.Stop(ctx)
 		assert.NoError(t, err)
@@ -472,7 +472,7 @@ func TestEventSourcedActor(t *testing.T) {
 		err := eventStore.Connect(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// create an instance of event stream
 		eventStream := eventstream.New()
@@ -492,7 +492,7 @@ func TestEventSourcedActor(t *testing.T) {
 		err = actorSystem.Start(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// create the persistence actor using the behavior previously created
 		actor := newEventSourcedActor()
@@ -500,7 +500,7 @@ func TestEventSourcedActor(t *testing.T) {
 		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior), goakt.WithLongLived())
 		require.NotNil(t, pid)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		var command proto.Message
 
@@ -583,7 +583,7 @@ func TestEventSourcedActor(t *testing.T) {
 		// close the stream
 		eventStream.Close()
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// stop the actor system
 		err = actorSystem.Stop(ctx)
@@ -603,7 +603,7 @@ func TestEventSourcedActor(t *testing.T) {
 		err := eventStore.Connect(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// create an instance of events stream
 		eventStream := eventstream.New()
@@ -623,7 +623,7 @@ func TestEventSourcedActor(t *testing.T) {
 		err = actorSystem.Start(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// create the persistence actor using the behavior previously created
 		actor := newEventSourcedActor()
@@ -631,7 +631,7 @@ func TestEventSourcedActor(t *testing.T) {
 		pid, _ := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior), goakt.WithLongLived())
 		require.NotNil(t, pid)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// send the command to the actor
 		reply, err := goakt.Ask(ctx, pid, &testpb.CreateAccount{AccountBalance: 500.00}, 5*time.Second)
@@ -670,7 +670,7 @@ func TestEventSourcedActor(t *testing.T) {
 		// disconnect from the event store
 		require.NoError(t, eventStore.Disconnect(ctx))
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// close the stream
 		eventStream.Close()
@@ -707,7 +707,7 @@ func TestEventSourcedActor(t *testing.T) {
 		err = actorSystem.Start(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// create the persistence actor using the behavior previously created
 		actor := newEventSourcedActor()
@@ -752,7 +752,7 @@ func TestEventSourcedActor(t *testing.T) {
 		err = actorSystem.Start(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// create the persistence actor using the behavior previously created
 		actor := newEventSourcedActor()
@@ -804,7 +804,7 @@ func TestEventSourcedActor(t *testing.T) {
 		err = actorSystem.Start(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// create the persistence actor using the behavior previously created
 		actor := newEventSourcedActor()

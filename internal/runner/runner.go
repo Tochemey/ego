@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-package errorschain
+package runner
 
 import "go.uber.org/multierr"
 
@@ -69,8 +69,8 @@ func (c *Chain) AddError(err error) *Chain {
 	return c
 }
 
-// AddErrorFn add an error to the chain
-func (c *Chain) AddErrorFn(fn func() error) *Chain {
+// AddFunc add an error to the chain
+func (c *Chain) AddFunc(fn func() error) *Chain {
 	if c.returnFirst {
 		if len(c.errs) == 0 {
 			if err := fn(); err != nil {
@@ -89,10 +89,10 @@ func (c *Chain) AddErrorFn(fn func() error) *Chain {
 	return c
 }
 
-// AddErrorFns add a slice of error functions to the chain. Remember the slice order does matter here
-func (c *Chain) AddErrorFns(fn ...func() error) *Chain {
+// AddFuncs add a slice of error functions to the chain. Remember the slice order does matter here
+func (c *Chain) AddFuncs(fn ...func() error) *Chain {
 	for _, f := range fn {
-		c = c.AddErrorFn(f)
+		c = c.AddFunc(f)
 	}
 	return c
 }

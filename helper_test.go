@@ -31,7 +31,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
+	testpb "github.com/tochemey/ego/v3/test/data/testpb"
 )
 
 // AccountEventSourcedBehavior implements EventSourcedBehavior

@@ -39,8 +39,8 @@ import (
 
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/eventstream"
-	"github.com/tochemey/ego/v3/internal/errorschain"
 	"github.com/tochemey/ego/v3/internal/extensions"
+	"github.com/tochemey/ego/v3/internal/runner"
 	"github.com/tochemey/ego/v3/persistence"
 )
 
@@ -83,17 +83,17 @@ func (entity *DurableStateActor) PreStart(ctx *goakt.Context) error {
 		}
 	}
 
-	return errorschain.
-		New(errorschain.ReturnFirst()).
-		AddErrorFn(entity.durableStateRequired).
-		AddErrorFn(func() error {
+	return runner.
+		New(runner.ReturnFirst()).
+		AddFunc(entity.durableStateRequired).
+		AddFunc(func() error {
 			if entity.behavior == nil {
 				return fmt.Errorf("behavior is required")
 			}
 			return nil
 		}).
-		AddErrorFn(func() error { return entity.stateStore.Ping(ctx.Context()) }).
-		AddErrorFn(func() error { return entity.recoverFromStore(ctx.Context()) }).
+		AddFunc(func() error { return entity.stateStore.Ping(ctx.Context()) }).
+		AddFunc(func() error { return entity.recoverFromStore(ctx.Context()) }).
 		Error()
 }
 
@@ -111,10 +111,10 @@ func (entity *DurableStateActor) Receive(ctx *goakt.ReceiveContext) {
 
 // PostStop prepares the actor to gracefully shutdown
 func (entity *DurableStateActor) PostStop(ctx *goakt.Context) error {
-	return errorschain.
-		New(errorschain.ReturnFirst()).
-		AddErrorFn(func() error { return entity.stateStore.Ping(ctx.Context()) }).
-		AddErrorFn(func() error { return entity.persistStateAndPublish(ctx.Context()) }).
+	return runner.
+		New(runner.ReturnFirst()).
+		AddFunc(func() error { return entity.stateStore.Ping(ctx.Context()) }).
+		AddFunc(func() error { return entity.persistStateAndPublish(ctx.Context()) }).
 		Error()
 }
 

@@ -8,7 +8,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/kapetan-io/tackle v0.12.0
 	github.com/stretchr/testify v1.10.0
-	github.com/tochemey/goakt/v3 v3.9.0
+	github.com/tochemey/goakt/v3 v3.9.1-0.20250822225626-8ba09cb3ee7a
 	github.com/travisjeffery/go-dynaport v1.0.0
 	go.uber.org/atomic v1.11.0
 	go.uber.org/multierr v1.11.0
@@ -18,7 +18,6 @@ require (
 
 require (
 	connectrpc.com/connect v1.18.1 // indirect
-	connectrpc.com/grpchealth v1.4.0 // indirect
 	github.com/RoaringBitmap/roaring v1.9.4 // indirect
 	github.com/Workiva/go-datastructures v1.1.5 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect

@@ -54,7 +54,7 @@ The version format is as follows:
   changes.
 - The `PATCH` part of the version will cater for dependency upgrades, bug fixes, security patches, and co.
 
-The versioning will remain like `v3.x.x` until further notice. The current version is **`v3.5.0`**
+The versioning will remain like `v3.x.x` until further notice. The current version is **`v3.5.2`**
 
 ## 📦 Binaries and Minimum Go Versions
 

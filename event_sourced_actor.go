@@ -37,8 +37,8 @@ import (
 
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/eventstream"
-	"github.com/tochemey/ego/v3/internal/errorschain"
 	"github.com/tochemey/ego/v3/internal/extensions"
+	"github.com/tochemey/ego/v3/internal/runner"
 	"github.com/tochemey/ego/v3/persistence"
 )
 
@@ -80,16 +80,16 @@ func (entity *EventSourcedActor) PreStart(ctx *goakt.Context) error {
 		}
 	}
 
-	return errorschain.
-		New(errorschain.ReturnFirst()).
-		AddErrorFn(func() error {
+	return runner.
+		New(runner.ReturnFirst()).
+		AddFunc(func() error {
 			if entity.behavior == nil {
 				return fmt.Errorf("behavior is required")
 			}
 			return nil
 		}).
-		AddErrorFn(func() error { return entity.eventsStore.Ping(ctx.Context()) }).
-		AddErrorFn(func() error { return entity.recoverFromSnapshot(ctx.Context()) }).
+		AddFunc(func() error { return entity.eventsStore.Ping(ctx.Context()) }).
+		AddFunc(func() error { return entity.recoverFromSnapshot(ctx.Context()) }).
 		Error()
 }
 

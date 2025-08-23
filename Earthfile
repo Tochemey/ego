@@ -32,46 +32,19 @@ RUN go install github.com/vektra/mockery/v2@v2.53.2
 protogen:
     # copy the proto files to generate
     COPY --dir protos/ ./
-    COPY buf.work.yaml buf.gen.yaml ./
+    COPY buf.yaml buf.gen.yaml ./
 
     # generate the pbs
     RUN buf generate \
             --template buf.gen.yaml \
-            --path protos/ego
+            --path protos/ego \
+            --path protos/test \
+            --path protos/sample
 
     # save artifact to
-    SAVE ARTIFACT gen/ego/v3 AS LOCAL egopb
-
-testprotogen:
-    # copy the proto files to generate
-    COPY --dir protos/ ./
-    COPY buf.work.yaml buf.gen.yaml ./
-
-    # generate the pbs
-    RUN buf generate \
-            --template buf.gen.yaml \
-            --path protos/test/pb
-
-    # save artifact to
-    SAVE ARTIFACT gen/test AS LOCAL test/data
-
-sample-pb:
-    # copy the proto files to generate
-    COPY --dir protos/ ./
-    COPY buf.work.yaml buf.gen.yaml ./
-
-    # generate the pbs
-    RUN buf generate \
-            --template buf.gen.yaml \
-            --path protos/sample/pb
-
-    # save artifact to
-    SAVE ARTIFACT gen gen AS LOCAL example/pbs
-
-pbs:
-    BUILD +protogen
-    BUILD +testprotogen
-    BUILD +sample-pb
+    SAVE ARTIFACT gen/ego AS LOCAL egopb
+    SAVE ARTIFACT gen/test AS LOCAL test/data/testpb
+    SAVE ARTIFACT gen/sample AS LOCAL example/examplepb
 
 test:
   BUILD +lint
@@ -106,7 +79,11 @@ lint:
 local-test:
     FROM +vendor
 
-    RUN go-acc ./... -o coverage.out --ignore egopb,test,example,mocks -- -mod=vendor -timeout 0 -race -v -p 1
+    RUN PKGS=$(go list -mod=vendor ./... | grep -v -E "(egopb|test|example|mocks)") && \
+         go test -mod=vendor -p 1 -timeout 0 -race -v \
+            -coverprofile=coverage.out -covermode=atomic \
+            -coverpkg=$(echo $PKGS | tr ' ' ',') \
+            $PKGS
 
     SAVE ARTIFACT coverage.out AS LOCAL coverage.out
 

@@ -47,11 +47,11 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/tochemey/ego/v3/egopb"
-	samplepb "github.com/tochemey/ego/v3/example/pbs/sample/pb/v1"
-	"github.com/tochemey/ego/v3/internal/lib"
+	samplepb "github.com/tochemey/ego/v3/example/examplepb"
+	"github.com/tochemey/ego/v3/internal/pause"
 	egomock "github.com/tochemey/ego/v3/mocks/ego"
 	"github.com/tochemey/ego/v3/projection"
-	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
+	testpb "github.com/tochemey/ego/v3/test/data/testpb"
 	testkit "github.com/tochemey/ego/v3/testkit"
 )
 
@@ -111,13 +111,13 @@ func TestEngine(t *testing.T) {
 		err := engine.Start(ctx)
 
 		// wait for the cluster to fully start
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// add projection
 		err = engine.AddProjection(ctx, "discard")
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		running, err := engine.IsProjectionRunning(ctx, "discard")
 		require.NoError(t, err)
@@ -145,7 +145,7 @@ func TestEngine(t *testing.T) {
 		}
 
 		// wait for the cluster to fully start
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// send the command to the actor. Please don't ignore the error in production grid code
 		resultingState, revision, err := engine.SendCommand(ctx, entityID, command, time.Minute)
@@ -214,7 +214,7 @@ func TestEngine(t *testing.T) {
 		err := engine.Start(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// add the events publisher before start processing events
 		err = engine.AddEventPublishers(publisher)
@@ -261,7 +261,7 @@ func TestEngine(t *testing.T) {
 		// free resources
 		require.NoError(t, eventStore.Disconnect(ctx))
 		require.NoError(t, engine.Stop(ctx))
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 		publisher.AssertExpectations(t)
 	})
 	t.Run("EventSourced entity With SendCommand when not started", func(t *testing.T) {
@@ -366,7 +366,7 @@ func TestEngine(t *testing.T) {
 		err = engine.AddProjection(ctx, projectionName)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		running, err := engine.IsProjectionRunning(ctx, projectionName)
 		require.NoError(t, err)
@@ -375,7 +375,7 @@ func TestEngine(t *testing.T) {
 		err = engine.RemoveProjection(ctx, projectionName)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		running, err = engine.IsProjectionRunning(ctx, projectionName)
 		require.Error(t, err)
@@ -437,7 +437,7 @@ func TestEngine(t *testing.T) {
 		err := engine.Start(ctx)
 
 		// wait for the cluster to fully start
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// subscribe to durable state
 		subscriber, err := engine.Subscribe()
@@ -458,7 +458,7 @@ func TestEngine(t *testing.T) {
 		}
 
 		// wait for the cluster to fully start
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// send the command to the actor. Please don't ignore the error in production grid code
 		resultingState, revision, err := engine.SendCommand(ctx, entityID, command, time.Minute)
@@ -493,7 +493,7 @@ func TestEngine(t *testing.T) {
 
 		// free resources
 		require.NoError(t, engine.Stop(ctx))
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 		require.NoError(t, stateStore.Disconnect(ctx))
 		provider.AssertExpectations(t)
 	})
@@ -510,7 +510,7 @@ func TestEngine(t *testing.T) {
 		err := engine.Start(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// subscribe to durable state
 		subscriber, err := engine.Subscribe()
@@ -559,7 +559,7 @@ func TestEngine(t *testing.T) {
 		}
 
 		assert.NoError(t, engine.Stop(ctx))
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 		assert.NoError(t, stateStore.Disconnect(ctx))
 	})
 	t.Run("DurableStore entity With SendCommand when not started", func(t *testing.T) {
@@ -689,7 +689,7 @@ func TestEngine(t *testing.T) {
 		err := engine.Start(ctx)
 
 		// wait for the cluster to fully start
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// add the events publisher before start processing events
 		err = engine.AddEventPublishers(publisher)
@@ -699,7 +699,7 @@ func TestEngine(t *testing.T) {
 		err = engine.AddProjection(ctx, "discard")
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		running, err := engine.IsProjectionRunning(ctx, "discard")
 		require.NoError(t, err)
@@ -727,7 +727,7 @@ func TestEngine(t *testing.T) {
 		}
 
 		// wait for the cluster to fully start
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// send the command to the actor. Please don't ignore the error in production grid code
 		resultingState, revision, err := engine.SendCommand(ctx, entityID, command, time.Minute)
@@ -771,7 +771,7 @@ func TestEngine(t *testing.T) {
 		require.NoError(t, eventStore.Disconnect(ctx))
 		require.NoError(t, offsetStore.Disconnect(ctx))
 		require.NoError(t, engine.Stop(ctx))
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		publisher.AssertExpectations(t)
 		provider.AssertExpectations(t)
@@ -800,7 +800,7 @@ func TestEngine(t *testing.T) {
 		require.NoError(t, err)
 
 		// wait for complete start
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// add the state publisher before start processing durable state
 		err = engine.AddStatePublishers(publisher)
@@ -842,7 +842,7 @@ func TestEngine(t *testing.T) {
 
 		require.NoError(t, engine.Stop(ctx))
 		assert.NoError(t, stateStore.Disconnect(ctx))
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 		publisher.AssertExpectations(t)
 	})
 	t.Run("With DurableState Publisher with cluster enabled", func(t *testing.T) {
@@ -891,7 +891,7 @@ func TestEngine(t *testing.T) {
 		err := engine.Start(ctx)
 
 		// wait for the cluster to fully start
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// add the state publisher before start processing durable state
 		err = engine.AddStatePublishers(publisher)
@@ -916,7 +916,7 @@ func TestEngine(t *testing.T) {
 		}
 
 		// wait for the cluster to fully start
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// send the command to the actor. Please don't ignore the error in production grid code
 		resultingState, revision, err := engine.SendCommand(ctx, entityID, command, time.Minute)
@@ -951,7 +951,7 @@ func TestEngine(t *testing.T) {
 
 		// free resources
 		require.NoError(t, engine.Stop(ctx))
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 		require.NoError(t, stateStore.Disconnect(ctx))
 		publisher.AssertExpectations(t)
 		provider.AssertExpectations(t)
@@ -1008,14 +1008,14 @@ func TestEngine(t *testing.T) {
 		require.NoError(t, err)
 
 		// wait for complete start
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// add the state publisher before start processing durable state
 		err = engine.AddEventPublishers(publisher)
 		require.NoError(t, err)
 		require.ErrorIs(t, engine.Stop(ctx), closeErr)
 		assert.NoError(t, stateStore.Disconnect(ctx))
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 		publisher.AssertExpectations(t)
 	})
 	t.Run("With Engine Stop failure when DurableState Publisher close fails", func(t *testing.T) {
@@ -1038,14 +1038,14 @@ func TestEngine(t *testing.T) {
 		require.NoError(t, err)
 
 		// wait for complete start
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// add the state publisher before start processing durable state
 		err = engine.AddStatePublishers(publisher)
 		require.NoError(t, err)
 		require.ErrorIs(t, engine.Stop(ctx), closeErr)
 		assert.NoError(t, stateStore.Disconnect(ctx))
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 		publisher.AssertExpectations(t)
 	})
 	t.Run("With AddProjection when engine not started", func(t *testing.T) {
@@ -1089,7 +1089,7 @@ func TestEngine(t *testing.T) {
 		err := engine.Start(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// add projection
 		projectionName := strings.Repeat("a", 256)

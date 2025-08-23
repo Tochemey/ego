@@ -22,7 +22,7 @@
  * SOFTWARE.
  */
 
-package errorschain
+package runner
 
 import (
 	"errors"
@@ -60,9 +60,9 @@ func TestErrorsChain(t *testing.T) {
 		fn3 := func() error { calledFn3 = true; return errors.New("err3") }
 
 		chain := New(ReturnFirst()).
-			AddErrorFn(fn1).
-			AddErrorFn(fn2).
-			AddErrorFn(fn3)
+			AddFunc(fn1).
+			AddFunc(fn2).
+			AddFunc(fn3)
 		actual := chain.Error()
 
 		require.EqualError(t, actual, "err1")
@@ -82,7 +82,7 @@ func TestErrorsChain(t *testing.T) {
 		fn2 := func() error { calledFn2 = true; return errors.New("err2") }
 		fn3 := func() error { calledFn3 = true; return errors.New("err3") }
 
-		chain := New(ReturnFirst()).AddErrorFns(fn1, fn2, fn3)
+		chain := New(ReturnFirst()).AddFuncs(fn1, fn2, fn3)
 		actual := chain.Error()
 
 		require.EqualError(t, actual, "err1")
@@ -103,9 +103,9 @@ func TestErrorsChain(t *testing.T) {
 		fn3 := func() error { calledFn3 = true; return nil }
 
 		chain := New(ReturnAll()).
-			AddErrorFn(fn1).
-			AddErrorFn(fn2).
-			AddErrorFn(fn3)
+			AddFunc(fn1).
+			AddFunc(fn2).
+			AddFunc(fn3)
 		actual := chain.Error()
 
 		require.EqualError(t, actual, "err1; err2")

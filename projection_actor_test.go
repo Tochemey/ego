@@ -39,9 +39,9 @@ import (
 
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/internal/extensions"
-	"github.com/tochemey/ego/v3/internal/lib"
+	"github.com/tochemey/ego/v3/internal/pause"
 	"github.com/tochemey/ego/v3/projection"
-	testpb "github.com/tochemey/ego/v3/test/data/pb/v3"
+	testpb "github.com/tochemey/ego/v3/test/data/testpb"
 	"github.com/tochemey/ego/v3/testkit"
 )
 
@@ -82,7 +82,7 @@ func TestProjection(t *testing.T) {
 		err = actorSystem.Start(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// create the actor
 		actor := NewProjectionActor()
@@ -91,7 +91,7 @@ func TestProjection(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, pid)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// persist some events
 		state, err := anypb.New(new(testpb.Account))
@@ -118,7 +118,7 @@ func TestProjection(t *testing.T) {
 		require.NoError(t, journalStore.WriteEvents(ctx, journals))
 
 		// wait for the data to be persisted by the database since this an eventual consistency case
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// create the projection id
 		projectionID := &egopb.ProjectionId{
@@ -171,7 +171,7 @@ func TestProjection(t *testing.T) {
 		err = actorSystem.Start(ctx)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		// create the actor
 		actor := NewProjectionActor()
@@ -180,14 +180,14 @@ func TestProjection(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, pid)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 
 		message := &testpb.CreateAccount{}
 		// send a message to the actor
 		err = goakt.Tell(ctx, pid, message)
 		require.NoError(t, err)
 
-		lib.Pause(time.Second)
+		pause.For(time.Second)
 		metric := pid.Metric(ctx)
 		require.EqualValues(t, 1, metric.DeadlettersCount())
 
