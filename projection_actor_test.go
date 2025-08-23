@@ -118,7 +118,7 @@ func TestProjection(t *testing.T) {
 		require.NoError(t, journalStore.WriteEvents(ctx, journals))
 
 		// wait for the data to be persisted by the database since this an eventual consistency case
-		pause.For(time.Second)
+		pause.For(2 * time.Second)
 
 		// create the projection id
 		projectionID := &egopb.ProjectionId{
