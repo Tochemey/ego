@@ -2,7 +2,7 @@ module github.com/tochemey/ego/v3/publisher/websocket
 
 go 1.24.0
 
-toolchain go1.24.6
+toolchain go1.25.0
 
 require (
 	github.com/gorilla/websocket v1.5.3
