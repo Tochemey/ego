@@ -15,7 +15,7 @@ require (
 require (
 	github.com/flowchartsman/retry v1.2.0
 	go.uber.org/atomic v1.11.0
-	google.golang.org/protobuf v1.36.6
+	google.golang.org/protobuf v1.36.8
 )
 
 require (
