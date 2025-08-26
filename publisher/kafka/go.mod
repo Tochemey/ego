@@ -5,7 +5,7 @@ go 1.24.0
 toolchain go1.24.6
 
 require (
-	github.com/IBM/sarama v1.45.2
+	github.com/IBM/sarama v1.46.0
 	github.com/tochemey/ego/v3 v3.5.2
 	go.uber.org/atomic v1.11.0
 	google.golang.org/protobuf v1.36.8
