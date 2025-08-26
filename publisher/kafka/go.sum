@@ -322,6 +322,8 @@ github.com/tochemey/goakt/v3 v3.8.2 h1:knHxvwCj0jgcaLdGBWbiU9FXPoAajr099ICNBw8qB
 github.com/tochemey/goakt/v3 v3.8.2/go.mod h1:DjCHiVwSKvdu2pJBPUJ01sZQCZgrMQlzACO5r2f24zc=
 github.com/tochemey/goakt/v3 v3.9.1-0.20250822225626-8ba09cb3ee7a h1:KocMSZWcHsbQw6AiC11oPgkqq7XbGsvqyM8VfB8Xt4Q=
 github.com/tochemey/goakt/v3 v3.9.1-0.20250822225626-8ba09cb3ee7a/go.mod h1:oWO9W7Yleg6H/kAOZpycrHlCmaJO8tH9OhFqMX7yTf4=
+github.com/tochemey/goakt/v3 v3.9.1 h1:AZXwrLx10N0iDTGrITFz/7Z5qNKpnLdXsXZUrPJqZGQ=
+github.com/tochemey/goakt/v3 v3.9.1/go.mod h1:oWO9W7Yleg6H/kAOZpycrHlCmaJO8tH9OhFqMX7yTf4=
 github.com/tochemey/olric v0.2.3 h1:LGmsHLQBSEs3uasZNLT5MdS2pBMNJ71gSrXnYfkb62M=
 github.com/tochemey/olric v0.2.3/go.mod h1:BAD82xys8R8IAWFV+GC0B8I+J4QsYZvmPS5NT/dhmtI=
 github.com/tochemey/olric v0.3.0 h1:zLGehTjhWMBMSZkTGBCdlE3EKCSkk2/46ZjZrlkNUOk=
