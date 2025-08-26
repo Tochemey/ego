@@ -46,6 +46,8 @@ github.com/dgraph-io/badger/v4 v4.8.0 h1:JYph1ChBijCw8SLeybvPINizbDKWZ5n/GYbz2yh
 github.com/dgraph-io/badger/v4 v4.8.0/go.mod h1:U6on6e8k/RTbUWxqKR0MvugJuVmkxSNc79ap4917h4w=
 github.com/dgraph-io/ristretto/v2 v2.2.0 h1:bkY3XzJcXoMuELV8F+vS8kzNgicwQFAaGINAEJdWGOM=
 github.com/dgraph-io/ristretto/v2 v2.2.0/go.mod h1:RZrm63UmcBAaYWC1DotLYBmTvgkrs0+XhBd7Npn7/zI=
+github.com/dgraph-io/ristretto/v2 v2.3.0 h1:qTQ38m7oIyd4GAed/QkUZyPFNMnvVWyazGXRwvOt5zk=
+github.com/dgraph-io/ristretto/v2 v2.3.0/go.mod h1:gpoRV3VzrEY1a9dWAYV6T1U7YzfgttXdd/ZzL1s9OZM=
 github.com/dgryski/go-farm v0.0.0-20240924180020-3414d57e47da h1:aIftn67I1fkbMa512G+w+Pxci9hJPB8oMnkcP3iZF38=
 github.com/dgryski/go-farm v0.0.0-20240924180020-3414d57e47da/go.mod h1:SqUrOPUnsFjfmXRMNPybcSiG0BgUW2AuFH8PAnS2iTw=
 github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f h1:lO4WD4F/rVNCu3HqELle0jiPLLBs70cWOduZpkS1E78=
@@ -258,6 +260,8 @@ github.com/redis/go-redis/v9 v9.11.0 h1:E3S08Gl/nJNn5vkxd2i78wZxWAPNZgUNTp8WIJUA
 github.com/redis/go-redis/v9 v9.11.0/go.mod h1:huWgSWd8mW6+m0VPhJjSSQ+d6Nh1VICQ6Q5lHuCH/Iw=
 github.com/redis/go-redis/v9 v9.12.0 h1:XlVPGlflh4nxfhsNXPA8Qp6EmEfTo0rp8oaBzPipXnU=
 github.com/redis/go-redis/v9 v9.12.0/go.mod h1:huWgSWd8mW6+m0VPhJjSSQ+d6Nh1VICQ6Q5lHuCH/Iw=
+github.com/redis/go-redis/v9 v9.12.1 h1:k5iquqv27aBtnTm2tIkROUDp8JBXhXZIVu1InSgvovg=
+github.com/redis/go-redis/v9 v9.12.1/go.mod h1:huWgSWd8mW6+m0VPhJjSSQ+d6Nh1VICQ6Q5lHuCH/Iw=
 github.com/reugn/go-quartz v0.14.0 h1:KlIBAsOIw1JI8Rc7/f8VrrHBHOr+BiqrTiB35pRe84M=
 github.com/reugn/go-quartz v0.14.0/go.mod h1:00DVnBKq2Fxag/HlR9mGXjmHNlMFQ1n/LNM+Fn0jUaE=
 github.com/reugn/go-quartz v0.15.1 h1:8hMtC+ERa9G5tiL9fiuBpPreId+Tu1Xt2pkXVeTZAy0=
@@ -298,6 +302,8 @@ github.com/tochemey/ego/v3 v3.5.0 h1:ZlTwZ7sIRjfK94PdETVQPAfgLp2Fy5CQxs8Z8pS4ofc
 github.com/tochemey/ego/v3 v3.5.0/go.mod h1:XcStj87J1BNY5kqTh9KXG8GlzwS4ia4dP75Hz+IIhzM=
 github.com/tochemey/ego/v3 v3.5.1 h1:Dfk+156tZO4zRnTaS/1wd8dzGqU1jAky4crostWTBpY=
 github.com/tochemey/ego/v3 v3.5.1/go.mod h1:g47gCj25eNJiJpS1k5a7v5ie+BrfaCZ/hcVb7omikgA=
+github.com/tochemey/ego/v3 v3.5.2 h1:5fzbp9YPGwmggmXmhpC7T3PSce96bxk8HgeM1Q+crjk=
+github.com/tochemey/ego/v3 v3.5.2/go.mod h1:TscWMMEjuzrUzA91Wx2wcD61iow2PsO7gvIEG6mfQlA=
 github.com/tochemey/goakt/v3 v3.5.0 h1:cjFWryLQDjKqVpUisopUL6/+A3xgKfYw8yVLbe1nJiI=
 github.com/tochemey/goakt/v3 v3.5.0/go.mod h1:DENJmmolABUcOFlUOhY+8eaJj6v8nNcsVp2SEwMHnZo=
 github.com/tochemey/goakt/v3 v3.6.6 h1:k49elZB9FG0VJIbU3wICiMwQVrTzv+EhOlt6A+MYPz8=
@@ -314,10 +320,14 @@ github.com/tochemey/goakt/v3 v3.8.1 h1:bocHJaC45AG57AjCK0yrTZoQSWISS2i7SuSiPn1kl
 github.com/tochemey/goakt/v3 v3.8.1/go.mod h1:Laqjx0i0kkt/3kfnD4Ct8bhscJRePU09fKFWS94kQdw=
 github.com/tochemey/goakt/v3 v3.8.2 h1:knHxvwCj0jgcaLdGBWbiU9FXPoAajr099ICNBw8qBas=
 github.com/tochemey/goakt/v3 v3.8.2/go.mod h1:DjCHiVwSKvdu2pJBPUJ01sZQCZgrMQlzACO5r2f24zc=
+github.com/tochemey/goakt/v3 v3.9.1-0.20250822225626-8ba09cb3ee7a h1:KocMSZWcHsbQw6AiC11oPgkqq7XbGsvqyM8VfB8Xt4Q=
+github.com/tochemey/goakt/v3 v3.9.1-0.20250822225626-8ba09cb3ee7a/go.mod h1:oWO9W7Yleg6H/kAOZpycrHlCmaJO8tH9OhFqMX7yTf4=
 github.com/tochemey/olric v0.2.3 h1:LGmsHLQBSEs3uasZNLT5MdS2pBMNJ71gSrXnYfkb62M=
 github.com/tochemey/olric v0.2.3/go.mod h1:BAD82xys8R8IAWFV+GC0B8I+J4QsYZvmPS5NT/dhmtI=
 github.com/tochemey/olric v0.3.0 h1:zLGehTjhWMBMSZkTGBCdlE3EKCSkk2/46ZjZrlkNUOk=
 github.com/tochemey/olric v0.3.0/go.mod h1:3ILHtCL4w5r4PlrfuQvHMS0NI+CXIAWYYDKGoxw01rA=
+github.com/tochemey/olric v0.3.1 h1:nFiG19lQTSfj66R7dV147bT/7Hz2bJQQVq8WAQNeDqg=
+github.com/tochemey/olric v0.3.1/go.mod h1:3ILHtCL4w5r4PlrfuQvHMS0NI+CXIAWYYDKGoxw01rA=
 github.com/travisjeffery/go-dynaport v1.0.0 h1:m/qqf5AHgB96CMMSworIPyo1i7NZueRsnwdzdCJ8Ajw=
 github.com/travisjeffery/go-dynaport v1.0.0/go.mod h1:0LHuDS4QAx+mAc4ri3WkQdavgVoBIZ7cE9ob17KIAJk=
 github.com/ttacon/chalk v0.0.0-20160626202418-22c06c80ed31/go.mod h1:onvgF043R+lC5RZ8IT9rBXDaEDnpnw/Cl+HFiw+v/7Q=
@@ -493,6 +503,8 @@ google.golang.org/protobuf v1.36.6 h1:z1NpPI8ku2WgiWnf+t9wTPsn6eP1L7ksHUlkfLvd9x
 google.golang.org/protobuf v1.36.6/go.mod h1:jduwjTPXsFjZGTmRluh+L6NjiWu7pchiJ2/5YcXBHnY=
 google.golang.org/protobuf v1.36.7 h1:IgrO7UwFQGJdRNXH/sQux4R1Dj1WAKcLElzeeRaXV2A=
 google.golang.org/protobuf v1.36.7/go.mod h1:jduwjTPXsFjZGTmRluh+L6NjiWu7pchiJ2/5YcXBHnY=
+google.golang.org/protobuf v1.36.8 h1:xHScyCOEuuwZEc6UtSOvPbAT4zRh0xcNRYekJwfqyMc=
+google.golang.org/protobuf v1.36.8/go.mod h1:fuxRtAxBytpl4zzqUh6/eyUujkJdNiuEkXntxiD/uRU=
 gopkg.in/alecthomas/kingpin.v2 v2.2.6/go.mod h1:FMv+mEhP44yOT+4EoQTLFTRgOQ1FBLkstjWtayDeSgw=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
 gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
