@@ -2,7 +2,7 @@ module github.com/tochemey/ego/v3/publisher/kafka
 
 go 1.24.0
 
-toolchain go1.25.0
+toolchain go1.25.1
 
 require (
 	github.com/IBM/sarama v1.46.0
