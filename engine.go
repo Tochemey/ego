@@ -102,6 +102,8 @@ type Engine struct {
 	eventsStreams       *syncmap.Map[string, *eventsStream]
 	statesStreams       *syncmap.Map[string, *statesStream]
 	projectionExtension *extensions.ProjectionExtension
+
+	supervisor *goakt.PID
 }
 
 // NewEngine creates and initializes a new instance of the eGo engine.
@@ -435,19 +437,8 @@ func (engine *Engine) Entity(ctx context.Context, behavior EventSourcedBehavior,
 	actorSystem := engine.actorSystem
 	engine.mutex.Unlock()
 
-	config := newSpawnConfig(opts...)
-	sOptions := []goakt.SpawnOption{
-		goakt.WithDependencies(behavior),
-		goakt.WithLongLived(),
-	}
-
-	if config.passivateAfter > 0 {
-		sOptions = append(sOptions, goakt.WithPassivationStrategy(passivation.NewTimeBasedStrategy(config.passivateAfter)))
-	}
-
-	if !config.toRelocate {
-		sOptions = append(sOptions, goakt.WithRelocationDisabled())
-	}
+	sOptions := buildSpawnOptions(opts...)
+	sOptions = append(sOptions, goakt.WithDependencies(behavior))
 
 	_, err := actorSystem.Spawn(ctx,
 		behavior.ID(),
@@ -491,19 +482,8 @@ func (engine *Engine) DurableStateEntity(ctx context.Context, behavior DurableSt
 		return ErrDurableStateStoreRequired
 	}
 
-	config := newSpawnConfig(opts...)
-	sOptions := []goakt.SpawnOption{
-		goakt.WithDependencies(behavior),
-		goakt.WithLongLived(),
-	}
-
-	if config.passivateAfter > 0 {
-		sOptions = append(sOptions, goakt.WithPassivationStrategy(passivation.NewTimeBasedStrategy(config.passivateAfter)))
-	}
-
-	if !config.toRelocate {
-		sOptions = append(sOptions, goakt.WithRelocationDisabled())
-	}
+	sOptions := buildSpawnOptions(opts...)
+	sOptions = append(sOptions, goakt.WithDependencies(behavior))
 
 	_, err := actorSystem.Spawn(ctx,
 		behavior.ID(),
@@ -756,4 +736,29 @@ func generateTopics(baseTopic string, partitionsCount uint64) []string {
 		}
 	}
 	return topics
+}
+
+func buildSpawnOptions(opts ...SpawnOption) []goakt.SpawnOption {
+	config := newSpawnConfig(opts...)
+	sOptions := []goakt.SpawnOption{
+		goakt.WithLongLived(),
+	}
+
+	if config.passivateAfter > 0 {
+		sOptions = append(sOptions, goakt.WithPassivationStrategy(passivation.NewTimeBasedStrategy(config.passivateAfter)))
+	}
+
+	if !config.toRelocate {
+		sOptions = append(sOptions, goakt.WithRelocationDisabled())
+	}
+
+	switch config.supervisorDirective {
+	case StopDirective:
+		sOptions = append(sOptions, goakt.WithSupervisor(goakt.NewSupervisor(goakt.WithAnyErrorDirective(goakt.StopDirective))))
+	case RestartDirective:
+		sOptions = append(sOptions, goakt.WithSupervisor(goakt.NewSupervisor(goakt.WithAnyErrorDirective(goakt.RestartDirective))))
+	default:
+		sOptions = append(sOptions, goakt.WithSupervisor(goakt.NewSupervisor(goakt.WithAnyErrorDirective(goakt.RestartDirective))))
+	}
+	return sOptions
 }

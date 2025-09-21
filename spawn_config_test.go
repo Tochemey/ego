@@ -49,4 +49,10 @@ func TestSpawnOption(t *testing.T) {
 		option.Apply(config)
 		require.Equal(t, &spawnConfig{toRelocate: true}, config)
 	})
+	t.Run("WithSupervisorDirective", func(t *testing.T) {
+		config := &spawnConfig{}
+		option := WithSupervisorDirective(StopDirective)
+		option.Apply(config)
+		require.Equal(t, &spawnConfig{supervisorDirective: StopDirective}, config)
+	})
 }
