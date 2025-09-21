@@ -43,6 +43,8 @@ reliable persistence.
 go get github.com/tochemey/ego/v3
 ```
 
+> Note: eGo requires **Go 1.25.1** or higher.
+
 ## 🔢 Versioning
 
 The version system adopted in eGo deviates a bit from the standard semantic versioning system.
@@ -53,7 +55,7 @@ The version format is as follows:
   changes.
 - The `PATCH` part of the version will cater for dependency upgrades, bug fixes, security patches, and co.
 
-The versioning will remain like `v3.x.x` until further notice. The current version is **`v3.5.2`**
+The versioning will remain like `v3.x.x` until further notice. The current version is **`v3.5.3`**
 
 ## ✨ Features
 
