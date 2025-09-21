@@ -33,11 +33,16 @@ type spawnConfig struct {
 	passivateAfter time.Duration
 	// specifies if the actor should be relocated
 	toRelocate bool
+	// supervisorDirective sets the supervisor directive to use
+	// when the given entity fails
+	supervisorDirective SupervisorDirective
 }
 
 // newSpawnConfig creates an instance of spawnConfig
 func newSpawnConfig(opts ...SpawnOption) *spawnConfig {
-	config := new(spawnConfig)
+	config := &spawnConfig{
+		supervisorDirective: RestartDirective,
+	}
 	for _, opt := range opts {
 		opt.Apply(config)
 	}
@@ -92,5 +97,15 @@ func WithPassivateAfter(after time.Duration) SpawnOption {
 func WithRelocation(toRelocate bool) SpawnOption {
 	return spawnOption(func(config *spawnConfig) {
 		config.toRelocate = toRelocate
+	})
+}
+
+// WithSupervisorDirective sets the SupervisorDirective that will be applied to the actor
+// when it fails. This controls how the entities' failures are handled (e.g. restart, stop,
+// escalate). If not provided, the default is RestartDirective.
+// Use this to override the default supervision strategy for specific entities.
+func WithSupervisorDirective(directive SupervisorDirective) SpawnOption {
+	return spawnOption(func(config *spawnConfig) {
+		config.supervisorDirective = directive
 	})
 }
