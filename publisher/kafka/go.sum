@@ -318,6 +318,8 @@ github.com/tochemey/ego/v3 v3.5.1 h1:Dfk+156tZO4zRnTaS/1wd8dzGqU1jAky4crostWTBpY
 github.com/tochemey/ego/v3 v3.5.1/go.mod h1:g47gCj25eNJiJpS1k5a7v5ie+BrfaCZ/hcVb7omikgA=
 github.com/tochemey/ego/v3 v3.5.2 h1:5fzbp9YPGwmggmXmhpC7T3PSce96bxk8HgeM1Q+crjk=
 github.com/tochemey/ego/v3 v3.5.2/go.mod h1:TscWMMEjuzrUzA91Wx2wcD61iow2PsO7gvIEG6mfQlA=
+github.com/tochemey/ego/v3 v3.5.3 h1:7SgvnHbcCyYacljvm+bTlw1ccbTLXEIhBT8cvs0PZeM=
+github.com/tochemey/ego/v3 v3.5.3/go.mod h1:OGpc3cgGETY71U76LugJyBfURkidfzMBFizBcWvHsG8=
 github.com/tochemey/goakt/v3 v3.5.0 h1:cjFWryLQDjKqVpUisopUL6/+A3xgKfYw8yVLbe1nJiI=
 github.com/tochemey/goakt/v3 v3.5.0/go.mod h1:DENJmmolABUcOFlUOhY+8eaJj6v8nNcsVp2SEwMHnZo=
 github.com/tochemey/goakt/v3 v3.6.6 h1:k49elZB9FG0VJIbU3wICiMwQVrTzv+EhOlt6A+MYPz8=
