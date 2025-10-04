@@ -5,7 +5,7 @@ go 1.24.0
 toolchain go1.25.1
 
 require (
-	github.com/nats-io/nats.go v1.45.0
+	github.com/nats-io/nats.go v1.46.1
 	github.com/tochemey/ego/v3 v3.5.2
 	github.com/tochemey/goakt/v3 v3.9.1-0.20250822225626-8ba09cb3ee7a // indirect
 	github.com/tochemey/gopack v0.2.0
