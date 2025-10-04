@@ -7,7 +7,7 @@ require (
 	github.com/tochemey/ego/v3 v3.5.3
 	github.com/tochemey/gopack v0.2.0
 	go.uber.org/atomic v1.11.0
-	google.golang.org/protobuf v1.36.9
+	google.golang.org/protobuf v1.36.10
 )
 
 require (
