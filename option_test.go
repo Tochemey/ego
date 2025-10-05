@@ -30,8 +30,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/atomic"
-
 	"github.com/tochemey/goakt/v3/discovery/kubernetes"
 	"github.com/tochemey/goakt/v3/log"
 
@@ -47,33 +45,38 @@ func TestOptions(t *testing.T) {
 	testCases := []struct {
 		name     string
 		option   Option
-		expected Engine
+		expected func() *Engine
 	}{
 		{
 			name:   "WithCluster",
 			option: WithCluster(discoveryProvider, 30, 3, "localhost", 1334, 1335, 1336),
-			expected: Engine{
-				discoveryProvider:  discoveryProvider,
-				minimumPeersQuorum: 3,
-				bindAddr:           "localhost",
-				discoveryPort:      1335,
-				peersPort:          1336,
-				remotingPort:       1334,
-				partitionsCount:    30,
-				clusterEnabled:     atomic.NewBool(true),
+			expected: func() *Engine {
+				expected := &Engine{
+					discoveryProvider:  discoveryProvider,
+					minimumPeersQuorum: 3,
+					bindAddr:           "localhost",
+					discoveryPort:      1335,
+					peersPort:          1336,
+					remotingPort:       1334,
+					partitionsCount:    30,
+				}
+				expected.clusterEnabled.Store(true)
+				return expected
 			},
 		},
 		{
-			name:     "WithLogger",
-			option:   WithLogger(logger),
-			expected: Engine{logger: logger},
+			name:   "WithLogger",
+			option: WithLogger(logger),
+			expected: func() *Engine {
+				return &Engine{logger: logger}
+			},
 		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			var e Engine
-			tc.option.Apply(&e)
-			assert.Equal(t, tc.expected, e)
+			engine := new(Engine)
+			tc.option.Apply(engine)
+			assert.Equal(t, tc.expected(), engine)
 		})
 	}
 }

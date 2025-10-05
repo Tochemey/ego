@@ -83,7 +83,7 @@ type Engine struct {
 	eventsStore        persistence.EventsStore // eventsStore is the events store
 	stateStore         persistence.StateStore  // stateStore is the durable state store
 	offsetStore        offsetstore.OffsetStore // offsetStore is the offset store
-	clusterEnabled     *atomic.Bool            // clusterEnabled enable/disable cluster mode
+	clusterEnabled     atomic.Bool             // clusterEnabled enable/disable cluster mode
 	actorSystem        goakt.ActorSystem       // actorSystem is the underlying actor system
 	logger             log.Logger              // logger is the logging engine to use
 	discoveryProvider  discovery.Provider      // discoveryProvider is the discovery provider for clustering
@@ -95,7 +95,7 @@ type Engine struct {
 	remotingPort       int
 	minimumPeersQuorum uint16
 	eventStream        eventstream.Stream
-	mutex              *sync.Mutex
+	mutex              sync.Mutex
 	remoting           remote.Remoting
 	tls                *TLS
 
@@ -121,17 +121,17 @@ type Engine struct {
 //   - A pointer to the newly created Engine instance.
 func NewEngine(name string, eventsStore persistence.EventsStore, opts ...Option) *Engine {
 	e := &Engine{
-		name:           name,
-		eventsStore:    eventsStore,
-		clusterEnabled: atomic.NewBool(false),
-		logger:         log.New(log.ErrorLevel, os.Stderr),
-		eventStream:    eventstream.New(),
-		mutex:          &sync.Mutex{},
-		bindAddr:       "0.0.0.0",
-		remoting:       remote.NewRemoting(),
-		eventsStreams:  syncmap.New[string, *eventsStream](),
-		statesStreams:  syncmap.New[string, *statesStream](),
+		name:          name,
+		eventsStore:   eventsStore,
+		logger:        log.New(log.ErrorLevel, os.Stderr),
+		eventStream:   eventstream.New(),
+		bindAddr:      "0.0.0.0",
+		remoting:      remote.NewRemoting(),
+		eventsStreams: syncmap.New[string, *eventsStream](),
+		statesStreams: syncmap.New[string, *statesStream](),
 	}
+
+	e.clusterEnabled.Store(false)
 
 	for _, opt := range opts {
 		opt.Apply(e)

@@ -27,8 +27,6 @@ package ego
 import (
 	"time"
 
-	"go.uber.org/atomic"
-
 	"github.com/tochemey/goakt/v3/discovery"
 	"github.com/tochemey/goakt/v3/log"
 
@@ -76,7 +74,7 @@ func (f OptionFunc) Apply(e *Engine) {
 //   - Option: A functional option that configures the cluster settings.
 func WithCluster(provider discovery.Provider, partitionCount uint64, minimumPeersQuorum uint16, host string, remotingPort, discoveryPort, peersPort int) Option {
 	return OptionFunc(func(e *Engine) {
-		e.clusterEnabled = atomic.NewBool(true)
+		e.clusterEnabled.Store(true)
 		e.discoveryProvider = provider
 		e.partitionsCount = partitionCount
 		e.peersPort = peersPort
