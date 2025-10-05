@@ -45,14 +45,13 @@ jobs:
         with:
           version: v2.4.0
           args: --timeout 10m --config .golangci.yml
+      - name: Install go-acc
+        run: |
+          go install github.com/ory/go-acc@latest
       - name: Run tests
         shell: bash
         run: |
-          PKGS=$(go list -mod=vendor ./... | grep -v -E "(egopb|test|example|mocks)")
-          go test -mod=vendor -p 1 -timeout 0 -race -v \
-            -coverprofile=coverage.out -covermode=atomic \
-            -coverpkg=$(echo $PKGS | tr ' ' ',') \
-            $PKGS
+           go-acc ./... -o coverage.out --ignore egopb,test,example,mocks -- -mod=vendor -p 1 -timeout 0 -race -v
       - uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
