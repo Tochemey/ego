@@ -318,6 +318,8 @@ github.com/tochemey/ego/v3 v3.5.1 h1:Dfk+156tZO4zRnTaS/1wd8dzGqU1jAky4crostWTBpY
 github.com/tochemey/ego/v3 v3.5.1/go.mod h1:g47gCj25eNJiJpS1k5a7v5ie+BrfaCZ/hcVb7omikgA=
 github.com/tochemey/ego/v3 v3.5.2 h1:5fzbp9YPGwmggmXmhpC7T3PSce96bxk8HgeM1Q+crjk=
 github.com/tochemey/ego/v3 v3.5.2/go.mod h1:TscWMMEjuzrUzA91Wx2wcD61iow2PsO7gvIEG6mfQlA=
+github.com/tochemey/ego/v3 v3.5.3 h1:7SgvnHbcCyYacljvm+bTlw1ccbTLXEIhBT8cvs0PZeM=
+github.com/tochemey/ego/v3 v3.5.3/go.mod h1:OGpc3cgGETY71U76LugJyBfURkidfzMBFizBcWvHsG8=
 github.com/tochemey/goakt/v3 v3.5.0 h1:cjFWryLQDjKqVpUisopUL6/+A3xgKfYw8yVLbe1nJiI=
 github.com/tochemey/goakt/v3 v3.5.0/go.mod h1:DENJmmolABUcOFlUOhY+8eaJj6v8nNcsVp2SEwMHnZo=
 github.com/tochemey/goakt/v3 v3.6.6 h1:k49elZB9FG0VJIbU3wICiMwQVrTzv+EhOlt6A+MYPz8=
@@ -549,6 +551,8 @@ google.golang.org/protobuf v1.36.8 h1:xHScyCOEuuwZEc6UtSOvPbAT4zRh0xcNRYekJwfqyM
 google.golang.org/protobuf v1.36.8/go.mod h1:fuxRtAxBytpl4zzqUh6/eyUujkJdNiuEkXntxiD/uRU=
 google.golang.org/protobuf v1.36.9 h1:w2gp2mA27hUeUzj9Ex9FBjsBm40zfaDtEWow293U7Iw=
 google.golang.org/protobuf v1.36.9/go.mod h1:fuxRtAxBytpl4zzqUh6/eyUujkJdNiuEkXntxiD/uRU=
+google.golang.org/protobuf v1.36.10 h1:AYd7cD/uASjIL6Q9LiTjz8JLcrh/88q5UObnmY3aOOE=
+google.golang.org/protobuf v1.36.10/go.mod h1:HTf+CrKn2C3g5S8VImy6tdcUvCska2kB7j23XfzDpco=
 gopkg.in/alecthomas/kingpin.v2 v2.2.6/go.mod h1:FMv+mEhP44yOT+4EoQTLFTRgOQ1FBLkstjWtayDeSgw=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
 gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
