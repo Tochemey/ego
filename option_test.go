@@ -28,6 +28,7 @@ import (
 	"testing"
 	"time"
 
+	goset "github.com/deckarep/golang-set/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tochemey/goakt/v3/discovery/kubernetes"
@@ -87,4 +88,11 @@ func TestOptionWithProjection(t *testing.T) {
 	opt := WithProjection(handler, 500, time.Time{}, time.Time{}, time.Second, nil)
 	opt.Apply(engine)
 	require.NotEmpty(t, engine.projectionExtension)
+}
+
+func TestOptionWithRoles(t *testing.T) {
+	engine := &Engine{roles: goset.NewSet[string]()}
+	opt := WithRoles("role1", "role2")
+	opt.Apply(engine)
+	assert.ElementsMatch(t, []string{"role1", "role2"}, engine.roles.ToSlice())
 }

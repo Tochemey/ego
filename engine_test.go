@@ -105,6 +105,7 @@ func TestEngine(t *testing.T) {
 				ServerTLS: conf.ServerTLS,
 			}),
 			WithOffsetStore(offsetStore),
+			WithRoles("role1", "role2"),
 			WithProjection(handler, 500, ZeroTime, ZeroTime, time.Second, projection.NewRecovery()),
 			WithCluster(provider, 4, 1, host, remotingPort, gossipPort, clusterPort))
 		// start ego engine

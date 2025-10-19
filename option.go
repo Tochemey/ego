@@ -202,3 +202,27 @@ func WithProjection(handler projection.Handler, bufferSize int, startOffset, res
 		)
 	})
 }
+
+// WithRoles sets the roles advertised by this node.
+//
+// A role is a label/metadata used by the cluster to define a node’s
+// responsibilities (e.g., "web", "entity", "projection"). Not all nodes
+// need to run the same workloads—roles let you dedicate nodes to specific
+// purposes such as the web front-end, data access layer, or background
+// processing.
+//
+// In practice, nodes with the "entity" role run actors/services such as
+// persistent entities, while nodes with the "projection" role run read-side
+// projections. This lets you scale parts of your application independently
+// and optimize resource usage.
+//
+// Once roles are set, you can use SpawnOn("<role>") to spawn an actor on a
+// node that advertises that role.
+//
+// This call replaces any previously configured roles. Duplicates are
+// de-duplicated; order is not meaningful
+func WithRoles(roles ...string) Option {
+	return OptionFunc(func(e *Engine) {
+		e.roles.Append(roles...)
+	})
+}
