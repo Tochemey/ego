@@ -3,7 +3,7 @@ module github.com/tochemey/ego/v3/publisher/nats
 go 1.25.1
 
 require (
-	github.com/nats-io/nats.go v1.46.1
+	github.com/nats-io/nats.go v1.47.0
 	github.com/tochemey/ego/v3 v3.5.3
 	github.com/tochemey/goakt/v3 v3.9.3 // indirect
 	github.com/tochemey/gopack v0.2.0
