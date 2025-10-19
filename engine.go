@@ -32,6 +32,7 @@ import (
 	"sync"
 	"time"
 
+	goset "github.com/deckarep/golang-set/v2"
 	goakt "github.com/tochemey/goakt/v3/actor"
 	"github.com/tochemey/goakt/v3/address"
 	"github.com/tochemey/goakt/v3/discovery"
@@ -79,15 +80,15 @@ type statesStream struct {
 
 // Engine represents the engine that empowers the various entities
 type Engine struct {
-	name               string                  // name is the application name
-	eventsStore        persistence.EventsStore // eventsStore is the events store
-	stateStore         persistence.StateStore  // stateStore is the durable state store
-	offsetStore        offsetstore.OffsetStore // offsetStore is the offset store
-	clusterEnabled     atomic.Bool             // clusterEnabled enable/disable cluster mode
-	actorSystem        goakt.ActorSystem       // actorSystem is the underlying actor system
-	logger             log.Logger              // logger is the logging engine to use
-	discoveryProvider  discovery.Provider      // discoveryProvider is the discovery provider for clustering
-	partitionsCount    uint64                  // partitionsCount specifies the number of partitions
+	name               string
+	eventsStore        persistence.EventsStore
+	stateStore         persistence.StateStore
+	offsetStore        offsetstore.OffsetStore
+	clusterEnabled     atomic.Bool
+	actorSystem        goakt.ActorSystem
+	logger             log.Logger
+	discoveryProvider  discovery.Provider
+	partitionsCount    uint64
 	started            atomic.Bool
 	bindAddr           string
 	peersPort          int
@@ -104,6 +105,7 @@ type Engine struct {
 	projectionExtension *extensions.ProjectionExtension
 
 	supervisor *goakt.PID
+	roles      goset.Set[string]
 }
 
 // NewEngine creates and initializes a new instance of the eGo engine.
@@ -129,6 +131,7 @@ func NewEngine(name string, eventsStore persistence.EventsStore, opts ...Option)
 		remoting:      remote.NewRemoting(),
 		eventsStreams: syncmap.New[string, *eventsStream](),
 		statesStreams: syncmap.New[string, *statesStream](),
+		roles:         goset.NewSet[string](),
 	}
 
 	e.clusterEnabled.Store(false)
@@ -210,6 +213,11 @@ func (engine *Engine) Start(ctx context.Context) error {
 				new(EventSourcedActor),
 				new(DurableStateActor),
 			)
+
+		// set roles if any
+		if !engine.roles.IsEmpty() {
+			clusterConfig = clusterConfig.WithRoles(engine.roles.ToSlice()...)
+		}
 
 		opts = append(opts,
 			goakt.WithCluster(clusterConfig),
@@ -368,6 +376,7 @@ func (engine *Engine) Stop(ctx context.Context) error {
 		}
 	}
 
+	engine.roles.Clear()
 	engine.eventStream.Close()
 	engine.eventsStreams.Reset()
 	engine.statesStreams.Reset()
