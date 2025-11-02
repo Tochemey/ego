@@ -1,6 +1,6 @@
 module github.com/tochemey/ego/v3
 
-go 1.25.1
+go 1.25.3
 
 require (
 	github.com/deckarep/golang-set/v2 v2.8.0
@@ -8,7 +8,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/kapetan-io/tackle v0.13.0
 	github.com/stretchr/testify v1.11.1
-	github.com/tochemey/goakt/v3 v3.9.5
+	github.com/tochemey/goakt/v3 v3.9.6
 	github.com/travisjeffery/go-dynaport v1.0.0
 	go.uber.org/atomic v1.11.0
 	go.uber.org/multierr v1.11.0
@@ -19,10 +19,10 @@ require (
 require (
 	connectrpc.com/connect v1.19.1 // indirect
 	github.com/RoaringBitmap/roaring v1.9.4 // indirect
-	github.com/Workiva/go-datastructures v1.1.6 // indirect
+	github.com/Workiva/go-datastructures v1.1.7 // indirect
 	github.com/andybalholm/brotli v1.2.0 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
-	github.com/bits-and-blooms/bitset v1.24.1 // indirect
+	github.com/bits-and-blooms/bitset v1.24.3 // indirect
 	github.com/buraksezer/consistent v0.10.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
@@ -57,7 +57,7 @@ require (
 	github.com/hashicorp/logutils v1.0.0 // indirect
 	github.com/hashicorp/memberlist v0.5.3 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/klauspost/compress v1.18.0 // indirect
+	github.com/klauspost/compress v1.18.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/miekg/dns v1.1.68 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
