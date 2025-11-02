@@ -6,7 +6,7 @@ require (
 	github.com/deckarep/golang-set/v2 v2.8.0
 	github.com/flowchartsman/retry v1.2.0
 	github.com/google/uuid v1.6.0
-	github.com/kapetan-io/tackle v0.12.0
+	github.com/kapetan-io/tackle v0.13.0
 	github.com/stretchr/testify v1.11.1
 	github.com/tochemey/goakt/v3 v3.9.5
 	github.com/travisjeffery/go-dynaport v1.0.0

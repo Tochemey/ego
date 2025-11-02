@@ -213,6 +213,8 @@ github.com/julienschmidt/httprouter v1.2.0/go.mod h1:SYymIcj16QtmaHHD7aYtjjsJG7V
 github.com/julienschmidt/httprouter v1.3.0/go.mod h1:JR6WtHb+2LUe8TCKY3cZOxFyyO8IZAc4RVcycCCAKdM=
 github.com/kapetan-io/tackle v0.12.0 h1:anW3CB6HXZH1fQw5pnooNUAP3ftK/MxX5jzb1MwA//w=
 github.com/kapetan-io/tackle v0.12.0/go.mod h1:5ZGq3U/Qgpq0ccxyx2+Zovg2ceM9yl6DOVL2R90of4g=
+github.com/kapetan-io/tackle v0.13.0 h1:kcQTbgZN+4T89ktqlpW2TBATjiBmfjIyuZUukvRrYZU=
+github.com/kapetan-io/tackle v0.13.0/go.mod h1:5ZGq3U/Qgpq0ccxyx2+Zovg2ceM9yl6DOVL2R90of4g=
 github.com/kisielk/errcheck v1.5.0/go.mod h1:pFxgyoBC7bSaBwPgfKdkLd5X25qrDl4LWUI2bnpBCr8=
 github.com/kisielk/gotool v1.0.0/go.mod h1:XhKaO+MFFWcvkIS/tQcRk01m1F5IRFswLeQ+oQHNcck=
 github.com/klauspost/compress v1.18.0 h1:c/Cqfb0r+Yi+JtIEq73FWXVkRonBlf0CRNYc8Zttxdo=
