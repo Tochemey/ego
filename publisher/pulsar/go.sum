@@ -418,6 +418,8 @@ github.com/tklauser/numcpus v0.10.0 h1:18njr6LDBk1zuna922MgdjQuJFjrdppsZG60sHGfj
 github.com/tklauser/numcpus v0.10.0/go.mod h1:BiTKazU708GQTYF4mB+cmlpT2Is1gLk7XVuEeem8LsQ=
 github.com/tochemey/ego/v3 v3.5.3 h1:7SgvnHbcCyYacljvm+bTlw1ccbTLXEIhBT8cvs0PZeM=
 github.com/tochemey/ego/v3 v3.5.3/go.mod h1:OGpc3cgGETY71U76LugJyBfURkidfzMBFizBcWvHsG8=
+github.com/tochemey/ego/v3 v3.5.4 h1:9oJe0glOZxuaJ7cElPk5zFJ/cYKwJHKnclyDBylef4g=
+github.com/tochemey/ego/v3 v3.5.4/go.mod h1:9YLDdkoE2/h1bfIa5ru1SCM8oAw1zdxQfbf7XDg55xM=
 github.com/tochemey/goakt/v3 v3.9.6 h1:A5vqkHVyBl+pORZK80TAE7po1F457GSIit6a0NCKVy4=
 github.com/tochemey/goakt/v3 v3.9.6/go.mod h1:QtV4EiRNkM6lLOmsUWtCmVf0YOcTyabB2DGhnBj5Nl0=
 github.com/tochemey/gopack v0.2.0 h1:LpjE95dfqSQepHC/chAszP64R+w4tj5PivaTJHTFnz0=

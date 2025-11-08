@@ -4,7 +4,7 @@ go 1.25.3
 
 require (
 	github.com/nats-io/nats.go v1.47.0
-	github.com/tochemey/ego/v3 v3.5.3
+	github.com/tochemey/ego/v3 v3.5.4
 	github.com/tochemey/goakt/v3 v3.9.6 // indirect
 	github.com/tochemey/gopack v0.2.0
 	go.uber.org/multierr v1.11.0 // indirect
