@@ -41,7 +41,7 @@ jobs:
         run: |
           go mod download
       - name: Run Linter
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.4.0
           args: --timeout 10m --config .golangci.yml
