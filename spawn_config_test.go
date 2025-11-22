@@ -55,4 +55,10 @@ func TestSpawnOption(t *testing.T) {
 		option.Apply(config)
 		require.Equal(t, &spawnConfig{supervisorDirective: StopDirective}, config)
 	})
+	t.Run("WithEntitiesPlacement", func(t *testing.T) {
+		config := &spawnConfig{}
+		option := WithPlacement(LeastLoad)
+		option.Apply(config)
+		require.Equal(t, &spawnConfig{entitiesPlacement: LeastLoad}, config)
+	})
 }

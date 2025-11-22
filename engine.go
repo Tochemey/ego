@@ -446,14 +446,13 @@ func (engine *Engine) Entity(ctx context.Context, behavior EventSourcedBehavior,
 	actorSystem := engine.actorSystem
 	engine.mutex.Unlock()
 
+	// no need to check for error here as it was done during Start()
+	_ = actorSystem.Inject(behavior)
+
 	sOptions := buildSpawnOptions(opts...)
 	sOptions = append(sOptions, goakt.WithDependencies(behavior))
 
-	_, err := actorSystem.Spawn(ctx,
-		behavior.ID(),
-		newEventSourcedActor(),
-		sOptions...)
-	return err
+	return actorSystem.SpawnOn(ctx, behavior.ID(), newEventSourcedActor(), sOptions...)
 }
 
 // DurableStateEntity creates an entity that persists its full state in a durable store without maintaining historical event records.
@@ -491,14 +490,13 @@ func (engine *Engine) DurableStateEntity(ctx context.Context, behavior DurableSt
 		return ErrDurableStateStoreRequired
 	}
 
+	// no need to check for error here as it was done during Start()
+	_ = actorSystem.Inject(behavior)
+
 	sOptions := buildSpawnOptions(opts...)
 	sOptions = append(sOptions, goakt.WithDependencies(behavior))
 
-	_, err := actorSystem.Spawn(ctx,
-		behavior.ID(),
-		newDurableStateActor(),
-		sOptions...)
-	return err
+	return actorSystem.SpawnOn(ctx, behavior.ID(), newDurableStateActor(), sOptions...)
 }
 
 // SendCommand sends a command to the specified entity and processes its response.
@@ -761,13 +759,36 @@ func buildSpawnOptions(opts ...SpawnOption) []goakt.SpawnOption {
 		sOptions = append(sOptions, goakt.WithRelocationDisabled())
 	}
 
-	switch config.supervisorDirective {
-	case StopDirective:
-		sOptions = append(sOptions, goakt.WithSupervisor(goakt.NewSupervisor(goakt.WithAnyErrorDirective(goakt.StopDirective))))
-	case RestartDirective:
-		sOptions = append(sOptions, goakt.WithSupervisor(goakt.NewSupervisor(goakt.WithAnyErrorDirective(goakt.RestartDirective))))
-	default:
-		sOptions = append(sOptions, goakt.WithSupervisor(goakt.NewSupervisor(goakt.WithAnyErrorDirective(goakt.RestartDirective))))
-	}
+	sOptions = append(sOptions,
+		goakt.WithPlacement(toSpawnPlacement(config.entitiesPlacement)),
+		goakt.WithSupervisor(newSupervisor(config.supervisorDirective)),
+	)
+
 	return sOptions
+}
+
+func newSupervisor(directive SupervisorDirective) *goakt.Supervisor {
+	return goakt.NewSupervisor(goakt.WithAnyErrorDirective(toSupervisorDirective(directive)))
+}
+
+func toSpawnPlacement(placement EntitiesPlacement) goakt.SpawnPlacement {
+	switch placement {
+	case LeastLoad:
+		return goakt.LeastLoad
+	case Random:
+		return goakt.Random
+	case Local:
+		return goakt.Local
+	default:
+		return goakt.RoundRobin
+	}
+}
+
+func toSupervisorDirective(directive SupervisorDirective) goakt.Directive {
+	switch directive {
+	case StopDirective:
+		return goakt.StopDirective
+	default:
+		return goakt.RestartDirective
+	}
 }

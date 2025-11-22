@@ -40,6 +40,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	goakt "github.com/tochemey/goakt/v3/actor"
 	gerrors "github.com/tochemey/goakt/v3/errors"
 	"github.com/tochemey/goakt/v3/log"
 	mockdisco "github.com/tochemey/goakt/v3/mocks/discovery"
@@ -74,7 +75,7 @@ func TestEngine(t *testing.T) {
 
 		// define discovered addresses
 		addrs := []string{
-			net.JoinHostPort(host, strconv.Itoa(gossipPort)),
+			net.JoinHostPort(host, strconv.Itoa(clusterPort)),
 		}
 
 		// mock the discovery provider
@@ -1180,6 +1181,44 @@ func TestEngine(t *testing.T) {
 
 		require.NoError(t, engine.Stop(ctx))
 	})
+}
+
+func TestToSpawnPlacement(t *testing.T) {
+	testcases := []struct {
+		name      string
+		input     EntitiesPlacement
+		placement goakt.SpawnPlacement
+	}{
+		{name: "least load", input: LeastLoad, placement: goakt.LeastLoad},
+		{name: "round robin", input: RoundRobin, placement: goakt.RoundRobin},
+		{name: "random", input: Random, placement: goakt.Random},
+		{name: "local", input: Local, placement: goakt.Local},
+		{name: "default", input: EntitiesPlacement(42), placement: goakt.RoundRobin},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.placement, toSpawnPlacement(tc.input))
+		})
+	}
+}
+
+func TestToSupervisorDirective(t *testing.T) {
+	testcases := []struct {
+		name      string
+		input     SupervisorDirective
+		directive goakt.Directive
+	}{
+		{name: "stop", input: StopDirective, directive: goakt.StopDirective},
+		{name: "restart", input: RestartDirective, directive: goakt.RestartDirective},
+		{name: "default", input: SupervisorDirective(42), directive: goakt.RestartDirective},
+	}
+
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.directive, toSupervisorDirective(tc.input))
+		})
+	}
 }
 
 // EventSourcedEntity implements persistence.Behavior
