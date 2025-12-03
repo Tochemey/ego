@@ -103,6 +103,7 @@ github.com/go-kit/log v0.1.0/go.mod h1:zbhenjAZHb184qTLMA9ZjW7ThYL0H2mk7Q6pNt4vb
 github.com/go-logfmt/logfmt v0.3.0/go.mod h1:Qt1PoO58o5twSAckw1HlFXLmHsOX5/0LbT9GBnD5lWE=
 github.com/go-logfmt/logfmt v0.4.0/go.mod h1:3RMwSq7FuexP4Kalkev3ejPJsZTpXXBr9+V4qmtdjCk=
 github.com/go-logfmt/logfmt v0.5.0/go.mod h1:wCYkCAKZfumFQihp8CzCvQ3paCTfi41vtzG1KdI/P7A=
+github.com/go-logr/logr v1.2.2/go.mod h1:jdQByPbusPIv2/zmleS9BjJVeZ6kBagPoEUsqbVz/1A=
 github.com/go-logr/logr v1.4.3 h1:CjnDlHq8ikf6E492q6eKboGOC0T8CDaOvkHCIg8idEI=
 github.com/go-logr/logr v1.4.3/go.mod h1:9T104GzyrTigFIr8wt5mBrctHMim0Nb2HLGrmQ40KvY=
 github.com/go-logr/stdr v1.2.2 h1:hSWxHoqTgW2S2qGc0LTAI563KZ5YKYRhT3MFKZMbjag=
@@ -239,6 +240,8 @@ github.com/kapetan-io/tackle v0.13.0 h1:kcQTbgZN+4T89ktqlpW2TBATjiBmfjIyuZUukvRr
 github.com/kapetan-io/tackle v0.13.0/go.mod h1:5ZGq3U/Qgpq0ccxyx2+Zovg2ceM9yl6DOVL2R90of4g=
 github.com/klauspost/compress v1.18.1 h1:bcSGx7UbpBqMChDtsF28Lw6v/G94LPrrbMbdC3JH2co=
 github.com/klauspost/compress v1.18.1/go.mod h1:ZQFFVG+MdnR0P+l6wpXgIL4NTtwiKIdBnrBd8Nrxr+0=
+github.com/klauspost/compress v1.18.2 h1:iiPHWW0YrcFgpBYhsA6D1+fqHssJscY/Tm/y2Uqnapk=
+github.com/klauspost/compress v1.18.2/go.mod h1:R0h/fSBs8DE4ENlcrlib3PsXS61voFxhIs2DeRhCvJ4=
 github.com/klauspost/cpuid/v2 v2.3.0 h1:S4CRMLnYUhGeDFDqkGriYKdfoFlDnMtqTiI/sFzhA9Y=
 github.com/klauspost/cpuid/v2 v2.3.0/go.mod h1:hqwkgyIinND0mEev00jJYCxPNVRVXFQeu1XKlok6oO0=
 github.com/konsorten/go-windows-terminal-sequences v1.0.1/go.mod h1:T0+1ngSBFLxvqU3pZ+m/2kptfBszLMUkC4ZK/EgS/cQ=
@@ -342,6 +345,8 @@ github.com/redis/go-redis/v9 v9.14.1 h1:nDCrEiJmfOWhD76xlaw+HXT0c9hfNWeXgl0vIRYS
 github.com/redis/go-redis/v9 v9.14.1/go.mod h1:huWgSWd8mW6+m0VPhJjSSQ+d6Nh1VICQ6Q5lHuCH/Iw=
 github.com/redis/go-redis/v9 v9.17.0 h1:K6E+ZlYN95KSMmZeEQPbU/c++wfmEvfFB17yEAq/VhM=
 github.com/redis/go-redis/v9 v9.17.0/go.mod h1:u410H11HMLoB+TP67dz8rL9s6QW2j76l0//kSOd3370=
+github.com/redis/go-redis/v9 v9.17.2 h1:P2EGsA4qVIM3Pp+aPocCJ7DguDHhqrXNhVcEp4ViluI=
+github.com/redis/go-redis/v9 v9.17.2/go.mod h1:u410H11HMLoB+TP67dz8rL9s6QW2j76l0//kSOd3370=
 github.com/reugn/go-quartz v0.15.2 h1:IQUnwTtNURVtdcwH4CJhFH3dXAUwP2fXZaNjPp+sJAY=
 github.com/reugn/go-quartz v0.15.2/go.mod h1:00DVnBKq2Fxag/HlR9mGXjmHNlMFQ1n/LNM+Fn0jUaE=
 github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529 h1:nn5Wsu0esKSJiIVhscUtVbo7ada43DJhG55ua/hjS5I=
@@ -397,6 +402,8 @@ github.com/tochemey/goakt/v3 v3.9.6 h1:A5vqkHVyBl+pORZK80TAE7po1F457GSIit6a0NCKV
 github.com/tochemey/goakt/v3 v3.9.6/go.mod h1:QtV4EiRNkM6lLOmsUWtCmVf0YOcTyabB2DGhnBj5Nl0=
 github.com/tochemey/goakt/v3 v3.9.9 h1:CXTIjPRF85qAAwoWq4JJ4HIFn4DZz8OxlLwL5FN/Uuo=
 github.com/tochemey/goakt/v3 v3.9.9/go.mod h1:oK6MsoXiVi8/5wuIu+IhVu/ENlpGMjRQzNl9GsBs6hg=
+github.com/tochemey/goakt/v3 v3.10.0 h1:XqXL9ynHHQ0irM8LgkUCu6L6F/+cUBQfeszICRnw9ow=
+github.com/tochemey/goakt/v3 v3.10.0/go.mod h1:RZnHMyLVcYwElU4WP78Ju+YWRiiCQdTlihwvmf6OCY0=
 github.com/tochemey/olric v0.3.1 h1:nFiG19lQTSfj66R7dV147bT/7Hz2bJQQVq8WAQNeDqg=
 github.com/tochemey/olric v0.3.1/go.mod h1:3ILHtCL4w5r4PlrfuQvHMS0NI+CXIAWYYDKGoxw01rA=
 github.com/tochemey/olric v0.3.2 h1:la9z9Gp9+xmbuTQ1/RiMk02YdA+Yb9V415U5tSF06TY=
