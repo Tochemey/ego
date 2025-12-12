@@ -257,6 +257,8 @@ github.com/mattn/go-isatty v0.0.20/go.mod h1:W+V8PltTTMOvKvAeJH7IuucS94S2C6jfK/D
 github.com/matttproud/golang_protobuf_extensions v1.0.1/go.mod h1:D8He9yQNgCq6Z5Ld7szi9bcBfOoFv/3dc6xSMkL2PC0=
 github.com/miekg/dns v1.1.68 h1:jsSRkNozw7G/mnmXULynzMNIsgY2dHC8LO6U6Ij2JEA=
 github.com/miekg/dns v1.1.68/go.mod h1:fujopn7TB3Pu3JM69XaawiU0wqjpL9/8xGop5UrTPps=
+github.com/miekg/dns v1.1.69 h1:Kb7Y/1Jo+SG+a2GtfoFUfDkG//csdRPwRLkCsxDG9Sc=
+github.com/miekg/dns v1.1.69/go.mod h1:7OyjD9nEba5OkqQ/hB4fy3PIoxafSZJtducccIelz3g=
 github.com/minio/highwayhash v1.0.4-0.20251030100505-070ab1a87a76 h1:KGuD/pM2JpL9FAYvBrnBBeENKZNh6eNtjqytV6TYjnk=
 github.com/minio/highwayhash v1.0.4-0.20251030100505-070ab1a87a76/go.mod h1:GGYsuwP/fPD6Y9hMiXuapVvlIUEhFhMTh0rxU3ik1LQ=
 github.com/mitchellh/go-homedir v1.1.0 h1:lukF9ziXFxDFPkA1vsr5zpc1XuPDn/wFntq5mG+4E0Y=
@@ -388,6 +390,8 @@ github.com/tochemey/ego/v3 v3.6.0 h1:eO9Eypa4oNyaIJQjFX73Q4GRZpl0c8wETcU1bauqAeA
 github.com/tochemey/ego/v3 v3.6.0/go.mod h1:U0+nLtDmOqvhR6MVGH5rYuZZh1554khqfR6D50CE2r8=
 github.com/tochemey/goakt/v3 v3.10.0 h1:XqXL9ynHHQ0irM8LgkUCu6L6F/+cUBQfeszICRnw9ow=
 github.com/tochemey/goakt/v3 v3.10.0/go.mod h1:RZnHMyLVcYwElU4WP78Ju+YWRiiCQdTlihwvmf6OCY0=
+github.com/tochemey/goakt/v3 v3.11.1 h1:Op3e+RuzAOlLBPofc/ytQCPwo+7lrWWtygDRBCM9n7g=
+github.com/tochemey/goakt/v3 v3.11.1/go.mod h1:fmiKLmv45/YuhrQA1JO6xkqD9rLl9wBUIHewQ5LcGko=
 github.com/tochemey/olric v0.3.2 h1:la9z9Gp9+xmbuTQ1/RiMk02YdA+Yb9V415U5tSF06TY=
 github.com/tochemey/olric v0.3.2/go.mod h1:QgB7Jk/YVmBcgAcSB9VZuQ2AvKS2i4N3yeP2u0+QLpA=
 github.com/travisjeffery/go-dynaport v1.0.0 h1:m/qqf5AHgB96CMMSworIPyo1i7NZueRsnwdzdCJ8Ajw=
