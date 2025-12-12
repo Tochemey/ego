@@ -8,7 +8,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/kapetan-io/tackle v0.13.0
 	github.com/stretchr/testify v1.11.1
-	github.com/tochemey/goakt/v3 v3.11.0
+	github.com/tochemey/goakt/v3 v3.11.1
 	github.com/travisjeffery/go-dynaport v1.0.0
 	go.uber.org/atomic v1.11.0
 	go.uber.org/multierr v1.11.0
@@ -60,7 +60,7 @@ require (
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.18.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
-	github.com/miekg/dns v1.1.68 // indirect
+	github.com/miekg/dns v1.1.69 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/mschoch/smat v0.2.0 // indirect
@@ -99,9 +99,9 @@ require (
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/api v0.34.2 // indirect
-	k8s.io/apimachinery v0.34.2 // indirect
-	k8s.io/client-go v0.34.2 // indirect
+	k8s.io/api v0.34.3 // indirect
+	k8s.io/apimachinery v0.34.3 // indirect
+	k8s.io/client-go v0.34.3 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20251125145642-4e65d59e963e // indirect
 	k8s.io/utils v0.0.0-20251002143259-bc988d571ff4 // indirect
