@@ -84,17 +84,17 @@ func (entity *DurableStateActor) PreStart(ctx *goakt.Context) error {
 	}
 
 	return runner.
-		New(runner.ReturnFirst()).
-		AddFunc(entity.durableStateRequired).
-		AddFunc(func() error {
+		New(runner.WithFailFast()).
+		AddRunner(entity.durableStateRequired).
+		AddRunner(func() error {
 			if entity.behavior == nil {
 				return fmt.Errorf("behavior is required")
 			}
 			return nil
 		}).
-		AddFunc(func() error { return entity.stateStore.Ping(ctx.Context()) }).
-		AddFunc(func() error { return entity.recoverFromStore(ctx.Context()) }).
-		Error()
+		AddRunner(func() error { return entity.stateStore.Ping(ctx.Context()) }).
+		AddRunner(func() error { return entity.recoverFromStore(ctx.Context()) }).
+		Run()
 }
 
 // Receive processes any message dropped into the actor mailbox.
@@ -112,10 +112,10 @@ func (entity *DurableStateActor) Receive(ctx *goakt.ReceiveContext) {
 // PostStop prepares the actor to gracefully shutdown
 func (entity *DurableStateActor) PostStop(ctx *goakt.Context) error {
 	return runner.
-		New(runner.ReturnFirst()).
-		AddFunc(func() error { return entity.stateStore.Ping(ctx.Context()) }).
-		AddFunc(func() error { return entity.persistStateAndPublish(ctx.Context()) }).
-		Error()
+		New(runner.WithFailFast()).
+		AddRunner(func() error { return entity.stateStore.Ping(ctx.Context()) }).
+		AddRunner(func() error { return entity.persistStateAndPublish(ctx.Context()) }).
+		Run()
 }
 
 // recoverFromStore reset the persistent actor to the latest state in case there is one

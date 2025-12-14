@@ -88,6 +88,24 @@ func TestOptionWithProjection(t *testing.T) {
 	opt := WithProjection(handler, 500, time.Time{}, time.Time{}, time.Second, nil)
 	opt.Apply(engine)
 	require.NotEmpty(t, engine.projectionExtension)
+	require.NotNil(t, engine.projectionExtension.Recovery())
+}
+
+func TestOptionWithProjectionOptions(t *testing.T) {
+	handler := projection.NewDiscardHandler()
+	recovery := projection.NewRecovery(projection.WithRetries(10))
+	engine := new(Engine)
+	opt := WithProjectionOptions(&projection.Options{
+		Handler:      handler,
+		BufferSize:   500,
+		StartOffset:  time.Time{},
+		ResetOffset:  time.Time{},
+		PullInterval: time.Second,
+		Recovery:     recovery,
+	})
+	opt.Apply(engine)
+	require.NotEmpty(t, engine.projectionExtension)
+	require.Same(t, recovery, engine.projectionExtension.Recovery())
 }
 
 func TestOptionWithRoles(t *testing.T) {

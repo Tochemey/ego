@@ -81,16 +81,16 @@ func (entity *EventSourcedActor) PreStart(ctx *goakt.Context) error {
 	}
 
 	return runner.
-		New(runner.ReturnFirst()).
-		AddFunc(func() error {
+		New(runner.WithFailFast()).
+		AddRunner(func() error {
 			if entity.behavior == nil {
 				return fmt.Errorf("behavior is required")
 			}
 			return nil
 		}).
-		AddFunc(func() error { return entity.eventsStore.Ping(ctx.Context()) }).
-		AddFunc(func() error { return entity.recoverFromSnapshot(ctx.Context()) }).
-		Error()
+		AddRunner(func() error { return entity.eventsStore.Ping(ctx.Context()) }).
+		AddRunner(func() error { return entity.recoverFromSnapshot(ctx.Context()) }).
+		Run()
 }
 
 // Receive processes any message dropped into the actor mailbox.
