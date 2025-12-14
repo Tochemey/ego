@@ -161,6 +161,61 @@ func WithTLS(tls *TLS) Option {
 	})
 }
 
+// WithProjectionOptions configures the Engine's projection extension using the
+// provided projection.Options.
+//
+// Projections consume persisted events and update a read model or external
+// system. This option wires the projection handler, buffering, offsets, polling,
+// and recovery strategy.
+//
+// Behavior and defaults:
+//   - Handler (required): The projection.Handler that processes events.
+//   - BufferSize: Number of events buffered in memory before processing.
+//   - StartOffset: Initial offset time to start reading events from.
+//   - ResetOffset: Fallback offset time used when recovery requires a rewind.
+//   - PullInterval: How often to poll for new events.
+//   - Recovery: If nil, defaults to projection.NewRecovery().
+//
+// Offset management:
+//   - Offsets are persisted via the Engine’s OffsetStore (configured with WithOffsetStore).
+//     If no OffsetStore is provided, projections cannot durably track progress.
+//
+// Typical usage:
+//   - Use WithProjectionOptions to centralize configuration.
+//   - Prefer this over the deprecated WithProjection helper.
+//
+// Example:
+//
+//	engine := NewEngine(
+//	    WithOffsetStore(myOffsetStore),
+//	    WithProjectionOptions(projection.Options{
+//	        Handler:      myHandler,
+//	        BufferSize:   256,
+//	        StartOffset:  time.Now().Add(-24 * time.Hour),
+//	        ResetOffset:  time.Time{}, // zero means "no explicit reset fallback"
+//	        PullInterval: 2 * time.Second,
+//	        Recovery:     projection.NewRecovery(projection.WithRetries(3)),
+//	    }),
+//	)
+func WithProjectionOptions(options *projection.Options) Option {
+	return OptionFunc(func(e *Engine) {
+		if options != nil {
+			recovery := options.Recovery
+			if recovery == nil {
+				recovery = projection.NewRecovery()
+			}
+			e.projectionExtension = extensions.NewProjectionExtension(
+				options.Handler,
+				options.BufferSize,
+				options.StartOffset,
+				options.ResetOffset,
+				options.PullInterval,
+				recovery,
+			)
+		}
+	})
+}
+
 // WithProjection configures the Engine to use a projection extension for processing persisted events.
 // It sets up the projection handler along with buffering and recovery parameters.
 //
@@ -187,19 +242,16 @@ func WithTLS(tls *TLS) Option {
 //	        projection.NewRecovery(WithRetries(3)),
 //	    ),
 //	)
+//
+// Deprecated: Use WithProjectionOptions instead.
 func WithProjection(handler projection.Handler, bufferSize int, startOffset, resetOffset time.Time, pullInterval time.Duration, recovery *projection.Recovery) Option {
-	return OptionFunc(func(e *Engine) {
-		if recovery == nil {
-			recovery = projection.NewRecovery()
-		}
-		e.projectionExtension = extensions.NewProjectionExtension(
-			handler,
-			bufferSize,
-			startOffset,
-			resetOffset,
-			pullInterval,
-			recovery,
-		)
+	return WithProjectionOptions(&projection.Options{
+		Handler:      handler,
+		BufferSize:   bufferSize,
+		StartOffset:  startOffset,
+		ResetOffset:  resetOffset,
+		PullInterval: pullInterval,
+		Recovery:     recovery,
 	})
 }
 

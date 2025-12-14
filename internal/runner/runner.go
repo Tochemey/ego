@@ -24,22 +24,27 @@
 
 package runner
 
-import "go.uber.org/multierr"
+import (
+	"context"
+
+	"go.uber.org/multierr"
+)
 
 // Chain defines an error chain
 type Chain struct {
 	returnFirst bool
-	errs        []error
+	err         error
+	ctx         context.Context
 }
 
-// ChainOption configures a validation chain at creation time.
-type ChainOption func(*Chain)
+// Option configures a validation chain at creation time.
+type Option func(*Chain)
 
 // New creates a new error chain. All errors will be evaluated respectively
 // according to their insertion order
-func New(opts ...ChainOption) *Chain {
+func New(opts ...Option) *Chain {
 	chain := &Chain{
-		errs: make([]error, 0),
+		ctx: context.Background(),
 	}
 
 	for _, opt := range opts {
@@ -49,79 +54,94 @@ func New(opts ...ChainOption) *Chain {
 	return chain
 }
 
-// AddError add an error to the chain
-func (c *Chain) AddError(err error) *Chain {
+// AddRunner add an error to the chain
+func (c *Chain) AddRunner(fn func() error) *Chain {
 	if c.returnFirst {
-		if len(c.errs) == 0 {
-			if err != nil {
-				c.errs = append(c.errs, err)
-				return c
-			}
+		if c.err != nil {
+			return c
 		}
-		return c
-	}
-
-	if err != nil {
-		c.errs = append(c.errs, err)
-		return c
-	}
-
-	return c
-}
-
-// AddFunc add an error to the chain
-func (c *Chain) AddFunc(fn func() error) *Chain {
-	if c.returnFirst {
-		if len(c.errs) == 0 {
-			if err := fn(); err != nil {
-				c.errs = append(c.errs, err)
-				return c
-			}
+		if err := fn(); err != nil {
+			c.err = err
 		}
 		return c
 	}
 
 	if err := fn(); err != nil {
-		c.errs = append(c.errs, err)
+		multierr.AppendInto(&c.err, err)
+	}
+
+	return c
+}
+
+// AddRunners add a slice of error functions to the chain. Remember the slice order does matter here
+func (c *Chain) AddRunners(fn ...func() error) *Chain {
+	for _, f := range fn {
+		if c.returnFirst && c.err != nil {
+			break
+		}
+		c.AddRunner(f)
+	}
+	return c
+}
+
+// AddContextRunner add an error to the chain
+func (c *Chain) AddContextRunner(fn func(ctx context.Context) error) *Chain {
+	if c.returnFirst {
+		if c.err != nil {
+			return c
+		}
+		if err := fn(c.ctx); err != nil {
+			c.err = err
+		}
 		return c
 	}
 
-	return c
-}
-
-// AddFuncs add a slice of error functions to the chain. Remember the slice order does matter here
-func (c *Chain) AddFuncs(fn ...func() error) *Chain {
-	for _, f := range fn {
-		c = c.AddFunc(f)
+	if err := fn(c.ctx); err != nil {
+		multierr.AppendInto(&c.err, err)
 	}
+
 	return c
 }
 
-// Error returns the error
-func (c *Chain) Error() error {
+// AddContextRunnerIf adds an error function to the chain if the condition is true
+func (c *Chain) AddContextRunnerIf(condition bool, fn func(ctx context.Context) error) *Chain {
+	if !condition {
+		return c
+	}
+
 	if c.returnFirst {
-		if len(c.errs) == 0 {
-			return nil
+		if c.err != nil {
+			return c
 		}
-		return c.errs[0]
+		if err := fn(c.ctx); err != nil {
+			c.err = err
+		}
+		return c
 	}
 
-	var err error
-	for _, v := range c.errs {
-		if v != nil {
-			// append error to the violations
-			err = multierr.Append(err, v)
-		}
+	if err := fn(c.ctx); err != nil {
+		multierr.AppendInto(&c.err, err)
 	}
-	return err
+
+	return c
 }
 
-// ReturnFirst sets whether a chain should stop validation on first error.
-func ReturnFirst() ChainOption {
+// Run returns the error
+func (c *Chain) Run() error {
+	return c.err
+}
+
+// WithFailFast sets whether a chain should stop validation on first error.
+func WithFailFast() Option {
 	return func(c *Chain) { c.returnFirst = true }
 }
 
-// ReturnAll sets whether a chain should return all errors.
-func ReturnAll() ChainOption {
+// WithRunAll sets whether a chain should return all errors.
+func WithRunAll() Option {
 	return func(c *Chain) { c.returnFirst = false }
+}
+
+// WithContext sets the chain context to use
+func WithContext(ctx context.Context) Option {
+	return func(c *Chain) { c.ctx = ctx }
 }

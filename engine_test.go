@@ -107,7 +107,14 @@ func TestEngine(t *testing.T) {
 			}),
 			WithOffsetStore(offsetStore),
 			WithRoles("role1", "role2"),
-			WithProjection(handler, 500, ZeroTime, ZeroTime, time.Second, projection.NewRecovery()),
+			WithProjectionOptions(&projection.Options{
+				Handler:      handler,
+				BufferSize:   500,
+				StartOffset:  ZeroTime,
+				ResetOffset:  ZeroTime,
+				PullInterval: time.Second,
+				Recovery:     projection.NewRecovery(),
+			}),
 			WithCluster(provider, 4, 1, host, remotingPort, gossipPort, clusterPort))
 		// start ego engine
 		err := engine.Start(ctx)
@@ -357,7 +364,14 @@ func TestEngine(t *testing.T) {
 		// create the ego engine
 		engine := NewEngine("Sample", eventStore,
 			WithOffsetStore(offsetStore),
-			WithProjection(handler, 500, ZeroTime, ZeroTime, time.Second, projection.NewRecovery()),
+			WithProjectionOptions(&projection.Options{
+				Handler:      handler,
+				BufferSize:   500,
+				StartOffset:  ZeroTime,
+				ResetOffset:  ZeroTime,
+				PullInterval: time.Second,
+				Recovery:     projection.NewRecovery(),
+			}),
 			WithLogger(log.DiscardLogger))
 		// start ego engine
 		err := engine.Start(ctx)
@@ -684,7 +698,14 @@ func TestEngine(t *testing.T) {
 				ServerTLS: conf.ServerTLS,
 			}),
 			WithOffsetStore(offsetStore),
-			WithProjection(handler, 500, ZeroTime, ZeroTime, time.Second, projection.NewRecovery()),
+			WithProjectionOptions(&projection.Options{
+				Handler:      handler,
+				BufferSize:   500,
+				StartOffset:  ZeroTime,
+				ResetOffset:  ZeroTime,
+				PullInterval: time.Second,
+				Recovery:     projection.NewRecovery(),
+			}),
 			WithCluster(provider, 4, 1, host, remotingPort, discoveryPort, clusterPort))
 
 		// start ego engine
@@ -1062,7 +1083,14 @@ func TestEngine(t *testing.T) {
 		engine := NewEngine("Sample",
 			eventStore,
 			WithOffsetStore(offsetStore),
-			WithProjection(handler, 500, ZeroTime, ZeroTime, time.Second, projection.NewRecovery()),
+			WithProjectionOptions(&projection.Options{
+				Handler:      handler,
+				BufferSize:   500,
+				StartOffset:  ZeroTime,
+				ResetOffset:  ZeroTime,
+				PullInterval: time.Second,
+				Recovery:     projection.NewRecovery(),
+			}),
 			WithLogger(log.DiscardLogger))
 
 		projectionName := "projection"
@@ -1084,7 +1112,14 @@ func TestEngine(t *testing.T) {
 		// create the ego engine
 		engine := NewEngine("Sample", eventStore,
 			WithOffsetStore(offsetStore),
-			WithProjection(handler, 500, ZeroTime, ZeroTime, time.Second, projection.NewRecovery()),
+			WithProjectionOptions(&projection.Options{
+				Handler:      handler,
+				BufferSize:   500,
+				StartOffset:  ZeroTime,
+				ResetOffset:  ZeroTime,
+				PullInterval: time.Second,
+				Recovery:     projection.NewRecovery(),
+			}),
 			WithLogger(log.DiscardLogger))
 
 		// start ego engine

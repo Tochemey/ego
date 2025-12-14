@@ -13,3 +13,4 @@ gen.env
 gen/
 /.fleet/settings.json
 .gocache/
+.cache/
