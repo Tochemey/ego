@@ -388,6 +388,8 @@ github.com/tklauser/numcpus v0.11.0 h1:nSTwhKH5e1dMNsCdVBukSZrURJRoHbSEQjdEbY+9R
 github.com/tklauser/numcpus v0.11.0/go.mod h1:z+LwcLq54uWZTX0u/bGobaV34u6V7KNlTZejzM6/3MQ=
 github.com/tochemey/ego/v3 v3.6.0 h1:eO9Eypa4oNyaIJQjFX73Q4GRZpl0c8wETcU1bauqAeA=
 github.com/tochemey/ego/v3 v3.6.0/go.mod h1:U0+nLtDmOqvhR6MVGH5rYuZZh1554khqfR6D50CE2r8=
+github.com/tochemey/ego/v3 v3.6.1 h1:Re2ZsfKk92Ok1oOIXnG4Zp6ekOMkFqqehDzR+xdP8VM=
+github.com/tochemey/ego/v3 v3.6.1/go.mod h1:TuMjJ4VkWqqI5D7xgJAXDUE0MmpjhE34m8TDacOw4kw=
 github.com/tochemey/goakt/v3 v3.10.0 h1:XqXL9ynHHQ0irM8LgkUCu6L6F/+cUBQfeszICRnw9ow=
 github.com/tochemey/goakt/v3 v3.10.0/go.mod h1:RZnHMyLVcYwElU4WP78Ju+YWRiiCQdTlihwvmf6OCY0=
 github.com/tochemey/goakt/v3 v3.11.1 h1:Op3e+RuzAOlLBPofc/ytQCPwo+7lrWWtygDRBCM9n7g=
@@ -549,6 +551,8 @@ google.golang.org/protobuf v1.23.0/go.mod h1:EGpADcykh3NcUnDUJcl1+ZksZNG86OlYog2
 google.golang.org/protobuf v1.26.0-rc.1/go.mod h1:jlhhOSvTdKEhbULTjvd4ARK9grFBp09yW+WbY/TyQbw=
 google.golang.org/protobuf v1.36.10 h1:AYd7cD/uASjIL6Q9LiTjz8JLcrh/88q5UObnmY3aOOE=
 google.golang.org/protobuf v1.36.10/go.mod h1:HTf+CrKn2C3g5S8VImy6tdcUvCska2kB7j23XfzDpco=
+google.golang.org/protobuf v1.36.11 h1:fV6ZwhNocDyBLK0dj+fg8ektcVegBBuEolpbTQyBNVE=
+google.golang.org/protobuf v1.36.11/go.mod h1:HTf+CrKn2C3g5S8VImy6tdcUvCska2kB7j23XfzDpco=
 gopkg.in/alecthomas/kingpin.v2 v2.2.6/go.mod h1:FMv+mEhP44yOT+4EoQTLFTRgOQ1FBLkstjWtayDeSgw=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
 gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
