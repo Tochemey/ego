@@ -3,7 +3,7 @@ module github.com/tochemey/ego/v3/publisher/pulsar
 go 1.25.3
 
 require (
-	github.com/apache/pulsar-client-go v0.17.0
+	github.com/apache/pulsar-client-go v0.18.0
 	github.com/tochemey/ego/v3 v3.6.1
 	github.com/tochemey/gopack v0.2.0
 	go.uber.org/atomic v1.11.0
@@ -17,6 +17,7 @@ require (
 	github.com/AthenZ/athenz v1.12.31 // indirect
 	github.com/DataDog/zstd v1.5.7 // indirect
 	github.com/RoaringBitmap/roaring v1.9.4 // indirect
+	github.com/RoaringBitmap/roaring/v2 v2.8.0 // indirect
 	github.com/Workiva/go-datastructures v1.1.7 // indirect
 	github.com/andybalholm/brotli v1.2.0 // indirect
 	github.com/ardielle/ardielle-go v1.5.2 // indirect
@@ -30,6 +31,7 @@ require (
 	github.com/deckarep/golang-set/v2 v2.8.0 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/dvsekhvalnov/jose2go v1.8.0 // indirect
+	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/flowchartsman/retry v1.2.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
