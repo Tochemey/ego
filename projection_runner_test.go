@@ -404,6 +404,77 @@ func TestRunner(t *testing.T) {
 		assert.NoError(t, offsetStore.Disconnect(ctx))
 		assert.NoError(t, runner.Stop())
 	})
+	t.Run("with handler panic and fail strategy", func(t *testing.T) {
+		ctx := context.TODO()
+		projectionName := "db-writer"
+		persistenceID := uuid.NewString()
+		shardNumber := uint64(9)
+		timestamp := timestamppb.Now()
+		handler := &testPanicHandler{}
+
+		// create the projection id
+		projectionID := &egopb.ProjectionId{
+			ProjectionName: projectionName,
+			ShardNumber:    shardNumber,
+		}
+
+		offset := &egopb.Offset{
+			ShardNumber:    shardNumber,
+			ProjectionName: projectionName,
+			Value:          timestamp.AsTime().Unix(),
+			Timestamp:      0,
+		}
+
+		state, err := anypb.New(new(testpb.Account))
+		assert.NoError(t, err)
+		event, err := anypb.New(&testpb.AccountCredited{})
+		assert.NoError(t, err)
+		nextOffsetValue := timestamppb.New(time.Now().Add(time.Minute))
+		events := []*egopb.Event{
+			{
+				PersistenceId:  persistenceID,
+				SequenceNumber: 1,
+				IsDeleted:      false,
+				Event:          event,
+				ResultingState: state,
+				Timestamp:      timestamp.AsTime().Unix(),
+				Shard:          shardNumber,
+			},
+		}
+
+		maxBufferSize := 10
+
+		offsetStore := new(mocksoffsetstore.OffsetStore)
+		offsetStore.EXPECT().Ping(mock.Anything).Return(nil)
+		offsetStore.EXPECT().GetCurrentOffset(mock.Anything, projectionID).Return(offset, nil)
+
+		eventsStore := new(mockseventstore.EventsStore)
+		eventsStore.EXPECT().Ping(mock.Anything).Return(nil)
+		eventsStore.EXPECT().ShardNumbers(mock.Anything).Return([]uint64{shardNumber}, nil)
+		eventsStore.EXPECT().GetShardEvents(mock.Anything, shardNumber, offset.GetValue(), uint64(maxBufferSize)).
+			Return(events, nextOffsetValue.AsTime().UnixMilli(), nil)
+
+		// create an instance of the projection
+		runner := newProjectionRunner(projectionName, handler, eventsStore, offsetStore, withPullInterval(time.Millisecond))
+		runner.maxBufferSize = maxBufferSize
+
+		// start the projection
+		err = runner.Start(ctx)
+		require.NoError(t, err)
+
+		// run the projection
+		runner.Run(ctx)
+
+		pause.For(time.Second)
+
+		eventsStore.AssertExpectations(t)
+		offsetStore.AssertExpectations(t)
+		offsetStore.AssertNotCalled(t, "WriteOffset", mock.Anything, mock.AnythingOfType("*egopb.Offset"))
+
+		assert.False(t, runner.running.Load())
+
+		require.NoError(t, runner.Stop())
+	})
 	t.Run("with events store is not defined", func(t *testing.T) {
 		ctx := context.Background()
 		handler := projection.NewDiscardHandler()
@@ -845,4 +916,12 @@ func (x testHandler2) Handle(_ context.Context, _ string, _ *anypb.Any, _ *anypb
 	}
 	x.counter.Inc()
 	return nil
+}
+
+type testPanicHandler struct{}
+
+var _ projection.Handler = &testPanicHandler{}
+
+func (x testPanicHandler) Handle(_ context.Context, _ string, _ *anypb.Any, _ *anypb.Any, _ uint64) error {
+	panic("boom")
 }

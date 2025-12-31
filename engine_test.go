@@ -44,6 +44,7 @@ import (
 	gerrors "github.com/tochemey/goakt/v3/errors"
 	"github.com/tochemey/goakt/v3/log"
 	mockdisco "github.com/tochemey/goakt/v3/mocks/discovery"
+	"github.com/tochemey/goakt/v3/supervisor"
 	"github.com/travisjeffery/go-dynaport"
 	"google.golang.org/protobuf/proto"
 
@@ -209,13 +210,18 @@ func TestEngine(t *testing.T) {
 
 		// mock the event publisher
 		publisher := new(egomock.EventPublisher)
+		published := make(chan struct{}, 2)
 		publisher.On("ID").Return("eGo.test.EventsPublisher")
 		publisher.On("Close", ctx).Return(nil)
 		publisher.
 			On("Publish", mock.Anything, mock.AnythingOfType("*egopb.Event")).
-			Return(func(ctx context.Context, event *egopb.Event) error {
-				return nil
-			})
+			Run(func(args mock.Arguments) {
+				select {
+				case published <- struct{}{}:
+				default:
+				}
+			}).
+			Return(nil)
 
 		// create the ego engine
 		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
@@ -266,6 +272,14 @@ func TestEngine(t *testing.T) {
 		require.EqualValues(t, 750.00, newAccount.GetAccountBalance())
 		require.Equal(t, entityID, newAccount.GetAccountId())
 		require.EqualValues(t, 2, revision)
+
+		for i := 0; i < 2; i++ {
+			select {
+			case <-published:
+			case <-time.After(2 * time.Second):
+				require.FailNow(t, "timed out waiting for event publish")
+			}
+		}
 
 		// free resources
 		require.NoError(t, eventStore.Disconnect(ctx))
@@ -1242,11 +1256,11 @@ func TestToSupervisorDirective(t *testing.T) {
 	testcases := []struct {
 		name      string
 		input     SupervisorDirective
-		directive goakt.Directive
+		directive supervisor.Directive
 	}{
-		{name: "stop", input: StopDirective, directive: goakt.StopDirective},
-		{name: "restart", input: RestartDirective, directive: goakt.RestartDirective},
-		{name: "default", input: SupervisorDirective(42), directive: goakt.RestartDirective},
+		{name: "stop", input: StopDirective, directive: supervisor.StopDirective},
+		{name: "restart", input: RestartDirective, directive: supervisor.RestartDirective},
+		{name: "default", input: SupervisorDirective(42), directive: supervisor.RestartDirective},
 	}
 
 	for _, tc := range testcases {

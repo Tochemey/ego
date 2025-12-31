@@ -39,6 +39,7 @@ import (
 	"github.com/tochemey/goakt/v3/log"
 	"github.com/tochemey/goakt/v3/passivation"
 	"github.com/tochemey/goakt/v3/remote"
+	"github.com/tochemey/goakt/v3/supervisor"
 	gtls "github.com/tochemey/goakt/v3/tls"
 	"go.uber.org/atomic"
 
@@ -160,82 +161,16 @@ func NewEngine(name string, eventsStore persistence.EventsStore, opts ...Option)
 // Returns:
 //   - An error if the engine fails to start due to misconfiguration or system issues; otherwise, nil.
 func (engine *Engine) Start(ctx context.Context) error {
-	opts := []goakt.Option{
-		goakt.WithLogger(engine.logger),
-		goakt.WithActorInitMaxRetries(1),
-		goakt.WithExtensions(
-			extensions.NewEventsStore(engine.eventsStore),
-			extensions.NewEventsStream(engine.eventStream),
-		),
-	}
-
-	if engine.stateStore != nil {
-		opts = append(opts, goakt.WithExtensions(extensions.NewDurableStateStore(engine.stateStore)))
-	}
-
-	if engine.offsetStore != nil {
-		opts = append(opts, goakt.WithExtensions(extensions.NewOffsetStore(engine.offsetStore)))
-	}
-
-	if engine.projectionExtension != nil {
-		if engine.offsetStore == nil {
-			return fmt.Errorf("projection extension requires an offset store")
-		}
-		opts = append(opts, goakt.WithExtensions(engine.projectionExtension))
-	}
-
-	if engine.tls != nil {
-		opts = append(opts, goakt.WithTLS(&gtls.Info{
-			ClientConfig: engine.tls.ClientTLS,
-			ServerConfig: engine.tls.ServerTLS,
-		}))
-	}
-
-	if engine.clusterEnabled.Load() {
-		if engine.bindAddr == "" {
-			engine.bindAddr = "0.0.0.0"
-		}
-
-		replicaCount := 1
-		if engine.minimumPeersQuorum > 1 {
-			replicaCount = 2
-		}
-
-		clusterConfig := goakt.
-			NewClusterConfig().
-			WithDiscovery(engine.discoveryProvider).
-			WithDiscoveryPort(engine.discoveryPort).
-			WithPeersPort(engine.peersPort).
-			WithMinimumPeersQuorum(uint32(engine.minimumPeersQuorum)).
-			WithReplicaCount(uint32(replicaCount)).
-			WithPartitionCount(engine.partitionsCount).
-			WithKinds(
-				new(EventSourcedActor),
-				new(DurableStateActor),
-			)
-
-		// set roles if any
-		if !engine.roles.IsEmpty() {
-			clusterConfig = clusterConfig.WithRoles(engine.roles.ToSlice()...)
-		}
-
-		opts = append(opts,
-			goakt.WithCluster(clusterConfig),
-			goakt.WithRemote(remote.NewConfig(engine.bindAddr, engine.remotingPort)))
-	}
-
-	var err error
-	engine.actorSystem, err = goakt.NewActorSystem(engine.name, opts...)
+	opts, err := engine.actorSystemOptions()
 	if err != nil {
-		return fmt.Errorf("failed to create the ego actor system: %w", err)
+		return err
 	}
 
-	if err := engine.actorSystem.Start(ctx); err != nil {
+	if err := engine.startActorSystem(ctx, opts); err != nil {
 		return err
 	}
 
 	engine.started.Store(true)
-
 	return nil
 }
 
@@ -270,7 +205,7 @@ func (engine *Engine) AddProjection(ctx context.Context, name string) error {
 	// projections are long-lived actors
 	// TODO: resuming the projection may not be a good option. Need to figure out the correlation between the handler
 	// TODO: retry policy and the backing actor behavior
-	supervisor := goakt.NewSupervisor(goakt.WithAnyErrorDirective(goakt.ResumeDirective))
+	supervisor := supervisor.NewSupervisor(supervisor.WithAnyErrorDirective(supervisor.ResumeDirective))
 	if _, err := actorSystem.Spawn(ctx, name,
 		actor,
 		goakt.WithLongLived(),
@@ -664,6 +599,213 @@ func parseCommandReply(reply *egopb.CommandReply) (State, uint64, error) {
 	return state, 0, errors.New("no state received")
 }
 
+// generateTopics generates a list of topics based on the base topic name and partitions count.
+func generateTopics(baseTopic string, partitionsCount uint64) []string {
+	var topics []string
+	switch partitionsCount {
+	case 0:
+		topics = append(topics, fmt.Sprintf(baseTopic, 0))
+	default:
+		for i := range int(partitionsCount) {
+			topics = append(topics, fmt.Sprintf(baseTopic, i))
+		}
+	}
+	return topics
+}
+
+func buildSpawnOptions(opts ...SpawnOption) []goakt.SpawnOption {
+	config := newSpawnConfig(opts...)
+	sOptions := []goakt.SpawnOption{
+		goakt.WithLongLived(),
+	}
+
+	if config.passivateAfter > 0 {
+		sOptions = append(sOptions, goakt.WithPassivationStrategy(passivation.NewTimeBasedStrategy(config.passivateAfter)))
+	}
+
+	if !config.toRelocate {
+		sOptions = append(sOptions, goakt.WithRelocationDisabled())
+	}
+
+	sOptions = append(sOptions,
+		goakt.WithPlacement(toSpawnPlacement(config.entitiesPlacement)),
+		goakt.WithSupervisor(newSupervisor(config.supervisorDirective)),
+	)
+
+	return sOptions
+}
+
+func newSupervisor(directive SupervisorDirective) *supervisor.Supervisor {
+	return supervisor.NewSupervisor(supervisor.WithAnyErrorDirective(toSupervisorDirective(directive)))
+}
+
+func toSpawnPlacement(placement EntitiesPlacement) goakt.SpawnPlacement {
+	switch placement {
+	case LeastLoad:
+		return goakt.LeastLoad
+	case Random:
+		return goakt.Random
+	case Local:
+		return goakt.Local
+	default:
+		return goakt.RoundRobin
+	}
+}
+
+func toSupervisorDirective(directive SupervisorDirective) supervisor.Directive {
+	switch directive {
+	case StopDirective:
+		return supervisor.StopDirective
+	default:
+		return supervisor.RestartDirective
+	}
+}
+
+// actorSystemOptions builds the Go-Akt options needed to start the engine.
+func (engine *Engine) actorSystemOptions() ([]goakt.Option, error) {
+	opts := engine.baseOptions()
+
+	var err error
+	opts, err = engine.appendOptionalExtensions(opts)
+	if err != nil {
+		return nil, err
+	}
+
+	opts = engine.appendTLSOption(opts)
+	opts = engine.appendClusterOptions(opts)
+	return opts, nil
+}
+
+// baseOptions returns the always-on options for the engine actor system.
+func (engine *Engine) baseOptions() []goakt.Option {
+	return []goakt.Option{
+		goakt.WithLogger(engine.logger),
+		goakt.WithActorInitMaxRetries(1),
+		goakt.WithDefaultSupervisor(
+			supervisor.NewSupervisor(supervisor.WithAnyErrorDirective(supervisor.ResumeDirective))),
+		goakt.WithExtensions(
+			extensions.NewEventsStore(engine.eventsStore),
+			extensions.NewEventsStream(engine.eventStream),
+		),
+	}
+}
+
+// appendOptionalExtensions adds optional extensions and validates dependencies.
+func (engine *Engine) appendOptionalExtensions(opts []goakt.Option) ([]goakt.Option, error) {
+	if engine.stateStore != nil {
+		opts = append(opts, goakt.WithExtensions(extensions.NewDurableStateStore(engine.stateStore)))
+	}
+
+	if engine.offsetStore != nil {
+		opts = append(opts, goakt.WithExtensions(extensions.NewOffsetStore(engine.offsetStore)))
+	}
+
+	if engine.projectionExtension != nil {
+		if engine.offsetStore == nil {
+			return nil, fmt.Errorf("projection extension requires an offset store")
+		}
+		opts = append(opts, goakt.WithExtensions(engine.projectionExtension))
+	}
+
+	return opts, nil
+}
+
+// appendTLSOption adds TLS configuration when enabled.
+func (engine *Engine) appendTLSOption(opts []goakt.Option) []goakt.Option {
+	if engine.tls == nil {
+		return opts
+	}
+
+	return append(opts, goakt.WithTLS(&gtls.Info{
+		ClientConfig: engine.tls.ClientTLS,
+		ServerConfig: engine.tls.ServerTLS,
+	}))
+}
+
+// appendClusterOptions adds cluster-related options when clustering is enabled.
+func (engine *Engine) appendClusterOptions(opts []goakt.Option) []goakt.Option {
+	if !engine.clusterEnabled.Load() {
+		return opts
+	}
+
+	engine.ensureBindAddr()
+	clusterConfig := engine.clusterConfig()
+	return append(opts,
+		goakt.WithCluster(clusterConfig),
+		goakt.WithRemote(remote.NewConfig(engine.bindAddr, engine.remotingPort)),
+	)
+}
+
+// ensureBindAddr sets a default bind address when none is configured.
+func (engine *Engine) ensureBindAddr() {
+	if engine.bindAddr == "" {
+		engine.bindAddr = "0.0.0.0"
+	}
+}
+
+// clusterConfig builds the Go-Akt cluster configuration for the engine.
+func (engine *Engine) clusterConfig() *goakt.ClusterConfig {
+	replicaCount := engine.clusterReplicaCount()
+	stateSyncInterval, balancerInterval := engine.clusterIntervals()
+
+	clusterConfig := goakt.
+		NewClusterConfig().
+		WithDiscovery(engine.discoveryProvider).
+		WithDiscoveryPort(engine.discoveryPort).
+		WithPeersPort(engine.peersPort).
+		WithMinimumPeersQuorum(uint32(engine.minimumPeersQuorum)).
+		WithReplicaCount(replicaCount).
+		WithPartitionCount(engine.partitionsCount).
+		WithClusterStateSyncInterval(stateSyncInterval).
+		WithClusterBalancerInterval(balancerInterval).
+		WithKinds(
+			new(EventSourcedActor),
+			new(DurableStateActor),
+		)
+
+	// set roles if any
+	if !engine.roles.IsEmpty() {
+		clusterConfig = clusterConfig.WithRoles(engine.roles.ToSlice()...)
+	}
+
+	return clusterConfig
+}
+
+// clusterReplicaCount returns the replica count derived from the minimum peers quorum.
+func (engine *Engine) clusterReplicaCount() uint32 {
+	if engine.minimumPeersQuorum > 1 {
+		return 2
+	}
+	return 1
+}
+
+// clusterIntervals returns state sync and balancer intervals derived from quorum size.
+func (engine *Engine) clusterIntervals() (time.Duration, time.Duration) {
+	switch {
+	case engine.minimumPeersQuorum >= 4:
+		return 30 * time.Second, 2 * time.Second
+	case engine.minimumPeersQuorum > 1:
+		return 20 * time.Second, time.Second
+	default:
+		return 10 * time.Second, 500 * time.Millisecond
+	}
+}
+
+// startActorSystem initializes and starts the underlying Go-Akt actor system.
+func (engine *Engine) startActorSystem(ctx context.Context, opts []goakt.Option) error {
+	actorSystem, err := goakt.NewActorSystem(engine.name, opts...)
+	if err != nil {
+		return fmt.Errorf("failed to create the ego actor system: %w", err)
+	}
+
+	if err := actorSystem.Start(ctx); err != nil {
+		return err
+	}
+
+	engine.actorSystem = actorSystem
+	return nil
+}
+
 // sendEvent sends events to the event publisher
 func (engine *Engine) sendEvent(stream *eventsStream) {
 	for {
@@ -728,67 +870,5 @@ func (engine *Engine) sendState(stream *statesStream) {
 				msg.GetPersistenceId(),
 				msg.GetVersionNumber())
 		}
-	}
-}
-
-// generateTopics generates a list of topics based on the base topic name and partitions count.
-func generateTopics(baseTopic string, partitionsCount uint64) []string {
-	var topics []string
-	switch partitionsCount {
-	case 0:
-		topics = append(topics, fmt.Sprintf(baseTopic, 0))
-	default:
-		for i := range int(partitionsCount) {
-			topics = append(topics, fmt.Sprintf(baseTopic, i))
-		}
-	}
-	return topics
-}
-
-func buildSpawnOptions(opts ...SpawnOption) []goakt.SpawnOption {
-	config := newSpawnConfig(opts...)
-	sOptions := []goakt.SpawnOption{
-		goakt.WithLongLived(),
-	}
-
-	if config.passivateAfter > 0 {
-		sOptions = append(sOptions, goakt.WithPassivationStrategy(passivation.NewTimeBasedStrategy(config.passivateAfter)))
-	}
-
-	if !config.toRelocate {
-		sOptions = append(sOptions, goakt.WithRelocationDisabled())
-	}
-
-	sOptions = append(sOptions,
-		goakt.WithPlacement(toSpawnPlacement(config.entitiesPlacement)),
-		goakt.WithSupervisor(newSupervisor(config.supervisorDirective)),
-	)
-
-	return sOptions
-}
-
-func newSupervisor(directive SupervisorDirective) *goakt.Supervisor {
-	return goakt.NewSupervisor(goakt.WithAnyErrorDirective(toSupervisorDirective(directive)))
-}
-
-func toSpawnPlacement(placement EntitiesPlacement) goakt.SpawnPlacement {
-	switch placement {
-	case LeastLoad:
-		return goakt.LeastLoad
-	case Random:
-		return goakt.Random
-	case Local:
-		return goakt.Local
-	default:
-		return goakt.RoundRobin
-	}
-}
-
-func toSupervisorDirective(directive SupervisorDirective) goakt.Directive {
-	switch directive {
-	case StopDirective:
-		return goakt.StopDirective
-	default:
-		return goakt.RestartDirective
 	}
 }
