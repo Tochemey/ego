@@ -29,12 +29,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime/debug"
 	"time"
 
 	"github.com/flowchartsman/retry"
 	"github.com/tochemey/goakt/v3/log"
 	"go.uber.org/atomic"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/tochemey/ego/v3/egopb"
@@ -245,14 +247,9 @@ func (x *projectionRunner) doProcess(ctx context.Context, shard uint64) error {
 		ShardNumber:    shard,
 	}
 
-	offset, err := x.offsetsStore.GetCurrentOffset(ctx, projectionID)
+	currOffset, err := x.currentOffset(ctx, projectionID)
 	if err != nil {
 		return err
-	}
-
-	currOffset := offset.GetValue()
-	if !x.startingOffset.IsZero() {
-		currOffset = x.startingOffset.UnixMilli()
 	}
 
 	events, nextOffset, err := x.eventsStore.GetShardEvents(ctx, shard, currOffset, uint64(x.maxBufferSize))
@@ -260,83 +257,148 @@ func (x *projectionRunner) doProcess(ctx context.Context, shard uint64) error {
 		return err
 	}
 
-	length := len(events)
-
-	if length == 0 {
+	if len(events) == 0 {
 		return nil
 	}
 
-	// define a variable that hold the number of events successfully processed
-	// iterate the events
-	for i := range length {
-		envelope := events[i]
+	return x.processEvents(ctx, shard, events, nextOffset)
+}
 
-		state := envelope.GetResultingState()
-		event := envelope.GetEvent()
-		seqNr := envelope.GetSequenceNumber()
-		persistenceID := envelope.GetPersistenceId()
+// currentOffset resolves the starting offset for a projection shard.
+func (x *projectionRunner) currentOffset(ctx context.Context, projectionID *egopb.ProjectionId) (int64, error) {
+	offset, err := x.offsetsStore.GetCurrentOffset(ctx, projectionID)
+	if err != nil {
+		return 0, err
+	}
 
-		// send the request to the underlying based upon the recovery strategy in place
-		switch x.recovery.RecoveryPolicy() {
-		case projection.Fail:
-			// send the data to the underlying. In case of error we log the error and fail the projection
-			if err := x.handler.Handle(ctx, persistenceID, event, state, seqNr); err != nil {
-				x.logger.Error(fmt.Errorf("failed to process event for persistence id=%s, revision=%d: %w", persistenceID, seqNr, err))
-				return err
-			}
+	currOffset := offset.GetValue()
+	if !x.startingOffset.IsZero() {
+		currOffset = x.startingOffset.UnixMilli()
+	}
 
-		case projection.RetryAndFail:
-			retries := x.recovery.Retries()
-			delay := x.recovery.RetryDelay()
-			// create a new exponential backoff that will try a maximum of retries times
-			backoff := retry.NewRetrier(int(retries), delay, delay)
-			// pass the data to the projection underlying
-			if err := backoff.Run(func() error {
-				if err := x.handler.Handle(ctx, persistenceID, event, state, seqNr); err != nil {
-					x.logger.Error(fmt.Errorf("failed to process event for persistence id=%s, revision=%d: %w", persistenceID, seqNr, err))
-					return err
-				}
-				return nil
-			}); err != nil {
-				// because we fail we return the error without committing the offset
-				return err
-			}
+	return currOffset, nil
+}
 
-		case projection.RetryAndSkip:
-			retries := x.recovery.Retries()
-			delay := x.recovery.RetryDelay()
-			// create a new exponential backoff that will try a maximum of retries times
-			backoff := retry.NewRetrier(int(retries), delay, delay)
-			// pass the data to the projection underlying
-			if err := backoff.Run(func() error {
-				return x.handler.Handle(ctx, persistenceID, event, state, seqNr)
-			}); err != nil {
-				// here we just log the error, but we skip the event and commit the offset
-				x.logger.Error(fmt.Errorf("failed to process event for persistence id=%s, revision=%d: %w", persistenceID, seqNr, err))
-			}
-
-		case projection.Skip:
-			// send the data to the underlying. In case of error we just log the error and skip the event by committing the offset
-			if err := x.handler.Handle(ctx, persistenceID, event, state, seqNr); err != nil {
-				x.logger.Error(fmt.Errorf("failed to process event for persistence id=%s, revision=%d: %w", persistenceID, seqNr, err))
-			}
+// processEvents iterates over events and applies the projection handler.
+func (x *projectionRunner) processEvents(ctx context.Context, shard uint64, events []*egopb.Event, nextOffset int64) error {
+	for _, envelope := range events {
+		if err := x.processEnvelope(ctx, shard, envelope, nextOffset); err != nil {
+			return err
 		}
+	}
+	return nil
+}
 
-		// the envelope has been successfully processed
-		// here we commit the offset to the offset store and continue the next event
-		offset = &egopb.Offset{
-			ShardNumber:    shard,
-			ProjectionName: x.name,
-			Value:          nextOffset,
-			Timestamp:      timestamppb.Now().AsTime().UnixMilli(),
+// processEnvelope handles a single event and commits its offset.
+func (x *projectionRunner) processEnvelope(ctx context.Context, shard uint64, envelope *egopb.Event, nextOffset int64) error {
+	state := envelope.GetResultingState()
+	event := envelope.GetEvent()
+	seqNr := envelope.GetSequenceNumber()
+	persistenceID := envelope.GetPersistenceId()
+
+	if err := x.handleWithPolicy(ctx, persistenceID, event, state, seqNr); err != nil {
+		return err
+	}
+
+	return x.commitOffset(ctx, shard, nextOffset, persistenceID)
+}
+
+// handleWithPolicy executes the handler with the configured recovery policy.
+func (x *projectionRunner) handleWithPolicy(ctx context.Context, persistenceID string, event, state *anypb.Any, seqNr uint64) error {
+	switch x.recovery.RecoveryPolicy() {
+	case projection.Fail:
+		if err := x.handleSafely(ctx, persistenceID, event, state, seqNr); err != nil {
+			x.logHandlerError(err, persistenceID, seqNr)
+			return err
 		}
-
-		if err := x.offsetsStore.WriteOffset(ctx, offset); err != nil {
-			return fmt.Errorf("failed to persist offset for persistence id=%s: %w", persistenceID, err)
+	case projection.RetryAndFail:
+		if err := x.retryHandle(ctx, persistenceID, event, state, seqNr, true); err != nil {
+			return err
+		}
+	case projection.RetryAndSkip:
+		_ = x.retryHandle(ctx, persistenceID, event, state, seqNr, false)
+	case projection.Skip:
+		if err := x.handleSafely(ctx, persistenceID, event, state, seqNr); err != nil {
+			x.logHandlerError(err, persistenceID, seqNr)
+		}
+	default:
+		if err := x.handleSafely(ctx, persistenceID, event, state, seqNr); err != nil {
+			x.logHandlerError(err, persistenceID, seqNr)
+			return err
 		}
 	}
 
 	return nil
+}
+
+// retryHandle runs the handler with retries and optional per-attempt logging.
+func (x *projectionRunner) retryHandle(ctx context.Context, persistenceID string, event, state *anypb.Any, seqNr uint64, logEachAttempt bool) error {
+	retries := x.recovery.Retries()
+	delay := x.recovery.RetryDelay()
+	backoff := retry.NewRetrier(int(retries), delay, delay)
+
+	err := backoff.Run(func() error {
+		handleErr := x.handleSafely(ctx, persistenceID, event, state, seqNr)
+		if handleErr != nil && logEachAttempt {
+			x.logHandlerError(handleErr, persistenceID, seqNr)
+		}
+		return handleErr
+	})
+	if err != nil && !logEachAttempt {
+		x.logHandlerError(err, persistenceID, seqNr)
+	}
+
+	return err
+}
+
+// handleSafely invokes the handler and converts panics into errors.
+func (x *projectionRunner) handleSafely(ctx context.Context, persistenceID string, event, state *anypb.Any, seqNr uint64) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = newHandlerPanicError(recovered)
+		}
+	}()
+
+	return x.handler.Handle(ctx, persistenceID, event, state, seqNr)
+}
+
+// logHandlerError emits a consistent error message for handler failures.
+func (x *projectionRunner) logHandlerError(err error, persistenceID string, seqNr uint64) {
+	x.logger.Error(fmt.Errorf("failed to process event for persistence id=%s, revision=%d: %w", persistenceID, seqNr, err))
+}
+
+// commitOffset persists the processed offset for the given shard.
+func (x *projectionRunner) commitOffset(ctx context.Context, shard uint64, nextOffset int64, persistenceID string) error {
+	offset := &egopb.Offset{
+		ShardNumber:    shard,
+		ProjectionName: x.name,
+		Value:          nextOffset,
+		Timestamp:      timestamppb.Now().AsTime().UnixMilli(),
+	}
+
+	if err := x.offsetsStore.WriteOffset(ctx, offset); err != nil {
+		return fmt.Errorf("failed to persist offset for persistence id=%s: %w", persistenceID, err)
+	}
+	return nil
+}
+
+// handlerPanicError wraps panics from projection handlers with stack context.
+type handlerPanicError struct {
+	value any
+	stack []byte
+}
+
+// Error formats the panic value and stack for logging.
+func (e *handlerPanicError) Error() string {
+	return fmt.Sprintf("projection handler panic: %v\n%s", e.value, e.stack)
+}
+
+// newHandlerPanicError captures a panic and returns a structured error.
+func newHandlerPanicError(value any) error {
+	return &handlerPanicError{
+		value: value,
+		stack: debug.Stack(),
+	}
 }
 
 // preStart is used to perform some tasks before the projection starts

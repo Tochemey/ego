@@ -43,7 +43,7 @@ reliable persistence.
 go get github.com/tochemey/ego/v3
 ```
 
-> Note: eGo requires **Go 1.25.1** or higher.
+> Note: eGo requires **Go 1.25.3** or higher.
 
 ## 🔢 Versioning
 
