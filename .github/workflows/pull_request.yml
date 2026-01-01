@@ -43,7 +43,7 @@ jobs:
       - name: Run Linter
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.4.0
+          version: v2.7.2
           args: --timeout 10m --config .golangci.yml
       - name: Install go-acc
         run: |
