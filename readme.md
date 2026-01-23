@@ -202,10 +202,10 @@ eGo offers the following publisher APIs:
 
 The following streaming connectors are implemented out of the box:
 
-- [Kafka](https://github.com/Tochemey/ego/tree/publisher/kafka/v0.1.0)
-- [Pulsar](https://github.com/Tochemey/ego/tree/publisher/pulsar/v0.1.0)
-- [NATs](https://github.com/Tochemey/ego/tree/publisher/nats/v0.1.0)
-- [Websocket](https://github.com/Tochemey/ego/tree/publisher/websocket/v0.1.0)
+- [Kafka](./publisher/kafka/)
+- [Pulsar](./publisher/pulsar/)
+- [NATs](./publisher/nats/)
+- [Websocket](./publisher/websocket/)
 
 ## 🌐 Cluster
 
