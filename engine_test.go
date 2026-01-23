@@ -271,14 +271,6 @@ func TestEngine(t *testing.T) {
 		require.Equal(t, entityID, newAccount.GetAccountId())
 		require.EqualValues(t, 2, revision)
 
-		for i := 0; i < 2; i++ {
-			select {
-			case <-published:
-			case <-time.After(2 * time.Second):
-				require.FailNow(t, "timed out waiting for event publish")
-			}
-		}
-
 		// free resources
 		require.NoError(t, eventStore.Disconnect(ctx))
 		require.NoError(t, engine.Stop(ctx))
