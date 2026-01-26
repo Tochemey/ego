@@ -4,7 +4,7 @@ go 1.25.5
 
 require (
 	github.com/IBM/sarama v1.46.3
-	github.com/tochemey/ego/v3 v3.6.1
+	github.com/tochemey/ego/v3 v3.6.2
 	go.uber.org/atomic v1.11.0
 	google.golang.org/protobuf v1.36.11
 )
