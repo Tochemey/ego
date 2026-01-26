@@ -236,6 +236,8 @@ github.com/kapetan-io/tackle v0.13.0 h1:kcQTbgZN+4T89ktqlpW2TBATjiBmfjIyuZUukvRr
 github.com/kapetan-io/tackle v0.13.0/go.mod h1:5ZGq3U/Qgpq0ccxyx2+Zovg2ceM9yl6DOVL2R90of4g=
 github.com/klauspost/compress v1.18.2 h1:iiPHWW0YrcFgpBYhsA6D1+fqHssJscY/Tm/y2Uqnapk=
 github.com/klauspost/compress v1.18.2/go.mod h1:R0h/fSBs8DE4ENlcrlib3PsXS61voFxhIs2DeRhCvJ4=
+github.com/klauspost/compress v1.18.3 h1:9PJRvfbmTabkOX8moIpXPbMMbYN60bWImDDU7L+/6zw=
+github.com/klauspost/compress v1.18.3/go.mod h1:R0h/fSBs8DE4ENlcrlib3PsXS61voFxhIs2DeRhCvJ4=
 github.com/klauspost/cpuid/v2 v2.3.0 h1:S4CRMLnYUhGeDFDqkGriYKdfoFlDnMtqTiI/sFzhA9Y=
 github.com/klauspost/cpuid/v2 v2.3.0/go.mod h1:hqwkgyIinND0mEev00jJYCxPNVRVXFQeu1XKlok6oO0=
 github.com/konsorten/go-windows-terminal-sequences v1.0.1/go.mod h1:T0+1ngSBFLxvqU3pZ+m/2kptfBszLMUkC4ZK/EgS/cQ=
@@ -386,6 +388,8 @@ github.com/tochemey/ego/v3 v3.6.1 h1:Re2ZsfKk92Ok1oOIXnG4Zp6ekOMkFqqehDzR+xdP8VM
 github.com/tochemey/ego/v3 v3.6.1/go.mod h1:TuMjJ4VkWqqI5D7xgJAXDUE0MmpjhE34m8TDacOw4kw=
 github.com/tochemey/goakt/v3 v3.12.1 h1:Da4H6sQ6O0aM/Km114UwcfD9a3djQXAWVa3DdiyGCPE=
 github.com/tochemey/goakt/v3 v3.12.1/go.mod h1:Gsjl3DTurdKqQMd9UciG43+l3IrUCVwqfcAoa5YMZnI=
+github.com/tochemey/goakt/v3 v3.13.0 h1:SNJZjJ7T+WEYc6fMEL2w+QCZeV0NaupAeKhQnGtMybM=
+github.com/tochemey/goakt/v3 v3.13.0/go.mod h1:zZM5dmMuZm53pU/rxLMN+IeT9mC3LhwDIVOoP5IClMQ=
 github.com/tochemey/olric v0.3.7 h1:zFnHcZfGVkBKWUKqP5vWag51J7WKcLiItRBN/FfChUw=
 github.com/tochemey/olric v0.3.7/go.mod h1:cu4WmorSezD45j8d1fFagrtsGFROE2O6h/kz2aOIwKA=
 github.com/travisjeffery/go-dynaport v1.0.0 h1:m/qqf5AHgB96CMMSworIPyo1i7NZueRsnwdzdCJ8Ajw=
