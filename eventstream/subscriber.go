@@ -104,14 +104,22 @@ func (x *subscriber) Shutdown() {
 }
 
 func (x *subscriber) Iterator() chan *Message {
-	// buffer to the current queue length to avoid blocking the caller
-	out := make(chan *Message, x.messages.Length())
-	for x.active.Load() && x.messages.Length() > 0 {
+	// Drain the queue into a slice first, then build the channel with the
+	// exact right capacity. Sampling Length() for the make call and then
+	// re-checking it in the loop creates a race: if a message is enqueued
+	// between the two reads, we try to send into a 0-capacity channel while
+	// no one is yet reading from it, deadlocking the caller.
+	var msgs []*Message
+	for x.active.Load() {
 		msg := x.messages.Dequeue()
 		if msg == nil {
 			break
 		}
-		out <- msg.(*Message)
+		msgs = append(msgs, msg.(*Message))
+	}
+	out := make(chan *Message, len(msgs))
+	for _, m := range msgs {
+		out <- m
 	}
 	close(out)
 	return out
