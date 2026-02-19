@@ -834,10 +834,17 @@ func TestEngine(t *testing.T) {
 
 		// mock the state publisher
 		publisher := new(egomock.StatePublisher)
+		published := make(chan struct{}, 2)
 		publisher.On("ID").Return("eGo.test.StatePublisher")
 		publisher.On("Close", ctx).Return(nil)
 		publisher.
 			On("Publish", mock.Anything, mock.AnythingOfType("*egopb.DurableState")).
+			Run(func(args mock.Arguments) {
+				select {
+				case published <- struct{}{}:
+				default:
+				}
+			}).
 			Return(func(ctx context.Context, state *egopb.DurableState) error {
 				return nil
 			})
@@ -891,9 +898,18 @@ func TestEngine(t *testing.T) {
 		require.Equal(t, entityID, newAccount.GetAccountId())
 		require.EqualValues(t, 2, revision)
 
+		// wait for both state changes to be published before stopping
+		timeout := time.After(5 * time.Second)
+		for i := 0; i < 2; i++ {
+			select {
+			case <-published:
+			case <-timeout:
+				t.Fatal("timed out waiting for state changes to be published")
+			}
+		}
+
 		require.NoError(t, engine.Stop(ctx))
 		assert.NoError(t, stateStore.Disconnect(ctx))
-		pause.For(time.Second)
 		publisher.AssertExpectations(t)
 	})
 	t.Run("With DurableState Publisher with cluster enabled", func(t *testing.T) {
@@ -915,10 +931,17 @@ func TestEngine(t *testing.T) {
 
 		// mock the state publisher
 		publisher := new(egomock.StatePublisher)
+		published := make(chan struct{}, 2)
 		publisher.On("ID").Return("eGo.test.StatePublisher")
 		publisher.On("Close", ctx).Return(nil)
 		publisher.
 			On("Publish", mock.Anything, mock.AnythingOfType("*egopb.DurableState")).
+			Run(func(args mock.Arguments) {
+				select {
+				case published <- struct{}{}:
+				default:
+				}
+			}).
 			Return(func(ctx context.Context, state *egopb.DurableState) error {
 				return nil
 			})
@@ -1000,9 +1023,18 @@ func TestEngine(t *testing.T) {
 			require.NotZero(t, envelope.GetVersionNumber())
 		}
 
+		// wait for both state changes to be published before stopping
+		timeout := time.After(5 * time.Second)
+		for i := 0; i < 2; i++ {
+			select {
+			case <-published:
+			case <-timeout:
+				t.Fatal("timed out waiting for state changes to be published")
+			}
+		}
+
 		// free resources
 		require.NoError(t, engine.Stop(ctx))
-		pause.For(time.Second)
 		require.NoError(t, stateStore.Disconnect(ctx))
 		publisher.AssertExpectations(t)
 		provider.AssertExpectations(t)
