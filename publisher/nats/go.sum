@@ -345,8 +345,6 @@ github.com/tklauser/go-sysconf v0.3.16 h1:frioLaCQSsF5Cy1jgRBrzr6t502KIIwQ0MArYI
 github.com/tklauser/go-sysconf v0.3.16/go.mod h1:/qNL9xxDhc7tx3HSRsLWNnuzbVfh3e7gh/BmM179nYI=
 github.com/tklauser/numcpus v0.11.0 h1:nSTwhKH5e1dMNsCdVBukSZrURJRoHbSEQjdEbY+9RXw=
 github.com/tklauser/numcpus v0.11.0/go.mod h1:z+LwcLq54uWZTX0u/bGobaV34u6V7KNlTZejzM6/3MQ=
-github.com/tochemey/ego/v3 v3.6.1 h1:Re2ZsfKk92Ok1oOIXnG4Zp6ekOMkFqqehDzR+xdP8VM=
-github.com/tochemey/ego/v3 v3.6.1/go.mod h1:TuMjJ4VkWqqI5D7xgJAXDUE0MmpjhE34m8TDacOw4kw=
 github.com/tochemey/ego/v3 v3.6.2 h1:WWJ3rZMznXZExzpQuVaSH9zGDI16oiNNjwpNe7CaP58=
 github.com/tochemey/ego/v3 v3.6.2/go.mod h1:GrXuOnoBnR+Dzq2+kOxpP7D8IKLmEMztJce3kW0oTHM=
 github.com/tochemey/goakt/v3 v3.13.0 h1:SNJZjJ7T+WEYc6fMEL2w+QCZeV0NaupAeKhQnGtMybM=

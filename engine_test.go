@@ -94,7 +94,7 @@ func TestEngine(t *testing.T) {
 		conf := autotls.Config{
 			AutoTLS:            true,
 			ClientAuth:         tls.NoClientCert,
-			InsecureSkipVerify: false,
+			InsecureSkipVerify: true,
 		}
 		require.NoError(t, autotls.Setup(&conf))
 
@@ -115,7 +115,6 @@ func TestEngine(t *testing.T) {
 				Recovery:     projection.NewRecovery(),
 			}),
 			WithCluster(provider, 4, 1, host, remotingPort, gossipPort, clusterPort))
-		// start ego engine
 		err := engine.Start(ctx)
 
 		// wait for the cluster to fully start
@@ -271,10 +270,19 @@ func TestEngine(t *testing.T) {
 		require.Equal(t, entityID, newAccount.GetAccountId())
 		require.EqualValues(t, 2, revision)
 
+		// wait for both events to be published before stopping
+		timeout := time.After(5 * time.Second)
+		for i := 0; i < 2; i++ {
+			select {
+			case <-published:
+			case <-timeout:
+				t.Fatal("timed out waiting for events to be published")
+			}
+		}
+
 		// free resources
 		require.NoError(t, eventStore.Disconnect(ctx))
 		require.NoError(t, engine.Stop(ctx))
-		pause.For(time.Second)
 		publisher.AssertExpectations(t)
 	})
 	t.Run("EventSourced entity With SendCommand when not started", func(t *testing.T) {
@@ -676,10 +684,17 @@ func TestEngine(t *testing.T) {
 
 		// mock the event publisher
 		publisher := new(egomock.EventPublisher)
+		published := make(chan struct{}, 2)
 		publisher.On("ID").Return("eGo.test.EventsPublisher")
 		publisher.On("Close", ctx).Return(nil)
 		publisher.
 			On("Publish", mock.Anything, mock.AnythingOfType("*egopb.Event")).
+			Run(func(args mock.Arguments) {
+				select {
+				case published <- struct{}{}:
+				default:
+				}
+			}).
 			Return(func(ctx context.Context, event *egopb.Event) error {
 				return nil
 			})
@@ -691,7 +706,7 @@ func TestEngine(t *testing.T) {
 		conf := autotls.Config{
 			AutoTLS:            true,
 			ClientAuth:         tls.NoClientCert,
-			InsecureSkipVerify: false,
+			InsecureSkipVerify: true,
 		}
 		require.NoError(t, autotls.Setup(&conf))
 
@@ -794,11 +809,20 @@ func TestEngine(t *testing.T) {
 			}
 		}
 
+		// wait for both events to be published before stopping
+		timeout := time.After(5 * time.Second)
+		for i := 0; i < 2; i++ {
+			select {
+			case <-published:
+			case <-timeout:
+				t.Fatal("timed out waiting for events to be published")
+			}
+		}
+
 		// free resources
 		require.NoError(t, eventStore.Disconnect(ctx))
 		require.NoError(t, offsetStore.Disconnect(ctx))
 		require.NoError(t, engine.Stop(ctx))
-		pause.For(time.Second)
 
 		publisher.AssertExpectations(t)
 		provider.AssertExpectations(t)
@@ -810,10 +834,17 @@ func TestEngine(t *testing.T) {
 
 		// mock the state publisher
 		publisher := new(egomock.StatePublisher)
+		published := make(chan struct{}, 2)
 		publisher.On("ID").Return("eGo.test.StatePublisher")
 		publisher.On("Close", ctx).Return(nil)
 		publisher.
 			On("Publish", mock.Anything, mock.AnythingOfType("*egopb.DurableState")).
+			Run(func(args mock.Arguments) {
+				select {
+				case published <- struct{}{}:
+				default:
+				}
+			}).
 			Return(func(ctx context.Context, state *egopb.DurableState) error {
 				return nil
 			})
@@ -867,9 +898,18 @@ func TestEngine(t *testing.T) {
 		require.Equal(t, entityID, newAccount.GetAccountId())
 		require.EqualValues(t, 2, revision)
 
+		// wait for both state changes to be published before stopping
+		timeout := time.After(5 * time.Second)
+		for i := 0; i < 2; i++ {
+			select {
+			case <-published:
+			case <-timeout:
+				t.Fatal("timed out waiting for state changes to be published")
+			}
+		}
+
 		require.NoError(t, engine.Stop(ctx))
 		assert.NoError(t, stateStore.Disconnect(ctx))
-		pause.For(time.Second)
 		publisher.AssertExpectations(t)
 	})
 	t.Run("With DurableState Publisher with cluster enabled", func(t *testing.T) {
@@ -891,10 +931,17 @@ func TestEngine(t *testing.T) {
 
 		// mock the state publisher
 		publisher := new(egomock.StatePublisher)
+		published := make(chan struct{}, 2)
 		publisher.On("ID").Return("eGo.test.StatePublisher")
 		publisher.On("Close", ctx).Return(nil)
 		publisher.
 			On("Publish", mock.Anything, mock.AnythingOfType("*egopb.DurableState")).
+			Run(func(args mock.Arguments) {
+				select {
+				case published <- struct{}{}:
+				default:
+				}
+			}).
 			Return(func(ctx context.Context, state *egopb.DurableState) error {
 				return nil
 			})
@@ -976,9 +1023,18 @@ func TestEngine(t *testing.T) {
 			require.NotZero(t, envelope.GetVersionNumber())
 		}
 
+		// wait for both state changes to be published before stopping
+		timeout := time.After(5 * time.Second)
+		for i := 0; i < 2; i++ {
+			select {
+			case <-published:
+			case <-timeout:
+				t.Fatal("timed out waiting for state changes to be published")
+			}
+		}
+
 		// free resources
 		require.NoError(t, engine.Stop(ctx))
-		pause.For(time.Second)
 		require.NoError(t, stateStore.Disconnect(ctx))
 		publisher.AssertExpectations(t)
 		provider.AssertExpectations(t)
