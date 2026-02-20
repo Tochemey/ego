@@ -94,13 +94,12 @@ type projectionRunner struct {
 	// avoid allocating a new retrier on every event.
 	retrier *retry.Retrier
 
-	// Hot-path proto-message pools.  Reset() is called before Put so that
-	// internal protoimpl state is cleared and the message is safe to reuse.
-	// Only pool types whose callee (store interface) does NOT retain the pointer
-	// after the call returns.  egopb.Offset is intentionally excluded because
-	// OffsetStore implementations are permitted to store the pointer directly.
-	pidPool sync.Pool // pools *egopb.ProjectionId
-	wgPool  sync.Pool // pools *sync.WaitGroup for per-batch synchronisation
+	// wgPool pools *sync.WaitGroup for per-batch synchronisation.
+	// Proto message pointers (*egopb.ProjectionId, *egopb.Offset) are NOT
+	// pooled: the OffsetStore interface methods accept pointer arguments that
+	// implementations (including testify mocks) may retain after the call
+	// returns, so pooling and resetting those pointers causes data races.
+	wgPool sync.Pool
 }
 
 // newProjectionRunner create an instance of projectionRunner given the name of the projection, the underlying and the offsets store
@@ -129,7 +128,6 @@ func newProjectionRunner(name string,
 		opt.Apply(runner)
 	}
 
-	runner.pidPool.New = func() any { return new(egopb.ProjectionId) }
 	runner.wgPool.New = func() any { return new(sync.WaitGroup) }
 
 	// Pre-create the retrier once; it is stateless between calls so it can be
@@ -329,16 +327,10 @@ func (x *projectionRunner) doProcess(ctx context.Context, shard uint64) error {
 		return nil
 	}
 
-	// Reuse a pooled ProjectionId to avoid a heap allocation per shard per tick.
-	pid := x.pidPool.Get().(*egopb.ProjectionId)
-	pid.ProjectionName = x.name
-	pid.ShardNumber = shard
-
-	currOffset, err := x.currentOffset(ctx, pid)
-
-	pid.Reset()
-	x.pidPool.Put(pid)
-
+	currOffset, err := x.currentOffset(ctx, &egopb.ProjectionId{
+		ProjectionName: x.name,
+		ShardNumber:    shard,
+	})
 	if err != nil {
 		return err
 	}

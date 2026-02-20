@@ -3,7 +3,7 @@
 [![build](https://img.shields.io/github/actions/workflow/status/Tochemey/ego/build.yml?branch=main)](https://github.com/Tochemey/ego/actions/workflows/build.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/tochemey/ego.svg)](https://pkg.go.dev/github.com/tochemey/ego)
 [![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/tochemey/ego)](https://go.dev/doc/install)
-![GitHub Release](https://img.shields.io/github/v/release/Tochemey/ego)
+[![GitHub Release](https://img.shields.io/github/v/release/Tochemey/ego)](https://github.com/Tochemey/ego/releases)
 [![codecov](https://codecov.io/gh/Tochemey/ego/branch/main/graph/badge.svg?token=Z5b9gM6Mnt)](https://codecov.io/gh/Tochemey/ego)
 
 eGo is a minimal library that helps build event-sourcing and CQRS applications through a simple interface, and it allows
