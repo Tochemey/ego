@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"os"
 	"runtime/debug"
+	"sync"
 	"time"
 
 	"github.com/flowchartsman/retry"
@@ -35,7 +36,6 @@ import (
 	"go.uber.org/atomic"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/types/known/anypb"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/tochemey/ego/v3/egopb"
 	"github.com/tochemey/ego/v3/internal/ticker"
@@ -43,6 +43,16 @@ import (
 	"github.com/tochemey/ego/v3/persistence"
 	"github.com/tochemey/ego/v3/projection"
 )
+
+// numWorkers is the fixed size of the persistent shard-processing goroutine pool.
+const numWorkers = 5
+
+// shardItem is a unit of work dispatched to the persistent worker pool.
+// The embedded WaitGroup pointer lets processingLoop wait for a whole batch.
+type shardItem struct {
+	shard uint64
+	wg    *sync.WaitGroup
+}
 
 // projectionRunner defines the projection projectionRunner
 type projectionRunner struct {
@@ -73,6 +83,24 @@ type projectionRunner struct {
 	// reset the projection offset to a given timestamp
 	resetOffsetTo time.Time
 	ticker        *ticker.Ticker
+
+	// worker pool — initialised in Start, torn down in Stop.
+	workCh       chan shardItem // shard dispatch channel shared by all workers
+	workerErrCh  chan error     // first per-batch error reported by workers
+	workerCtx    context.Context
+	workerCancel context.CancelFunc
+
+	// retrier is pre-created once for RetryAndFail / RetryAndSkip policies to
+	// avoid allocating a new retrier on every event.
+	retrier *retry.Retrier
+
+	// Hot-path proto-message pools.  Reset() is called before Put so that
+	// internal protoimpl state is cleared and the message is safe to reuse.
+	// Only pool types whose callee (store interface) does NOT retain the pointer
+	// after the call returns.  egopb.Offset is intentionally excluded because
+	// OffsetStore implementations are permitted to store the pointer directly.
+	pidPool sync.Pool // pools *egopb.ProjectionId
+	wgPool  sync.Pool // pools *sync.WaitGroup for per-batch synchronisation
 }
 
 // newProjectionRunner create an instance of projectionRunner given the name of the projection, the underlying and the offsets store
@@ -99,6 +127,19 @@ func newProjectionRunner(name string,
 
 	for _, opt := range opts {
 		opt.Apply(runner)
+	}
+
+	runner.pidPool.New = func() any { return new(egopb.ProjectionId) }
+	runner.wgPool.New = func() any { return new(sync.WaitGroup) }
+
+	// Pre-create the retrier once; it is stateless between calls so it can be
+	// shared safely across concurrent workers.
+	if policy := runner.recovery.RecoveryPolicy(); policy == projection.RetryAndFail || policy == projection.RetryAndSkip {
+		runner.retrier = retry.NewRetrier(
+			int(runner.recovery.Retries()),
+			runner.recovery.RetryDelay(),
+			runner.recovery.RetryDelay(),
+		)
 	}
 
 	return runner
@@ -148,21 +189,34 @@ func (x *projectionRunner) Start(ctx context.Context) error {
 		return err
 	}
 
+	// workerCtx is cancelled by Stop() to drain and exit the worker pool.
+	x.workerCtx, x.workerCancel = context.WithCancel(ctx)
+	// Buffer of 64 prevents the dispatch loop from blocking on individual shard
+	// sends even when all workers are briefly busy.
+	x.workCh = make(chan shardItem, 64)
+	// One slot per worker is enough: we only ever surface the first error.
+	x.workerErrCh = make(chan error, numWorkers)
+
 	x.ticker = ticker.New(x.pullInterval)
 	x.running.Store(true)
+
+	for range numWorkers {
+		go x.worker(x.workerCtx)
+	}
 
 	return nil
 }
 
 // Stop stops the projection projectionRunner
 func (x *projectionRunner) Stop() error {
-	if !x.running.Load() {
+	// CompareAndSwap ensures Stop is idempotent and race-free when called
+	// concurrently (e.g. from processingLoop on error and from the outside).
+	if !x.running.CompareAndSwap(true, false) {
 		return nil
 	}
-
 	x.stopSignal <- struct{}{}
-	x.running.Store(false)
 	x.ticker.Stop()
+	x.workerCancel()
 	return nil
 }
 
@@ -172,64 +226,99 @@ func (x *projectionRunner) Name() string {
 }
 
 // Run start the projectionRunner
-func (x *projectionRunner) Run(ctx context.Context) {
+func (x *projectionRunner) Run(_ context.Context) {
 	x.ticker.Start()
-	go x.processingLoop(ctx)
+	// processingLoop receives the worker-pool context so that cancellation from
+	// Stop() propagates through both the dispatch select and the workers.
+	go x.processingLoop(x.workerCtx)
 }
 
-// processingLoop is a loop that continuously runs to process events persisted onto the journal store until the projection is stopped
+// processingLoop is a loop that continuously runs to process events persisted onto the journal store until the projection is stopped.
+// It drives the persistent worker pool: on each tick it fetches all shard
+// numbers, dispatches them to workers, and waits for the batch to complete
+// before moving to the next tick.  No goroutines or channels are allocated
+// per tick.
 func (x *projectionRunner) processingLoop(ctx context.Context) {
-	for x.ticker.Ticking() {
+	for {
 		select {
 		case <-x.stopSignal:
 			return
+		case <-ctx.Done():
+			return
 		case <-x.ticker.Ticks:
-			if x.running.Load() {
-				g, ctx := errgroup.WithContext(ctx)
-				shardsChan := make(chan uint64, 1)
+			if !x.running.Load() {
+				continue
+			}
 
-				// let us fetch the shards
-				g.Go(func() error {
-					defer close(shardsChan)
-					shards, err := x.eventsStore.ShardNumbers(ctx)
-					if err != nil {
-						x.logger.Error(fmt.Errorf("failed to fetch the list of shards:%w", err))
-						return err
+			shards, err := x.eventsStore.ShardNumbers(ctx)
+			if err != nil {
+				x.logger.Error(fmt.Errorf("failed to fetch the list of shards: %w", err))
+				x.ticker.Stop()
+				_ = x.Stop()
+				return
+			}
+
+			if len(shards) == 0 {
+				continue
+			}
+
+			// Obtain a WaitGroup from the pool to track this batch.
+			wg := x.wgPool.Get().(*sync.WaitGroup)
+			wg.Add(len(shards))
+
+			dispatched := 0
+			for _, shard := range shards {
+				select {
+				case x.workCh <- shardItem{shard: shard, wg: wg}:
+					dispatched++
+				case <-ctx.Done():
+					// Account for shards that were counted in wg.Add but
+					// never dispatched so that wg.Wait() does not deadlock.
+					for i := dispatched; i < len(shards); i++ {
+						wg.Done()
 					}
-
-					for _, shard := range shards {
-						select {
-						case shardsChan <- shard:
-						case <-ctx.Done():
-							return ctx.Err()
-						}
-					}
-					return nil
-				})
-
-				// Start a fixed number of goroutines process the shards.
-				for range 5 {
-					g.Go(func() error {
-						for shard := range shardsChan {
-							select {
-							case <-ctx.Done():
-								return ctx.Err()
-							default:
-								return x.doProcess(ctx, shard)
-							}
-						}
-						return nil
-					})
-				}
-
-				// wait for all the processing to be done
-				if err := g.Wait(); err != nil {
-					x.logger.Error(err)
-					x.ticker.Stop()
-					_ = x.Stop()
+					wg.Wait()
+					x.wgPool.Put(wg)
 					return
 				}
 			}
+
+			wg.Wait()
+			x.wgPool.Put(wg)
+
+			// Surface the first worker error for this batch, if any.
+			select {
+			case err := <-x.workerErrCh:
+				x.logger.Error(err)
+				x.ticker.Stop()
+				_ = x.Stop()
+				return
+			default:
+			}
+		}
+	}
+}
+
+// worker is one member of the persistent goroutine pool.  It reads shard items
+// from workCh and processes them until the pool context is cancelled.
+func (x *projectionRunner) worker(ctx context.Context) {
+	for {
+		select {
+		case item, ok := <-x.workCh:
+			if !ok {
+				return
+			}
+			if err := x.doProcess(ctx, item.shard); err != nil && ctx.Err() == nil {
+				// Only forward processing errors, not context-cancellation noise
+				// that arises from a concurrent Stop() call.
+				select {
+				case x.workerErrCh <- err:
+				default:
+				}
+			}
+			item.wg.Done()
+		case <-ctx.Done():
+			return
 		}
 	}
 }
@@ -240,12 +329,16 @@ func (x *projectionRunner) doProcess(ctx context.Context, shard uint64) error {
 		return nil
 	}
 
-	projectionID := &egopb.ProjectionId{
-		ProjectionName: x.name,
-		ShardNumber:    shard,
-	}
+	// Reuse a pooled ProjectionId to avoid a heap allocation per shard per tick.
+	pid := x.pidPool.Get().(*egopb.ProjectionId)
+	pid.ProjectionName = x.name
+	pid.ShardNumber = shard
 
-	currOffset, err := x.currentOffset(ctx, projectionID)
+	currOffset, err := x.currentOffset(ctx, pid)
+
+	pid.Reset()
+	x.pidPool.Put(pid)
+
 	if err != nil {
 		return err
 	}
@@ -329,13 +422,9 @@ func (x *projectionRunner) handleWithPolicy(ctx context.Context, persistenceID s
 	return nil
 }
 
-// retryHandle runs the handler with retries and optional per-attempt logging.
+// retryHandle runs the handler with the pre-created retrier and optional per-attempt logging.
 func (x *projectionRunner) retryHandle(ctx context.Context, persistenceID string, event, state *anypb.Any, seqNr uint64, logEachAttempt bool) error {
-	retries := x.recovery.Retries()
-	delay := x.recovery.RetryDelay()
-	backoff := retry.NewRetrier(int(retries), delay, delay)
-
-	err := backoff.Run(func() error {
+	err := x.retrier.Run(func() error {
 		handleErr := x.handleSafely(ctx, persistenceID, event, state, seqNr)
 		if handleErr != nil && logEachAttempt {
 			x.logHandlerError(handleErr, persistenceID, seqNr)
@@ -366,12 +455,16 @@ func (x *projectionRunner) logHandlerError(err error, persistenceID string, seqN
 }
 
 // commitOffset persists the processed offset for the given shard.
+// time.Now().UnixMilli() is used directly, avoiding the two intermediate
+// allocations that timestamppb.Now().AsTime().UnixMilli() would produce.
+// Note: *egopb.Offset is NOT pooled because the OffsetStore interface permits
+// implementations to retain the pointer after WriteOffset returns.
 func (x *projectionRunner) commitOffset(ctx context.Context, shard uint64, nextOffset int64, persistenceID string) error {
 	offset := &egopb.Offset{
 		ShardNumber:    shard,
 		ProjectionName: x.name,
 		Value:          nextOffset,
-		Timestamp:      timestamppb.Now().AsTime().UnixMilli(),
+		Timestamp:      time.Now().UnixMilli(),
 	}
 
 	if err := x.offsetsStore.WriteOffset(ctx, offset); err != nil {

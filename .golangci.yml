@@ -50,6 +50,8 @@ linters:
       ignore-rules:
         - cancelled
         - behaviour
+        - initialised
+        - synchronisation
   exclusions:
     generated: lax
     presets:
