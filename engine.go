@@ -31,14 +31,13 @@ import (
 	"time"
 
 	goset "github.com/deckarep/golang-set/v2"
-	goakt "github.com/tochemey/goakt/v3/actor"
-	"github.com/tochemey/goakt/v3/address"
-	"github.com/tochemey/goakt/v3/discovery"
-	"github.com/tochemey/goakt/v3/log"
-	"github.com/tochemey/goakt/v3/passivation"
-	"github.com/tochemey/goakt/v3/remote"
-	"github.com/tochemey/goakt/v3/supervisor"
-	gtls "github.com/tochemey/goakt/v3/tls"
+	goakt "github.com/tochemey/goakt/v4/actor"
+	"github.com/tochemey/goakt/v4/discovery"
+	"github.com/tochemey/goakt/v4/log"
+	"github.com/tochemey/goakt/v4/passivation"
+	"github.com/tochemey/goakt/v4/remote"
+	"github.com/tochemey/goakt/v4/supervisor"
+	gtls "github.com/tochemey/goakt/v4/tls"
 	"go.uber.org/atomic"
 
 	"github.com/tochemey/ego/v3/egopb"
@@ -96,7 +95,6 @@ type Engine struct {
 	minimumPeersQuorum uint16
 	eventStream        eventstream.Stream
 	mutex              sync.Mutex
-	remoting           remote.Remoting
 	tls                *TLS
 
 	eventsStreams       *syncmap.Map[string, *eventsStream]
@@ -105,6 +103,7 @@ type Engine struct {
 
 	supervisor *goakt.PID
 	roles      goset.Set[string]
+	noSender   *goakt.PID
 }
 
 // NewEngine creates and initializes a new instance of the eGo engine.
@@ -124,10 +123,9 @@ func NewEngine(name string, eventsStore persistence.EventsStore, opts ...Option)
 	e := &Engine{
 		name:          name,
 		eventsStore:   eventsStore,
-		logger:        log.New(log.ErrorLevel, os.Stderr),
+		logger:        log.NewZap(log.ErrorLevel, os.Stderr),
 		eventStream:   eventstream.New(),
 		bindAddr:      "0.0.0.0",
-		remoting:      remote.NewRemoting(),
 		eventsStreams: syncmap.New[string, *eventsStream](),
 		statesStreams: syncmap.New[string, *statesStream](),
 		roles:         goset.NewSet[string](),
@@ -137,10 +135,6 @@ func NewEngine(name string, eventsStore persistence.EventsStore, opts ...Option)
 
 	for _, opt := range opts {
 		opt.Apply(e)
-	}
-
-	if e.tls != nil {
-		e.remoting = remote.NewRemoting(remote.WithRemotingTLS(e.tls.ClientTLS))
 	}
 
 	e.started.Store(false)
@@ -259,7 +253,7 @@ func (engine *Engine) IsProjectionRunning(ctx context.Context, name string) (boo
 	actorSystem := engine.actorSystem
 	engine.mutex.Unlock()
 
-	addr, pid, err := actorSystem.ActorOf(ctx, name)
+	pid, err := actorSystem.ActorOf(ctx, name)
 	if err != nil {
 		return false, fmt.Errorf("failed to get projection %s: %w", name, err)
 	}
@@ -268,7 +262,7 @@ func (engine *Engine) IsProjectionRunning(ctx context.Context, name string) (boo
 		return pid.IsRunning(), nil
 	}
 
-	return addr.Equals(address.NoSender()), nil
+	return false, nil
 }
 
 // Stop gracefully shuts down the eGo engine.
@@ -385,7 +379,8 @@ func (engine *Engine) Entity(ctx context.Context, behavior EventSourcedBehavior,
 	sOptions := buildSpawnOptions(opts...)
 	sOptions = append(sOptions, goakt.WithDependencies(behavior))
 
-	return actorSystem.SpawnOn(ctx, behavior.ID(), newEventSourcedActor(), sOptions...)
+	_, err := actorSystem.SpawnOn(ctx, behavior.ID(), newEventSourcedActor(), sOptions...)
+	return err
 }
 
 // DurableStateEntity creates an entity that persists its full state in a durable store without maintaining historical event records.
@@ -429,7 +424,8 @@ func (engine *Engine) DurableStateEntity(ctx context.Context, behavior DurableSt
 	sOptions := buildSpawnOptions(opts...)
 	sOptions = append(sOptions, goakt.WithDependencies(behavior))
 
-	return actorSystem.SpawnOn(ctx, behavior.ID(), newDurableStateActor(), sOptions...)
+	_, err := actorSystem.SpawnOn(ctx, behavior.ID(), newDurableStateActor(), sOptions...)
+	return err
 }
 
 // SendCommand sends a command to the specified entity and processes its response.
@@ -466,10 +462,10 @@ func (engine *Engine) SendCommand(ctx context.Context, entityID string, cmd Comm
 	}
 
 	engine.mutex.Lock()
-	actorSystem := engine.actorSystem
+	noSender := engine.noSender
 	engine.mutex.Unlock()
 
-	reply, err := actorSystem.NoSender().SendSync(ctx, entityID, cmd, timeout)
+	reply, err := noSender.SendSync(ctx, entityID, cmd, timeout)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -801,6 +797,7 @@ func (engine *Engine) startActorSystem(ctx context.Context, opts []goakt.Option)
 	}
 
 	engine.actorSystem = actorSystem
+	engine.noSender = actorSystem.NoSender()
 	return nil
 }
 

@@ -29,8 +29,8 @@ import (
 	goset "github.com/deckarep/golang-set/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tochemey/goakt/v3/discovery/kubernetes"
-	"github.com/tochemey/goakt/v3/log"
+	"github.com/tochemey/goakt/v4/discovery/kubernetes"
+	"github.com/tochemey/goakt/v4/log"
 
 	"github.com/tochemey/ego/v3/projection"
 )
@@ -82,18 +82,9 @@ func TestOptions(t *testing.T) {
 
 func TestOptionWithProjection(t *testing.T) {
 	handler := projection.NewDiscardHandler()
-	engine := new(Engine)
-	opt := WithProjection(handler, 500, time.Time{}, time.Time{}, time.Second, nil)
-	opt.Apply(engine)
-	require.NotEmpty(t, engine.projectionExtension)
-	require.NotNil(t, engine.projectionExtension.Recovery())
-}
-
-func TestOptionWithProjectionOptions(t *testing.T) {
-	handler := projection.NewDiscardHandler()
 	recovery := projection.NewRecovery(projection.WithRetries(10))
 	engine := new(Engine)
-	opt := WithProjectionOptions(&projection.Options{
+	opt := WithProjection(&projection.Options{
 		Handler:      handler,
 		BufferSize:   500,
 		StartOffset:  time.Time{},
