@@ -32,7 +32,7 @@ import (
 	"time"
 
 	"github.com/flowchartsman/retry"
-	"github.com/tochemey/goakt/v3/log"
+	"github.com/tochemey/goakt/v4/log"
 	"go.uber.org/atomic"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -111,7 +111,7 @@ func newProjectionRunner(name string,
 	opts ...runnerOption) *projectionRunner {
 	runner := &projectionRunner{
 		name:           name,
-		logger:         log.New(log.ErrorLevel, os.Stderr),
+		logger:         log.NewZap(log.ErrorLevel, os.Stderr),
 		handler:        handler,
 		eventsStore:    eventsStore,
 		offsetsStore:   offsetStore,

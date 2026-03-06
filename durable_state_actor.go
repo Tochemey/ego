@@ -28,8 +28,7 @@ import (
 	"math"
 	"time"
 
-	goakt "github.com/tochemey/goakt/v3/actor"
-	"github.com/tochemey/goakt/v3/goaktpb"
+	goakt "github.com/tochemey/goakt/v4/actor"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -97,13 +96,14 @@ func (entity *DurableStateActor) PreStart(ctx *goakt.Context) error {
 
 // Receive processes any message dropped into the actor mailbox.
 func (entity *DurableStateActor) Receive(ctx *goakt.ReceiveContext) {
-	switch command := ctx.Message().(type) {
-	case *goaktpb.PostStart:
+	switch message := ctx.Message().(type) {
+	case *goakt.PostStart:
 		entity.actorSystem = ctx.ActorSystem()
 	case *egopb.GetStateCommand:
 		entity.sendStateReply(ctx)
 	default:
-		entity.processCommand(ctx, command)
+		msg := message.(Command)
+		entity.processCommand(ctx, msg)
 	}
 }
 
@@ -225,7 +225,7 @@ func (entity *DurableStateActor) durableStateRequired() error {
 // persistState persists the actor state
 func (entity *DurableStateActor) persistStateAndPublish(ctx context.Context) error {
 	resultingState, _ := anypb.New(entity.currentState)
-	shardNumber := entity.actorSystem.GetPartition(entity.persistenceID)
+	shardNumber := entity.actorSystem.Partition(entity.persistenceID)
 	topic := fmt.Sprintf(statesTopic, shardNumber)
 
 	entity.actorSystem.Logger().Debugf("publishing durableState to topic: %s", topic)

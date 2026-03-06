@@ -38,11 +38,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	goakt "github.com/tochemey/goakt/v3/actor"
-	gerrors "github.com/tochemey/goakt/v3/errors"
-	"github.com/tochemey/goakt/v3/log"
-	mockdisco "github.com/tochemey/goakt/v3/mocks/discovery"
-	"github.com/tochemey/goakt/v3/supervisor"
+	goakt "github.com/tochemey/goakt/v4/actor"
+	gerrors "github.com/tochemey/goakt/v4/errors"
+	"github.com/tochemey/goakt/v4/log"
+	mockdisco "github.com/tochemey/goakt/v4/mocks/discovery"
+	"github.com/tochemey/goakt/v4/supervisor"
 	"github.com/travisjeffery/go-dynaport"
 	"google.golang.org/protobuf/proto"
 
@@ -106,7 +106,7 @@ func TestEngine(t *testing.T) {
 			}),
 			WithOffsetStore(offsetStore),
 			WithRoles("role1", "role2"),
-			WithProjectionOptions(&projection.Options{
+			WithProjection(&projection.Options{
 				Handler:      handler,
 				BufferSize:   500,
 				StartOffset:  ZeroTime,
@@ -376,7 +376,7 @@ func TestEngine(t *testing.T) {
 		// create the ego engine
 		engine := NewEngine("Sample", eventStore,
 			WithOffsetStore(offsetStore),
-			WithProjectionOptions(&projection.Options{
+			WithProjection(&projection.Options{
 				Handler:      handler,
 				BufferSize:   500,
 				StartOffset:  ZeroTime,
@@ -717,7 +717,7 @@ func TestEngine(t *testing.T) {
 				ServerTLS: conf.ServerTLS,
 			}),
 			WithOffsetStore(offsetStore),
-			WithProjectionOptions(&projection.Options{
+			WithProjection(&projection.Options{
 				Handler:      handler,
 				BufferSize:   500,
 				StartOffset:  ZeroTime,
@@ -1143,7 +1143,7 @@ func TestEngine(t *testing.T) {
 		engine := NewEngine("Sample",
 			eventStore,
 			WithOffsetStore(offsetStore),
-			WithProjectionOptions(&projection.Options{
+			WithProjection(&projection.Options{
 				Handler:      handler,
 				BufferSize:   500,
 				StartOffset:  ZeroTime,
@@ -1172,7 +1172,7 @@ func TestEngine(t *testing.T) {
 		// create the ego engine
 		engine := NewEngine("Sample", eventStore,
 			WithOffsetStore(offsetStore),
-			WithProjectionOptions(&projection.Options{
+			WithProjection(&projection.Options{
 				Handler:      handler,
 				BufferSize:   500,
 				StartOffset:  ZeroTime,

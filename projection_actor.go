@@ -23,8 +23,7 @@
 package ego
 
 import (
-	goakt "github.com/tochemey/goakt/v3/actor"
-	"github.com/tochemey/goakt/v3/goaktpb"
+	goakt "github.com/tochemey/goakt/v4/actor"
 
 	"github.com/tochemey/ego/v3/internal/extensions"
 )
@@ -64,7 +63,7 @@ func (x *ProjectionActor) PreStart(ctx *goakt.Context) error {
 // Receive handle the message sent to the projection actor
 func (x *ProjectionActor) Receive(ctx *goakt.ReceiveContext) {
 	switch ctx.Message().(type) {
-	case *goaktpb.PostStart:
+	case *goakt.PostStart:
 		x.runner.Run(ctx.Context())
 	default:
 		ctx.Unhandled()

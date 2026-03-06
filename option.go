@@ -23,10 +23,8 @@
 package ego
 
 import (
-	"time"
-
-	"github.com/tochemey/goakt/v3/discovery"
-	"github.com/tochemey/goakt/v3/log"
+	"github.com/tochemey/goakt/v4/discovery"
+	"github.com/tochemey/goakt/v4/log"
 
 	"github.com/tochemey/ego/v3/internal/extensions"
 	"github.com/tochemey/ego/v3/offsetstore"
@@ -159,7 +157,7 @@ func WithTLS(tls *TLS) Option {
 	})
 }
 
-// WithProjectionOptions configures the Engine's projection extension using the
+// WithProjection configures the Engine's projection extension using the
 // provided projection.Options.
 //
 // Projections consume persisted events and update a read model or external
@@ -179,14 +177,14 @@ func WithTLS(tls *TLS) Option {
 //     If no OffsetStore is provided, projections cannot durably track progress.
 //
 // Typical usage:
-//   - Use WithProjectionOptions to centralize configuration.
+//   - Use WithProjection to centralize configuration.
 //   - Prefer this over the deprecated WithProjection helper.
 //
 // Example:
 //
 //	engine := NewEngine(
 //	    WithOffsetStore(myOffsetStore),
-//	    WithProjectionOptions(projection.Options{
+//	    WithProjection(projection.Options{
 //	        Handler:      myHandler,
 //	        BufferSize:   256,
 //	        StartOffset:  time.Now().Add(-24 * time.Hour),
@@ -195,7 +193,7 @@ func WithTLS(tls *TLS) Option {
 //	        Recovery:     projection.NewRecovery(projection.WithRetries(3)),
 //	    }),
 //	)
-func WithProjectionOptions(options *projection.Options) Option {
+func WithProjection(options *projection.Options) Option {
 	return OptionFunc(func(e *Engine) {
 		if options != nil {
 			recovery := options.Recovery
@@ -211,45 +209,6 @@ func WithProjectionOptions(options *projection.Options) Option {
 				recovery,
 			)
 		}
-	})
-}
-
-// WithProjection configures the Engine to use a projection extension for processing persisted events.
-// It sets up the projection handler along with buffering and recovery parameters.
-//
-// Parameters:
-//   - handler: A projection.Handler implementation that defines how events are processed.
-//   - bufferSize: The number of events to buffer in memory before processing.
-//   - startOffset: The time from which to begin processing events.
-//   - resetOffset: The fallback time to reset the offset in case of recovery or replay scenarios.
-//   - pullInterval: The interval between polling the event store for new events.
-//   - recovery: Optional recovery strategy that defines how the projection behaves on failure.
-//
-// Returns:
-//   - Option: A functional option that applies the projection configuration to the Engine.
-//
-// Example usage:
-//
-//	engine := NewEngine(
-//	    WithProjection(
-//	        myHandler,
-//	        100,
-//	        time.Now().Add(-24*time.Hour),
-//	        time.Time{},
-//	        5*time.Second,
-//	        projection.NewRecovery(WithRetries(3)),
-//	    ),
-//	)
-//
-// Deprecated: Use WithProjectionOptions instead.
-func WithProjection(handler projection.Handler, bufferSize int, startOffset, resetOffset time.Time, pullInterval time.Duration, recovery *projection.Recovery) Option {
-	return WithProjectionOptions(&projection.Options{
-		Handler:      handler,
-		BufferSize:   bufferSize,
-		StartOffset:  startOffset,
-		ResetOffset:  resetOffset,
-		PullInterval: pullInterval,
-		Recovery:     recovery,
 	})
 }
 

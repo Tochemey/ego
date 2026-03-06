@@ -27,8 +27,7 @@ import (
 	"fmt"
 	"time"
 
-	goakt "github.com/tochemey/goakt/v3/actor"
-	"github.com/tochemey/goakt/v3/goaktpb"
+	goakt "github.com/tochemey/goakt/v4/actor"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -93,12 +92,13 @@ func (entity *EventSourcedActor) PreStart(ctx *goakt.Context) error {
 
 // Receive processes any message dropped into the actor mailbox.
 func (entity *EventSourcedActor) Receive(ctx *goakt.ReceiveContext) {
-	switch command := ctx.Message().(type) {
-	case *goaktpb.PostStart:
+	switch message := ctx.Message().(type) {
+	case *goakt.PostStart:
 		// pass
 	case *egopb.GetStateCommand:
 		entity.getStateAndReply(ctx)
 	default:
+		command := message.(Command)
 		entity.processCommandAndReply(ctx, command)
 	}
 }
@@ -195,7 +195,7 @@ func (entity *EventSourcedActor) processCommandAndReply(ctx *goakt.ReceiveContex
 		return
 	}
 
-	shardNumber := ctx.ActorSystem().GetPartition(entity.persistenceID)
+	shardNumber := ctx.ActorSystem().Partition(entity.persistenceID)
 	topic := fmt.Sprintf(eventsTopic, shardNumber)
 
 	var envelopes []*egopb.Event

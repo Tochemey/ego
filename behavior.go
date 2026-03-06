@@ -25,7 +25,7 @@ package ego
 import (
 	"context"
 
-	"github.com/tochemey/goakt/v3/extension"
+	"github.com/tochemey/goakt/v4/extension"
 	"google.golang.org/protobuf/proto"
 )
 
