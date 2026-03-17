@@ -5,6 +5,8 @@ go 1.26.0
 require (
 	github.com/IBM/sarama v1.47.0
 	github.com/tochemey/ego/v3 v3.6.3
+	github.com/tochemey/goakt/v3 v3.14.0
+	github.com/tochemey/goakt/v4 v4.1.0
 	go.uber.org/atomic v1.11.0
 	google.golang.org/protobuf v1.36.11
 )
@@ -41,7 +43,6 @@ require (
 	github.com/tidwall/btree v1.8.1 // indirect
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/redcon v1.6.2 // indirect
-	github.com/tochemey/goakt/v4 v4.0.0 // indirect
 	github.com/tochemey/olric v0.3.8 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
@@ -75,7 +76,6 @@ require (
 	github.com/klauspost/compress v1.18.4 // indirect
 	github.com/pierrec/lz4/v4 v4.1.26 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20250401214520-65e299d6c5c9 // indirect
-	github.com/tochemey/goakt/v3 v3.14.0
 	golang.org/x/crypto v0.49.0 // indirect
 	golang.org/x/net v0.52.0 // indirect
 )
