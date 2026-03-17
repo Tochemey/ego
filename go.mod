@@ -9,7 +9,7 @@ require (
 	github.com/kapetan-io/tackle v0.13.0
 	github.com/stretchr/testify v1.11.1
 	github.com/tochemey/goakt/v3 v3.14.0
-	github.com/tochemey/goakt/v4 v4.0.0
+	github.com/tochemey/goakt/v4 v4.1.0
 	github.com/travisjeffery/go-dynaport v1.0.0
 	go.uber.org/atomic v1.11.0
 	go.uber.org/multierr v1.11.0
