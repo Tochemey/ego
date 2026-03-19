@@ -34,16 +34,15 @@ import (
 	goakt "github.com/tochemey/goakt/v4/actor"
 	"github.com/tochemey/goakt/v4/log"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	"github.com/tochemey/ego/v3/egopb"
-	"github.com/tochemey/ego/v3/eventstream"
-	"github.com/tochemey/ego/v3/internal/extensions"
-	"github.com/tochemey/ego/v3/internal/pause"
-	mocks "github.com/tochemey/ego/v3/mocks/persistence"
-	testpb "github.com/tochemey/ego/v3/test/data/testpb"
-	"github.com/tochemey/ego/v3/testkit"
+	"github.com/tochemey/ego/v4/egopb"
+	"github.com/tochemey/ego/v4/eventstream"
+	"github.com/tochemey/ego/v4/internal/extensions"
+	"github.com/tochemey/ego/v4/internal/pause"
+	mocks "github.com/tochemey/ego/v4/mocks/persistence"
+	testpb "github.com/tochemey/ego/v4/test/data/testpb"
+	"github.com/tochemey/ego/v4/testkit"
 )
 
 func TestEventSourcedActor(t *testing.T) {
@@ -765,7 +764,7 @@ func TestEventSourcedActor(t *testing.T) {
 		err = actorSystem.Stop(ctx)
 		assert.NoError(t, err)
 	})
-	t.Run("With initial parsing failure", func(t *testing.T) {
+	t.Run("With replay events failure during recovery", func(t *testing.T) {
 		ctx := context.TODO()
 
 		// create an instance of events stream
@@ -777,15 +776,15 @@ func TestEventSourcedActor(t *testing.T) {
 		behavior := NewAccountEventSourcedBehavior(persistenceID)
 
 		latestEvent := &egopb.Event{
-			ResultingState: &anypb.Any{
-				TypeUrl: "invalid-type-url",
-				Value:   []byte("invalid-value"),
-			},
+			PersistenceId:  persistenceID,
+			SequenceNumber: 1,
 		}
 
 		eventStore := new(mocks.EventsStore)
 		eventStore.EXPECT().Ping(mock.Anything).Return(nil)
 		eventStore.EXPECT().GetLatestEvent(mock.Anything, persistenceID).Return(latestEvent, nil)
+		eventStore.EXPECT().ReplayEvents(mock.Anything, persistenceID, uint64(1), uint64(1), mock.AnythingOfType("uint64")).
+			Return(nil, assert.AnError)
 
 		// create an actor system
 		actorSystem, err := goakt.NewActorSystem("TestActorSystem",

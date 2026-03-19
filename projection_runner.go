@@ -33,15 +33,20 @@ import (
 
 	"github.com/flowchartsman/retry"
 	"github.com/tochemey/goakt/v4/log"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.uber.org/atomic"
 	"golang.org/x/sync/errgroup"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
-	"github.com/tochemey/ego/v3/egopb"
-	"github.com/tochemey/ego/v3/internal/ticker"
-	"github.com/tochemey/ego/v3/offsetstore"
-	"github.com/tochemey/ego/v3/persistence"
-	"github.com/tochemey/ego/v3/projection"
+	"github.com/tochemey/ego/v4/egopb"
+	"github.com/tochemey/ego/v4/encryption"
+	"github.com/tochemey/ego/v4/eventadapter"
+	"github.com/tochemey/ego/v4/internal/ticker"
+	"github.com/tochemey/ego/v4/offsetstore"
+	"github.com/tochemey/ego/v4/persistence"
+	"github.com/tochemey/ego/v4/projection"
 )
 
 // numWorkers is the fixed size of the persistent shard-processing goroutine pool.
@@ -100,6 +105,20 @@ type projectionRunner struct {
 	// implementations (including testify mocks) may retain after the call
 	// returns, so pooling and resetting those pointers causes data races.
 	wgPool sync.Pool
+
+	// deadLetterHandler receives events that failed processing after exhausting
+	// the recovery policy. When nil, failed events are silently discarded.
+	deadLetterHandler projection.DeadLetterHandler
+
+	// eventAdapters transforms persisted events from older schema versions
+	// during projection consumption.
+	eventAdapters []eventadapter.EventAdapter
+
+	// metrics holds pre-created metric instruments for recording projection metrics.
+	metrics *metrics
+
+	// encryptor decrypts event payloads before handing them to the handler.
+	encryptor encryption.Encryptor
 }
 
 // newProjectionRunner create an instance of projectionRunner given the name of the projection, the underlying and the offsets store
@@ -344,6 +363,22 @@ func (x *projectionRunner) doProcess(ctx context.Context, shard uint64) error {
 		return nil
 	}
 
+	// Record projection lag metrics when telemetry is enabled.
+	if x.metrics != nil {
+		attrs := attribute.NewSet(
+			attribute.String("projection_name", x.name),
+			attribute.Int64("shard", int64(shard)),
+		)
+		latestTimestamp := events[len(events)-1].GetTimestamp()
+		lagMs := latestTimestamp - currOffset
+		if lagMs < 0 {
+			lagMs = 0
+		}
+		x.metrics.projectionLag.Record(ctx, lagMs, metric.WithAttributeSet(attrs))
+		x.metrics.projectionOffset.Record(ctx, currOffset, metric.WithAttributeSet(attrs))
+		x.metrics.projectionBehind.Record(ctx, int64(len(events)), metric.WithAttributeSet(attrs))
+	}
+
 	return x.processEvents(ctx, shard, events, nextOffset)
 }
 
@@ -374,38 +409,66 @@ func (x *projectionRunner) processEvents(ctx context.Context, shard uint64, even
 
 // processEnvelope handles a single event and commits its offset.
 func (x *projectionRunner) processEnvelope(ctx context.Context, shard uint64, envelope *egopb.Event, nextOffset int64) error {
-	state := envelope.GetResultingState()
 	event := envelope.GetEvent()
 	seqNr := envelope.GetSequenceNumber()
 	persistenceID := envelope.GetPersistenceId()
 
-	if err := x.handleWithPolicy(ctx, persistenceID, event, state, seqNr); err != nil {
+	// Decrypt the event if it was encrypted
+	if envelope.GetIsEncrypted() && x.encryptor != nil {
+		plaintext, err := x.encryptor.Decrypt(ctx, persistenceID, event.GetValue(), envelope.GetEncryptionKeyId())
+		if err != nil {
+			return fmt.Errorf("failed to decrypt event for persistence id=%s, revision=%d: %w", persistenceID, seqNr, err)
+		}
+		decrypted := &anypb.Any{TypeUrl: event.GetTypeUrl()}
+		if err := proto.Unmarshal(plaintext, decrypted); err != nil {
+			return fmt.Errorf("failed to unmarshal decrypted event for persistence id=%s, revision=%d: %w", persistenceID, seqNr, err)
+		}
+		event = decrypted
+	}
+
+	// apply event adapters
+	if len(x.eventAdapters) > 0 {
+		adapted, err := eventadapter.Chain(x.eventAdapters, event, seqNr)
+		if err != nil {
+			return fmt.Errorf("failed to adapt event for persistence id=%s, revision=%d: %w", persistenceID, seqNr, err)
+		}
+		event = adapted
+	}
+
+	if err := x.handleWithPolicy(ctx, persistenceID, event, seqNr); err != nil {
 		return err
+	}
+
+	if x.metrics != nil {
+		x.metrics.projectionHandled.Add(ctx, 1)
 	}
 
 	return x.commitOffset(ctx, shard, nextOffset, persistenceID)
 }
 
 // handleWithPolicy executes the handler with the configured recovery policy.
-func (x *projectionRunner) handleWithPolicy(ctx context.Context, persistenceID string, event, state *anypb.Any, seqNr uint64) error {
+func (x *projectionRunner) handleWithPolicy(ctx context.Context, persistenceID string, event *anypb.Any, seqNr uint64) error {
 	switch x.recovery.RecoveryPolicy() {
 	case projection.Fail:
-		if err := x.handleSafely(ctx, persistenceID, event, state, seqNr); err != nil {
+		if err := x.handleSafely(ctx, persistenceID, event, seqNr); err != nil {
 			x.logHandlerError(err, persistenceID, seqNr)
 			return err
 		}
 	case projection.RetryAndFail:
-		if err := x.retryHandle(ctx, persistenceID, event, state, seqNr, true); err != nil {
+		if err := x.retryHandle(ctx, persistenceID, event, seqNr, true); err != nil {
 			return err
 		}
 	case projection.RetryAndSkip:
-		_ = x.retryHandle(ctx, persistenceID, event, state, seqNr, false)
+		if err := x.retryHandle(ctx, persistenceID, event, seqNr, false); err != nil {
+			x.sendToDeadLetter(ctx, persistenceID, event, seqNr, err)
+		}
 	case projection.Skip:
-		if err := x.handleSafely(ctx, persistenceID, event, state, seqNr); err != nil {
+		if err := x.handleSafely(ctx, persistenceID, event, seqNr); err != nil {
 			x.logHandlerError(err, persistenceID, seqNr)
+			x.sendToDeadLetter(ctx, persistenceID, event, seqNr, err)
 		}
 	default:
-		if err := x.handleSafely(ctx, persistenceID, event, state, seqNr); err != nil {
+		if err := x.handleSafely(ctx, persistenceID, event, seqNr); err != nil {
 			x.logHandlerError(err, persistenceID, seqNr)
 			return err
 		}
@@ -415,9 +478,9 @@ func (x *projectionRunner) handleWithPolicy(ctx context.Context, persistenceID s
 }
 
 // retryHandle runs the handler with the pre-created retrier and optional per-attempt logging.
-func (x *projectionRunner) retryHandle(ctx context.Context, persistenceID string, event, state *anypb.Any, seqNr uint64, logEachAttempt bool) error {
+func (x *projectionRunner) retryHandle(ctx context.Context, persistenceID string, event *anypb.Any, seqNr uint64, logEachAttempt bool) error {
 	err := x.retrier.Run(func() error {
-		handleErr := x.handleSafely(ctx, persistenceID, event, state, seqNr)
+		handleErr := x.handleSafely(ctx, persistenceID, event, seqNr)
 		if handleErr != nil && logEachAttempt {
 			x.logHandlerError(handleErr, persistenceID, seqNr)
 		}
@@ -431,14 +494,24 @@ func (x *projectionRunner) retryHandle(ctx context.Context, persistenceID string
 }
 
 // handleSafely invokes the handler and converts panics into errors.
-func (x *projectionRunner) handleSafely(ctx context.Context, persistenceID string, event, state *anypb.Any, seqNr uint64) (err error) {
+func (x *projectionRunner) handleSafely(ctx context.Context, persistenceID string, event *anypb.Any, seqNr uint64) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = newHandlerPanicError(recovered)
 		}
 	}()
 
-	return x.handler.Handle(ctx, persistenceID, event, state, seqNr)
+	return x.handler.Handle(ctx, persistenceID, event, seqNr)
+}
+
+// sendToDeadLetter forwards a failed event to the dead letter handler if one is configured.
+func (x *projectionRunner) sendToDeadLetter(ctx context.Context, persistenceID string, event *anypb.Any, seqNr uint64, cause error) {
+	if x.deadLetterHandler == nil {
+		return
+	}
+	if err := x.deadLetterHandler.Handle(ctx, x.name, persistenceID, event, seqNr, cause); err != nil {
+		x.logger.Error(fmt.Errorf("dead letter handler failed for persistence id=%s, revision=%d: %w", persistenceID, seqNr, err))
+	}
 }
 
 // logHandlerError emits a consistent error message for handler failures.

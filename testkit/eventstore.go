@@ -30,8 +30,8 @@ import (
 	goset "github.com/deckarep/golang-set/v2"
 	"go.uber.org/atomic"
 
-	"github.com/tochemey/ego/v3/egopb"
-	"github.com/tochemey/ego/v3/persistence"
+	"github.com/tochemey/ego/v4/egopb"
+	"github.com/tochemey/ego/v4/persistence"
 )
 
 type EventKey struct {

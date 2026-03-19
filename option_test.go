@@ -31,8 +31,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tochemey/goakt/v4/discovery/kubernetes"
 	"github.com/tochemey/goakt/v4/log"
+	"go.opentelemetry.io/otel/trace"
+	nooptrace "go.opentelemetry.io/otel/trace/noop"
+	"google.golang.org/protobuf/types/known/anypb"
 
-	"github.com/tochemey/ego/v3/projection"
+	"github.com/tochemey/ego/v4/eventadapter"
+	"github.com/tochemey/ego/v4/projection"
 )
 
 func TestOptions(t *testing.T) {
@@ -103,3 +107,85 @@ func TestOptionWithRoles(t *testing.T) {
 	opt.Apply(engine)
 	assert.ElementsMatch(t, []string{"role1", "role2"}, engine.roles.ToSlice())
 }
+
+func TestOptionWithTelemetry(t *testing.T) {
+	tracer := nooptrace.NewTracerProvider().Tracer("test")
+	tel := &Telemetry{Tracer: tracer}
+	engine := new(Engine)
+	opt := WithTelemetry(tel)
+	opt.Apply(engine)
+	require.NotNil(t, engine.telemetry)
+	assert.Equal(t, tracer, engine.telemetry.Tracer)
+}
+
+func TestOptionWithTelemetryNil(t *testing.T) {
+	engine := new(Engine)
+	opt := WithTelemetry(nil)
+	opt.Apply(engine)
+	assert.Nil(t, engine.telemetry)
+}
+
+func TestOptionWithEventAdapters(t *testing.T) {
+	adapter := &testEventAdapter{}
+	engine := new(Engine)
+	opt := WithEventAdapters(adapter)
+	opt.Apply(engine)
+	require.Len(t, engine.eventAdapters, 1)
+	assert.Equal(t, adapter, engine.eventAdapters[0])
+}
+
+func TestOptionWithEventAdaptersMultiple(t *testing.T) {
+	a1 := &testEventAdapter{}
+	a2 := &testEventAdapter{}
+	engine := new(Engine)
+	WithEventAdapters(a1).Apply(engine)
+	WithEventAdapters(a2).Apply(engine)
+	require.Len(t, engine.eventAdapters, 2)
+}
+
+func TestOptionWithProjectionDeadLetterHandler(t *testing.T) {
+	handler := projection.NewDiscardHandler()
+	dlh := projection.NewDiscardDeadLetterHandler()
+	engine := new(Engine)
+	opt := WithProjection(&projection.Options{
+		Handler:           handler,
+		BufferSize:        100,
+		PullInterval:      time.Second,
+		DeadLetterHandler: dlh,
+	})
+	opt.Apply(engine)
+	require.NotNil(t, engine.projectionExtension)
+	assert.Equal(t, dlh, engine.projectionExtension.DeadLetterHandler())
+}
+
+func TestOptionWithProjectionNilRecoveryDefaultsToNewRecovery(t *testing.T) {
+	handler := projection.NewDiscardHandler()
+	engine := new(Engine)
+	opt := WithProjection(&projection.Options{
+		Handler:      handler,
+		PullInterval: time.Second,
+		Recovery:     nil,
+	})
+	opt.Apply(engine)
+	require.NotNil(t, engine.projectionExtension)
+	assert.NotNil(t, engine.projectionExtension.Recovery())
+}
+
+func TestOptionWithProjectionNil(t *testing.T) {
+	engine := new(Engine)
+	opt := WithProjection(nil)
+	opt.Apply(engine)
+	assert.Nil(t, engine.projectionExtension)
+}
+
+// testEventAdapter is a no-op EventAdapter for testing
+type testEventAdapter struct{}
+
+var _ eventadapter.EventAdapter = (*testEventAdapter)(nil)
+
+func (a *testEventAdapter) Adapt(event *anypb.Any, _ uint64) (*anypb.Any, error) {
+	return event, nil
+}
+
+// ensure trace.Tracer is used to satisfy the compiler
+var _ trace.Tracer = nooptrace.NewTracerProvider().Tracer("compile-check")

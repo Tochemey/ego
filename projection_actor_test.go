@@ -35,12 +35,12 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/tochemey/ego/v3/egopb"
-	"github.com/tochemey/ego/v3/internal/extensions"
-	"github.com/tochemey/ego/v3/internal/pause"
-	"github.com/tochemey/ego/v3/projection"
-	testpb "github.com/tochemey/ego/v3/test/data/testpb"
-	"github.com/tochemey/ego/v3/testkit"
+	"github.com/tochemey/ego/v4/egopb"
+	"github.com/tochemey/ego/v4/internal/extensions"
+	"github.com/tochemey/ego/v4/internal/pause"
+	"github.com/tochemey/ego/v4/projection"
+	testpb "github.com/tochemey/ego/v4/test/data/testpb"
+	"github.com/tochemey/ego/v4/testkit"
 )
 
 func TestProjection(t *testing.T) {
@@ -70,7 +70,7 @@ func TestProjection(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(journalStore),
 				extensions.NewOffsetStore(offsetStore),
-				extensions.NewProjectionExtension(handler, 500, ZeroTime, ZeroTime, time.Second, projection.NewRecovery())),
+				extensions.NewProjectionExtension(handler, 500, ZeroTime, ZeroTime, time.Second, projection.NewRecovery(), nil)),
 			goakt.WithActorInitMaxRetries(3))
 
 		require.NoError(t, err)
@@ -92,8 +92,6 @@ func TestProjection(t *testing.T) {
 		pause.For(time.Second)
 
 		// persist some events
-		state, err := anypb.New(new(testpb.Account))
-		assert.NoError(t, err)
 		event, err := anypb.New(&testpb.AccountCredited{})
 		assert.NoError(t, err)
 
@@ -107,7 +105,6 @@ func TestProjection(t *testing.T) {
 				SequenceNumber: uint64(seqNr),
 				IsDeleted:      false,
 				Event:          event,
-				ResultingState: state,
 				Timestamp:      timestamp.AsTime().Unix(),
 				Shard:          shardNumber,
 			}
@@ -159,7 +156,7 @@ func TestProjection(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(journalStore),
 				extensions.NewOffsetStore(offsetStore),
-				extensions.NewProjectionExtension(handler, 500, time.Time{}, time.Time{}, time.Second, projection.NewRecovery())),
+				extensions.NewProjectionExtension(handler, 500, time.Time{}, time.Time{}, time.Second, projection.NewRecovery(), nil)),
 			goakt.WithActorInitMaxRetries(3))
 
 		require.NoError(t, err)

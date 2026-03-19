@@ -59,4 +59,14 @@ func TestSpawnOption(t *testing.T) {
 		option.Apply(config)
 		require.Equal(t, &spawnConfig{entitiesPlacement: LeastLoad}, config)
 	})
+	t.Run("WithSnapshotInterval", func(t *testing.T) {
+		config := &spawnConfig{}
+		option := WithSnapshotInterval(10)
+		option.Apply(config)
+		require.EqualValues(t, 10, config.snapshotInterval)
+	})
+	t.Run("WithSnapshotInterval zero is default", func(t *testing.T) {
+		config := newSpawnConfig()
+		require.EqualValues(t, 0, config.snapshotInterval)
+	})
 }

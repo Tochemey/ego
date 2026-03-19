@@ -46,13 +46,13 @@ import (
 	"github.com/travisjeffery/go-dynaport"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/tochemey/ego/v3/egopb"
-	samplepb "github.com/tochemey/ego/v3/example/examplepb"
-	"github.com/tochemey/ego/v3/internal/pause"
-	egomock "github.com/tochemey/ego/v3/mocks/ego"
-	"github.com/tochemey/ego/v3/projection"
-	testpb "github.com/tochemey/ego/v3/test/data/testpb"
-	testkit "github.com/tochemey/ego/v3/testkit"
+	"github.com/tochemey/ego/v4/egopb"
+	samplepb "github.com/tochemey/ego/v4/example/examplepb"
+	"github.com/tochemey/ego/v4/internal/pause"
+	egomock "github.com/tochemey/ego/v4/mocks/ego"
+	"github.com/tochemey/ego/v4/projection"
+	testpb "github.com/tochemey/ego/v4/test/data/testpb"
+	testkit "github.com/tochemey/ego/v4/testkit"
 )
 
 // nolint

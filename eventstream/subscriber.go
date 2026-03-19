@@ -28,7 +28,7 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/atomic"
 
-	"github.com/tochemey/ego/v3/internal/queue"
+	"github.com/tochemey/ego/v4/internal/queue"
 )
 
 // Subscriber defines the Subscriber Interface

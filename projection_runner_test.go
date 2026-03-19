@@ -37,13 +37,13 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/tochemey/ego/v3/egopb"
-	"github.com/tochemey/ego/v3/internal/pause"
-	mocksoffsetstore "github.com/tochemey/ego/v3/mocks/offsetstore"
-	mockseventstore "github.com/tochemey/ego/v3/mocks/persistence"
-	"github.com/tochemey/ego/v3/projection"
-	testpb "github.com/tochemey/ego/v3/test/data/testpb"
-	testkit2 "github.com/tochemey/ego/v3/testkit"
+	"github.com/tochemey/ego/v4/egopb"
+	"github.com/tochemey/ego/v4/internal/pause"
+	mocksoffsetstore "github.com/tochemey/ego/v4/mocks/offsetstore"
+	mockseventstore "github.com/tochemey/ego/v4/mocks/persistence"
+	"github.com/tochemey/ego/v4/projection"
+	testpb "github.com/tochemey/ego/v4/test/data/testpb"
+	testkit2 "github.com/tochemey/ego/v4/testkit"
 )
 
 func TestRunner(t *testing.T) {
@@ -80,8 +80,6 @@ func TestRunner(t *testing.T) {
 		runner.Run(ctx)
 
 		// persist some events
-		state, err := anypb.New(new(testpb.Account))
-		assert.NoError(t, err)
 		event, err := anypb.New(&testpb.AccountCredited{})
 		assert.NoError(t, err)
 
@@ -95,9 +93,9 @@ func TestRunner(t *testing.T) {
 				SequenceNumber: uint64(seqNr),
 				IsDeleted:      false,
 				Event:          event,
-				ResultingState: state,
-				Timestamp:      timestamp.AsTime().Unix(),
-				Shard:          shardNumber,
+
+				Timestamp: timestamp.AsTime().Unix(),
+				Shard:     shardNumber,
 			}
 		}
 
@@ -152,8 +150,6 @@ func TestRunner(t *testing.T) {
 		runner.Run(ctx)
 
 		// persist some events
-		state, err := anypb.New(new(testpb.Account))
-		assert.NoError(t, err)
 		event, err := anypb.New(&testpb.AccountCredited{})
 		assert.NoError(t, err)
 
@@ -167,8 +163,8 @@ func TestRunner(t *testing.T) {
 				SequenceNumber: uint64(seqNr),
 				IsDeleted:      false,
 				Event:          event,
-				ResultingState: state,
-				Timestamp:      timestamp.AsTime().Unix(),
+
+				Timestamp: timestamp.AsTime().Unix(),
 			}
 		}
 
@@ -218,8 +214,6 @@ func TestRunner(t *testing.T) {
 		runner.Run(ctx)
 
 		// persist some events
-		state, err := anypb.New(new(testpb.Account))
-		assert.NoError(t, err)
 		event, err := anypb.New(&testpb.AccountCredited{})
 		assert.NoError(t, err)
 
@@ -233,8 +227,8 @@ func TestRunner(t *testing.T) {
 				SequenceNumber: uint64(seqNr),
 				IsDeleted:      false,
 				Event:          event,
-				ResultingState: state,
-				Timestamp:      timestamp.AsTime().Unix(),
+
+				Timestamp: timestamp.AsTime().Unix(),
 			}
 		}
 
@@ -284,8 +278,6 @@ func TestRunner(t *testing.T) {
 		// run the projection
 		runner.Run(ctx)
 		// persist some events
-		state, err := anypb.New(new(testpb.Account))
-		assert.NoError(t, err)
 		event, err := anypb.New(&testpb.AccountCredited{})
 		assert.NoError(t, err)
 
@@ -299,9 +291,9 @@ func TestRunner(t *testing.T) {
 				SequenceNumber: uint64(seqNr),
 				IsDeleted:      false,
 				Event:          event,
-				ResultingState: state,
-				Timestamp:      timestamp.AsTime().Unix(),
-				Shard:          shard,
+
+				Timestamp: timestamp.AsTime().Unix(),
+				Shard:     shard,
 			}
 		}
 
@@ -359,8 +351,6 @@ func TestRunner(t *testing.T) {
 		// run the projection
 		runner.Run(ctx)
 		// persist some events
-		state, err := anypb.New(new(testpb.Account))
-		assert.NoError(t, err)
 		event, err := anypb.New(&testpb.AccountCredited{})
 		assert.NoError(t, err)
 
@@ -374,9 +364,9 @@ func TestRunner(t *testing.T) {
 				SequenceNumber: uint64(seqNr),
 				IsDeleted:      false,
 				Event:          event,
-				ResultingState: state,
-				Timestamp:      timestamp.AsTime().Unix(),
-				Shard:          shard,
+
+				Timestamp: timestamp.AsTime().Unix(),
+				Shard:     shard,
 			}
 		}
 
@@ -423,8 +413,6 @@ func TestRunner(t *testing.T) {
 			Timestamp:      0,
 		}
 
-		state, err := anypb.New(new(testpb.Account))
-		assert.NoError(t, err)
 		event, err := anypb.New(&testpb.AccountCredited{})
 		assert.NoError(t, err)
 		nextOffsetValue := timestamppb.New(time.Now().Add(time.Minute))
@@ -434,9 +422,9 @@ func TestRunner(t *testing.T) {
 				SequenceNumber: 1,
 				IsDeleted:      false,
 				Event:          event,
-				ResultingState: state,
-				Timestamp:      timestamp.AsTime().Unix(),
-				Shard:          shardNumber,
+
+				Timestamp: timestamp.AsTime().Unix(),
+				Shard:     shardNumber,
 			},
 		}
 
@@ -631,8 +619,6 @@ func TestRunner(t *testing.T) {
 			Timestamp:      0,
 		}
 
-		state, err := anypb.New(new(testpb.Account))
-		assert.NoError(t, err)
 		event, err := anypb.New(&testpb.AccountCredited{})
 		assert.NoError(t, err)
 		nextOffsetValue := timestamppb.New(time.Now().Add(time.Minute))
@@ -642,9 +628,9 @@ func TestRunner(t *testing.T) {
 				SequenceNumber: 1,
 				IsDeleted:      false,
 				Event:          event,
-				ResultingState: state,
-				Timestamp:      timestamp.AsTime().Unix(),
-				Shard:          shardNumber,
+
+				Timestamp: timestamp.AsTime().Unix(),
+				Shard:     shardNumber,
 			},
 		}
 
@@ -842,8 +828,6 @@ func TestRunner(t *testing.T) {
 			Timestamp:      0,
 		}
 
-		state, err := anypb.New(new(testpb.Account))
-		require.NoError(t, err)
 		event, err := anypb.New(&testpb.AccountCredited{})
 		require.NoError(t, err)
 		nextOffsetValue := timestamppb.New(time.Now().Add(time.Minute))
@@ -853,7 +837,6 @@ func TestRunner(t *testing.T) {
 				SequenceNumber: 1,
 				IsDeleted:      false,
 				Event:          event,
-				ResultingState: state,
 				Timestamp:      timestamp.AsTime().Unix(),
 				Shard:          shardNumber,
 			},
@@ -900,7 +883,7 @@ type testHandler1 struct{}
 
 var _ projection.Handler = &testHandler1{}
 
-func (x testHandler1) Handle(_ context.Context, _ string, _ *anypb.Any, _ *anypb.Any, _ uint64) error {
+func (x testHandler1) Handle(_ context.Context, _ string, _ *anypb.Any, _ uint64) error {
 	return errors.New("damn")
 }
 
@@ -908,7 +891,7 @@ type testHandler2 struct {
 	counter *atomic.Int32
 }
 
-func (x testHandler2) Handle(_ context.Context, _ string, _ *anypb.Any, _ *anypb.Any, revision uint64) error {
+func (x testHandler2) Handle(_ context.Context, _ string, _ *anypb.Any, revision uint64) error {
 	if (int(revision) % 2) == 0 {
 		return errors.New("failed underlying")
 	}
@@ -920,6 +903,6 @@ type testPanicHandler struct{}
 
 var _ projection.Handler = &testPanicHandler{}
 
-func (x testPanicHandler) Handle(_ context.Context, _ string, _ *anypb.Any, _ *anypb.Any, _ uint64) error {
+func (x testPanicHandler) Handle(_ context.Context, _ string, _ *anypb.Any, _ uint64) error {
 	panic("boom")
 }
