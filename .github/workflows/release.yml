@@ -1,0 +1,209 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release-ego:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+
+  release-publishers:
+    runs-on: ubuntu-latest
+    needs: release-ego
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PAT }}
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.1"
+
+      - name: Get ego version from tag
+        id: ego-version
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Determine semver bump type
+        id: bump-type
+        run: |
+          NEW_TAG="${GITHUB_REF#refs/tags/}"
+          # Find the previous ego tag
+          PREV_TAG=$(git tag -l 'v*' --sort=-version:refname | grep -v "^${NEW_TAG}$" | head -1)
+
+          if [ -z "$PREV_TAG" ]; then
+            echo "type=patch" >> "$GITHUB_OUTPUT"
+            echo "No previous tag found, defaulting to patch bump."
+            exit 0
+          fi
+
+          echo "Previous ego tag: ${PREV_TAG}"
+          echo "New ego tag: ${NEW_TAG}"
+
+          # Strip leading 'v'
+          OLD="${PREV_TAG#v}"
+          NEW="${NEW_TAG#v}"
+
+          IFS='.' read -r OLD_MAJOR OLD_MINOR OLD_PATCH <<< "$OLD"
+          IFS='.' read -r NEW_MAJOR NEW_MINOR NEW_PATCH <<< "$NEW"
+
+          if [ "$NEW_MAJOR" -gt "$OLD_MAJOR" ]; then
+            echo "type=major" >> "$GITHUB_OUTPUT"
+          elif [ "$NEW_MINOR" -gt "$OLD_MINOR" ]; then
+            echo "type=minor" >> "$GITHUB_OUTPUT"
+          else
+            echo "type=patch" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Wait for ego module to be available on proxy
+        run: |
+          EGO_VERSION="${{ steps.ego-version.outputs.version }}"
+          MODULE="github.com/tochemey/ego/v3@${EGO_VERSION}"
+          echo "Waiting for ${MODULE} on Go proxy..."
+          for i in $(seq 1 30); do
+            if go list -m "${MODULE}" 2>/dev/null; then
+              echo "Module available on proxy."
+              exit 0
+            fi
+            echo "Attempt $i/30: not yet available, waiting 30s..."
+            sleep 30
+          done
+          echo "::error::Timed out waiting for module on Go proxy"
+          exit 1
+
+      - name: Update publishers and create tags
+        run: |
+          EGO_VERSION="${{ steps.ego-version.outputs.version }}"
+          BUMP_TYPE="${{ steps.bump-type.outputs.type }}"
+          PUBLISHERS="kafka nats pulsar websocket"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          for PUB in $PUBLISHERS; do
+            echo "::group::Processing publisher: ${PUB}"
+
+            # Determine latest publisher tag and compute next version
+            PREFIX="publisher/${PUB}/v"
+            LATEST=$(git tag -l "${PREFIX}*" --sort=-version:refname | head -1)
+            if [ -z "$LATEST" ]; then
+              CURRENT="0.0.0"
+            else
+              CURRENT="${LATEST#${PREFIX}}"
+            fi
+
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+
+            case "$BUMP_TYPE" in
+              major)
+                MAJOR=$((MAJOR + 1))
+                MINOR=0
+                PATCH=0
+                ;;
+              minor)
+                MINOR=$((MINOR + 1))
+                PATCH=0
+                ;;
+              patch)
+                PATCH=$((PATCH + 1))
+                ;;
+            esac
+
+            NEXT_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+            echo "Publisher ${PUB}: ${CURRENT} -> ${NEXT_VERSION} (${BUMP_TYPE} bump)"
+
+            # Update go.mod
+            cd "publisher/${PUB}"
+            go get "github.com/tochemey/ego/v3@${EGO_VERSION}"
+            go mod tidy
+            cd ../..
+
+            # Stage changes if any
+            if ! git diff --quiet "publisher/${PUB}/go.mod" "publisher/${PUB}/go.sum"; then
+              git add "publisher/${PUB}/go.mod" "publisher/${PUB}/go.sum"
+              echo "Staged go.mod changes for ${PUB}"
+            else
+              echo "No go.mod changes for ${PUB}"
+            fi
+
+            echo "::endgroup::"
+          done
+
+          # Single commit for all publisher updates
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(publishers): update ego dependency to ${EGO_VERSION}"
+            git push origin HEAD:main
+            echo "Pushed dependency updates to main."
+          else
+            echo "No dependency changes to commit."
+          fi
+
+          # Create and push all publisher tags from the current HEAD
+          for PUB in $PUBLISHERS; do
+            PREFIX="publisher/${PUB}/v"
+            LATEST=$(git tag -l "${PREFIX}*" --sort=-version:refname | head -1)
+            if [ -z "$LATEST" ]; then
+              CURRENT="0.0.0"
+            else
+              CURRENT="${LATEST#${PREFIX}}"
+            fi
+
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+
+            case "$BUMP_TYPE" in
+              major)
+                MAJOR=$((MAJOR + 1))
+                MINOR=0
+                PATCH=0
+                ;;
+              minor)
+                MINOR=$((MINOR + 1))
+                PATCH=0
+                ;;
+              patch)
+                PATCH=$((PATCH + 1))
+                ;;
+            esac
+
+            NEXT_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+            TAG="publisher/${PUB}/v${NEXT_VERSION}"
+            git tag "${TAG}"
+            echo "Created tag: ${TAG}"
+          done
+
+          git push origin --tags
+          echo "Pushed all publisher tags."
+
+      - name: Create publisher GitHub releases
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+        run: |
+          EGO_VERSION="${{ steps.ego-version.outputs.version }}"
+          BUMP_TYPE="${{ steps.bump-type.outputs.type }}"
+          PUBLISHERS="kafka nats pulsar websocket"
+
+          for PUB in $PUBLISHERS; do
+            PREFIX="publisher/${PUB}/v"
+            LATEST=$(git tag -l "${PREFIX}*" --sort=-version:refname | head -1)
+            VERSION="${LATEST#${PREFIX}}"
+
+            gh release create "${LATEST}" \
+              --title "${PUB} publisher v${VERSION}" \
+              --notes "Release of \`${PUB}\` publisher v${VERSION}, updated to ego ${EGO_VERSION}."
+
+            echo "Created release for ${PUB} publisher v${VERSION}"
+          done
