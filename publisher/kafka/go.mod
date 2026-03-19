@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/IBM/sarama v1.47.0
 	github.com/tochemey/ego/v3 v3.6.3
-	github.com/tochemey/goakt/v3 v3.14.0
+	github.com/tochemey/goakt/v4 v4.1.0
 	github.com/tochemey/goakt/v4 v4.1.0
 	go.uber.org/atomic v1.11.0
 	google.golang.org/protobuf v1.36.11
