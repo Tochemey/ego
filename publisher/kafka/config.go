@@ -27,7 +27,7 @@ import (
 	"time"
 
 	"github.com/IBM/sarama"
-	"github.com/tochemey/goakt/v3/log"
+	"github.com/tochemey/goakt/v4/log"
 )
 
 // Config is a set of base config values required for connecting to Kafka

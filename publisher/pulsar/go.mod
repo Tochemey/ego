@@ -72,7 +72,7 @@ require (
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/redcon v1.6.2 // indirect
 	github.com/tochemey/goakt/v3 v3.14.0 // indirect
-	github.com/tochemey/goakt/v4 v4.0.0 // indirect
+	github.com/tochemey/goakt/v4 v4.1.0 // indirect
 	github.com/tochemey/olric v0.3.8 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect

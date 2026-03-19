@@ -25,7 +25,7 @@ package extensions
 import (
 	"time"
 
-	"github.com/tochemey/goakt/v3/extension"
+	"github.com/tochemey/goakt/v4/extension"
 
 	"github.com/tochemey/ego/v3/eventstream"
 	"github.com/tochemey/ego/v3/offsetstore"
