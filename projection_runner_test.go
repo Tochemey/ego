@@ -33,11 +33,15 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/tochemey/goakt/v4/log"
+	noopmetric "go.opentelemetry.io/otel/metric/noop"
 	"go.uber.org/atomic"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/tochemey/ego/v4/egopb"
+	"github.com/tochemey/ego/v4/encryption"
+	"github.com/tochemey/ego/v4/eventadapter"
 	"github.com/tochemey/ego/v4/internal/pause"
 	mocksoffsetstore "github.com/tochemey/ego/v4/mocks/offsetstore"
 	mockseventstore "github.com/tochemey/ego/v4/mocks/persistence"
@@ -807,6 +811,316 @@ func TestRunner(t *testing.T) {
 
 		require.NoError(t, runner.Stop())
 	})
+	t.Run("with encrypted events decrypted during processing", func(t *testing.T) {
+		ctx := context.TODO()
+		projectionName := "db-writer"
+		persistenceID := uuid.NewString()
+		shardNumber := uint64(9)
+
+		journalStore := testkit2.NewEventsStore()
+		require.NoError(t, journalStore.Connect(ctx))
+		offsetStore := testkit2.NewOffsetStore()
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		keyStore := testkit2.NewKeyStore()
+		encryptor := encryption.NewAESEncryptor(keyStore)
+
+		handler := projection.NewDiscardHandler()
+
+		// write an encrypted event
+		eventAny, err := anypb.New(&testpb.AccountCredited{AccountId: persistenceID, AccountBalance: 100})
+		require.NoError(t, err)
+
+		eventBytes, err := proto.Marshal(eventAny)
+		require.NoError(t, err)
+
+		ciphertext, keyID, err := encryptor.Encrypt(ctx, persistenceID, eventBytes)
+		require.NoError(t, err)
+
+		encryptedEvent := &anypb.Any{TypeUrl: eventAny.GetTypeUrl(), Value: ciphertext}
+		timestamp := time.Now().Unix()
+
+		journals := []*egopb.Event{
+			{
+				PersistenceId:   persistenceID,
+				SequenceNumber:  1,
+				IsDeleted:       false,
+				Event:           encryptedEvent,
+				Timestamp:       timestamp,
+				Shard:           shardNumber,
+				IsEncrypted:     true,
+				EncryptionKeyId: keyID,
+			},
+		}
+		require.NoError(t, journalStore.WriteEvents(ctx, journals))
+
+		runner := newProjectionRunner(projectionName, handler, journalStore, offsetStore,
+			withPullInterval(time.Millisecond),
+			withEncryptor(encryptor))
+
+		require.NoError(t, runner.Start(ctx))
+		runner.Run(ctx)
+
+		pause.For(time.Second)
+
+		projectionID := &egopb.ProjectionId{
+			ProjectionName: projectionName,
+			ShardNumber:    shardNumber,
+		}
+		actual, err := offsetStore.GetCurrentOffset(ctx, projectionID)
+		assert.NoError(t, err)
+		assert.NotNil(t, actual)
+
+		assert.NoError(t, journalStore.Disconnect(ctx))
+		assert.NoError(t, offsetStore.Disconnect(ctx))
+		assert.NoError(t, runner.Stop())
+	})
+	t.Run("with event adapters during processing", func(t *testing.T) {
+		ctx := context.TODO()
+		projectionName := "db-writer"
+		persistenceID := uuid.NewString()
+		shardNumber := uint64(9)
+
+		journalStore := testkit2.NewEventsStore()
+		require.NoError(t, journalStore.Connect(ctx))
+		offsetStore := testkit2.NewOffsetStore()
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		handler := projection.NewDiscardHandler()
+		adapter := &noopRunnerAdapter{}
+
+		event, err := anypb.New(&testpb.AccountCredited{AccountId: persistenceID, AccountBalance: 100})
+		require.NoError(t, err)
+		timestamp := time.Now().Unix()
+
+		journals := []*egopb.Event{
+			{
+				PersistenceId:  persistenceID,
+				SequenceNumber: 1,
+				IsDeleted:      false,
+				Event:          event,
+				Timestamp:      timestamp,
+				Shard:          shardNumber,
+			},
+		}
+		require.NoError(t, journalStore.WriteEvents(ctx, journals))
+
+		runner := newProjectionRunner(projectionName, handler, journalStore, offsetStore,
+			withPullInterval(time.Millisecond),
+			withEventAdapters([]eventadapter.EventAdapter{adapter}))
+
+		require.NoError(t, runner.Start(ctx))
+		runner.Run(ctx)
+
+		pause.For(time.Second)
+
+		projectionID := &egopb.ProjectionId{
+			ProjectionName: projectionName,
+			ShardNumber:    shardNumber,
+		}
+		actual, err := offsetStore.GetCurrentOffset(ctx, projectionID)
+		assert.NoError(t, err)
+		assert.NotNil(t, actual)
+
+		assert.NoError(t, journalStore.Disconnect(ctx))
+		assert.NoError(t, offsetStore.Disconnect(ctx))
+		assert.NoError(t, runner.Stop())
+	})
+	t.Run("with metrics during processing", func(t *testing.T) {
+		ctx := context.TODO()
+		projectionName := "db-writer"
+		persistenceID := uuid.NewString()
+		shardNumber := uint64(9)
+
+		journalStore := testkit2.NewEventsStore()
+		require.NoError(t, journalStore.Connect(ctx))
+		offsetStore := testkit2.NewOffsetStore()
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		handler := projection.NewDiscardHandler()
+
+		meter := noopmetric.NewMeterProvider().Meter("test")
+		m := newMetrics(meter)
+
+		event, err := anypb.New(&testpb.AccountCredited{AccountId: persistenceID, AccountBalance: 100})
+		require.NoError(t, err)
+		timestamp := time.Now().Unix()
+
+		journals := []*egopb.Event{
+			{
+				PersistenceId:  persistenceID,
+				SequenceNumber: 1,
+				IsDeleted:      false,
+				Event:          event,
+				Timestamp:      timestamp,
+				Shard:          shardNumber,
+			},
+		}
+		require.NoError(t, journalStore.WriteEvents(ctx, journals))
+
+		runner := newProjectionRunner(projectionName, handler, journalStore, offsetStore,
+			withPullInterval(time.Millisecond),
+			withMetrics(m))
+
+		require.NoError(t, runner.Start(ctx))
+		runner.Run(ctx)
+
+		pause.For(time.Second)
+
+		projectionID := &egopb.ProjectionId{
+			ProjectionName: projectionName,
+			ShardNumber:    shardNumber,
+		}
+		actual, err := offsetStore.GetCurrentOffset(ctx, projectionID)
+		assert.NoError(t, err)
+		assert.NotNil(t, actual)
+
+		assert.NoError(t, journalStore.Disconnect(ctx))
+		assert.NoError(t, offsetStore.Disconnect(ctx))
+		assert.NoError(t, runner.Stop())
+	})
+	t.Run("with dead letter handler on skip failure", func(t *testing.T) {
+		ctx := context.TODO()
+		projectionName := "db-writer"
+		persistenceID := uuid.NewString()
+		shardNumber := uint64(9)
+
+		journalStore := testkit2.NewEventsStore()
+		require.NoError(t, journalStore.Connect(ctx))
+		offsetStore := testkit2.NewOffsetStore()
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		handler := &testHandler1{} // always returns error
+		dlh := projection.NewDiscardDeadLetterHandler()
+
+		event, err := anypb.New(&testpb.AccountCredited{AccountId: persistenceID, AccountBalance: 100})
+		require.NoError(t, err)
+		timestamp := time.Now().Unix()
+
+		journals := []*egopb.Event{
+			{
+				PersistenceId:  persistenceID,
+				SequenceNumber: 1,
+				IsDeleted:      false,
+				Event:          event,
+				Timestamp:      timestamp,
+				Shard:          shardNumber,
+			},
+		}
+		require.NoError(t, journalStore.WriteEvents(ctx, journals))
+
+		runner := newProjectionRunner(projectionName, handler, journalStore, offsetStore,
+			withPullInterval(time.Millisecond),
+			withRecoveryStrategy(projection.NewRecovery(
+				projection.WithRecoveryPolicy(projection.Skip))),
+			withDeadLetterHandler(dlh))
+
+		require.NoError(t, runner.Start(ctx))
+		runner.Run(ctx)
+
+		pause.For(time.Second)
+
+		// with Skip policy, events are skipped and offset is still committed
+		projectionID := &egopb.ProjectionId{
+			ProjectionName: projectionName,
+			ShardNumber:    shardNumber,
+		}
+		actual, err := offsetStore.GetCurrentOffset(ctx, projectionID)
+		assert.NoError(t, err)
+		assert.NotNil(t, actual)
+
+		assert.NoError(t, journalStore.Disconnect(ctx))
+		assert.NoError(t, offsetStore.Disconnect(ctx))
+		assert.NoError(t, runner.Stop())
+	})
+	t.Run("with dead letter handler error logging", func(t *testing.T) {
+		ctx := context.TODO()
+		projectionName := "db-writer"
+		persistenceID := uuid.NewString()
+		shardNumber := uint64(9)
+
+		journalStore := testkit2.NewEventsStore()
+		require.NoError(t, journalStore.Connect(ctx))
+		offsetStore := testkit2.NewOffsetStore()
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		handler := &testHandler1{} // always returns error
+		dlh := &errorDeadLetterHandler{}
+
+		event, err := anypb.New(&testpb.AccountCredited{AccountId: persistenceID, AccountBalance: 100})
+		require.NoError(t, err)
+		timestamp := time.Now().Unix()
+
+		journals := []*egopb.Event{
+			{
+				PersistenceId:  persistenceID,
+				SequenceNumber: 1,
+				IsDeleted:      false,
+				Event:          event,
+				Timestamp:      timestamp,
+				Shard:          shardNumber,
+			},
+		}
+		require.NoError(t, journalStore.WriteEvents(ctx, journals))
+
+		runner := newProjectionRunner(projectionName, handler, journalStore, offsetStore,
+			withPullInterval(time.Millisecond),
+			withRecoveryStrategy(projection.NewRecovery(
+				projection.WithRecoveryPolicy(projection.Skip))),
+			withDeadLetterHandler(dlh))
+
+		require.NoError(t, runner.Start(ctx))
+		runner.Run(ctx)
+
+		pause.For(time.Second)
+
+		assert.NoError(t, journalStore.Disconnect(ctx))
+		assert.NoError(t, offsetStore.Disconnect(ctx))
+		assert.NoError(t, runner.Stop())
+	})
+	t.Run("with starting offset configured", func(t *testing.T) {
+		ctx := context.TODO()
+		projectionName := "db-writer"
+		persistenceID := uuid.NewString()
+		shardNumber := uint64(9)
+
+		journalStore := testkit2.NewEventsStore()
+		require.NoError(t, journalStore.Connect(ctx))
+		offsetStore := testkit2.NewOffsetStore()
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		handler := projection.NewDiscardHandler()
+
+		event, err := anypb.New(&testpb.AccountCredited{AccountId: persistenceID, AccountBalance: 100})
+		require.NoError(t, err)
+		timestamp := time.Now().Unix()
+
+		journals := []*egopb.Event{
+			{
+				PersistenceId:  persistenceID,
+				SequenceNumber: 1,
+				IsDeleted:      false,
+				Event:          event,
+				Timestamp:      timestamp,
+				Shard:          shardNumber,
+			},
+		}
+		require.NoError(t, journalStore.WriteEvents(ctx, journals))
+
+		startOffset := time.Now().Add(-time.Hour)
+		runner := newProjectionRunner(projectionName, handler, journalStore, offsetStore,
+			withPullInterval(time.Millisecond),
+			withStartOffset(startOffset))
+
+		require.NoError(t, runner.Start(ctx))
+		runner.Run(ctx)
+
+		pause.For(time.Second)
+
+		assert.NoError(t, journalStore.Disconnect(ctx))
+		assert.NoError(t, offsetStore.Disconnect(ctx))
+		assert.NoError(t, runner.Stop())
+	})
 	t.Run("when current offset is zero", func(t *testing.T) {
 		ctx := context.TODO()
 		projectionName := "db-writer"
@@ -905,4 +1219,20 @@ var _ projection.Handler = &testPanicHandler{}
 
 func (x testPanicHandler) Handle(_ context.Context, _ string, _ *anypb.Any, _ uint64) error {
 	panic("boom")
+}
+
+type errorDeadLetterHandler struct{}
+
+var _ projection.DeadLetterHandler = &errorDeadLetterHandler{}
+
+func (x *errorDeadLetterHandler) Handle(_ context.Context, _ string, _ string, _ *anypb.Any, _ uint64, _ error) error {
+	return errors.New("dead letter handler failed")
+}
+
+type noopRunnerAdapter struct{}
+
+var _ eventadapter.EventAdapter = &noopRunnerAdapter{}
+
+func (a *noopRunnerAdapter) Adapt(event *anypb.Any, _ uint64) (*anypb.Any, error) {
+	return event, nil
 }

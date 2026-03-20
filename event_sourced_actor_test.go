@@ -1395,9 +1395,9 @@ func TestEventSourcedActor(t *testing.T) {
 		keyStore := testkit.NewKeyStore()
 		encryptor := encryption.NewAESEncryptor(keyStore)
 
-		// create entity config with snapshot interval of 1 (so every command triggers a snapshot)
+		// create entity config with snapshot interval of 2 (snapshot at event 2, event 3 has no snapshot)
 		entityCfg := &extensions.EntityConfig{
-			SnapshotInterval: 1,
+			SnapshotInterval: 2,
 		}
 
 		// create an actor system with encryption and snapshot store
@@ -1428,7 +1428,7 @@ func TestEventSourcedActor(t *testing.T) {
 
 		pause.For(time.Second)
 
-		// send a command (will encrypt event + snapshot)
+		// send command 1 (event 1, no snapshot yet)
 		reply, err := goakt.Ask(ctx, pid, &testpb.CreateAccount{AccountBalance: 500.00}, 5*time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, reply)
@@ -1436,8 +1436,13 @@ func TestEventSourcedActor(t *testing.T) {
 		commandReply := reply.(*egopb.CommandReply)
 		require.IsType(t, new(egopb.CommandReply_StateReply), commandReply.GetReply())
 
-		// send another command
+		// send command 2 (event 2, snapshot taken at seq 2)
 		reply, err = goakt.Ask(ctx, pid, &testpb.CreditAccount{AccountId: persistenceID, Balance: 200}, 5*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+
+		// send command 3 (event 3, no snapshot - this encrypted event will need replay after snapshot)
+		reply, err = goakt.Ask(ctx, pid, &testpb.CreditAccount{AccountId: persistenceID, Balance: 100}, 5*time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, reply)
 
@@ -1490,15 +1495,16 @@ func TestEventSourcedActor(t *testing.T) {
 		require.IsType(t, new(egopb.CommandReply_StateReply), commandReply.GetReply())
 
 		state := commandReply.GetReply().(*egopb.CommandReply_StateReply)
-		assert.EqualValues(t, 2, state.StateReply.GetSequenceNumber())
+		assert.EqualValues(t, 3, state.StateReply.GetSequenceNumber())
 
 		resultingState := new(testpb.Account)
 		err = state.StateReply.GetState().UnmarshalTo(resultingState)
 		require.NoError(t, err)
 
+		// 500 + 200 + 100 = 800
 		expected := &testpb.Account{
 			AccountId:      persistenceID,
-			AccountBalance: 700.00,
+			AccountBalance: 800.00,
 		}
 		assert.True(t, proto.Equal(expected, resultingState))
 
@@ -1511,6 +1517,93 @@ func TestEventSourcedActor(t *testing.T) {
 
 		err = actorSystem2.Stop(ctx)
 		assert.NoError(t, err)
+	})
+	t.Run("with encrypted event replay without snapshot store", func(t *testing.T) {
+		ctx := context.TODO()
+
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		eventStream := eventstream.New()
+		keyStore := testkit.NewKeyStore()
+		encryptor := encryption.NewAESEncryptor(keyStore)
+
+		// first actor system: send commands with encryption (no snapshot store)
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+				extensions.NewEncryptor(encryptor),
+			),
+			goakt.WithActorInitMaxRetries(3))
+		require.NoError(t, err)
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior), goakt.WithLongLived())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+		pause.For(time.Second)
+
+		reply, err := goakt.Ask(ctx, pid, &testpb.CreateAccount{AccountBalance: 300.00}, 5*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+
+		reply, err = goakt.Ask(ctx, pid, &testpb.CreditAccount{AccountId: persistenceID, Balance: 150}, 5*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+
+		eventStream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+		pause.For(time.Second)
+
+		// second actor system: recover from encrypted events (no snapshot)
+		eventStream2 := eventstream.New()
+		actorSystem2, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream2),
+				extensions.NewEncryptor(encryptor),
+			),
+			goakt.WithActorInitMaxRetries(3))
+		require.NoError(t, err)
+		require.NoError(t, actorSystem2.Start(ctx))
+		pause.For(time.Second)
+
+		behavior2 := NewAccountEventSourcedBehavior(persistenceID)
+		actor2 := newEventSourcedActor()
+		pid2, err := actorSystem2.Spawn(ctx, behavior2.ID(), actor2, goakt.WithDependencies(behavior2), goakt.WithLongLived())
+		require.NoError(t, err)
+		require.NotNil(t, pid2)
+		pause.For(time.Second)
+
+		reply, err = goakt.Ask(ctx, pid2, &egopb.GetStateCommand{}, 5*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+
+		commandReply := reply.(*egopb.CommandReply)
+		state := commandReply.GetReply().(*egopb.CommandReply_StateReply)
+		assert.EqualValues(t, 2, state.StateReply.GetSequenceNumber())
+
+		resultingState := new(testpb.Account)
+		require.NoError(t, state.StateReply.GetState().UnmarshalTo(resultingState))
+
+		expected := &testpb.Account{
+			AccountId:      persistenceID,
+			AccountBalance: 450.00,
+		}
+		assert.True(t, proto.Equal(expected, resultingState))
+
+		assert.NoError(t, eventStore.Disconnect(ctx))
+		eventStream2.Close()
+		pause.For(time.Second)
+		assert.NoError(t, actorSystem2.Stop(ctx))
 	})
 	t.Run("with retention policy delete snapshots on snapshot", func(t *testing.T) {
 		ctx := context.TODO()
