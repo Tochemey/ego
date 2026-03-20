@@ -24,11 +24,13 @@ package ego
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	goakt "github.com/tochemey/goakt/v4/actor"
 	"github.com/tochemey/goakt/v4/log"
@@ -42,6 +44,8 @@ import (
 	"github.com/tochemey/ego/v4/eventadapter"
 	"github.com/tochemey/ego/v4/internal/extensions"
 	"github.com/tochemey/ego/v4/internal/pause"
+	mocksoffsetstore "github.com/tochemey/ego/v4/mocks/offsetstore"
+	mockseventstore "github.com/tochemey/ego/v4/mocks/persistence"
 	"github.com/tochemey/ego/v4/projection"
 	testpb "github.com/tochemey/ego/v4/test/data/testpb"
 	"github.com/tochemey/ego/v4/testkit"
@@ -472,6 +476,50 @@ func TestProjection(t *testing.T) {
 		require.NoError(t, actorSystem.Stop(ctx))
 		require.NoError(t, journalStore.Disconnect(ctx))
 		require.NoError(t, offsetStore.Disconnect(ctx))
+	})
+}
+
+func TestProjectionActorPreStartFailure(t *testing.T) {
+	t.Run("fails when runner Start returns an error", func(t *testing.T) {
+		ctx := context.TODO()
+		logger := log.DiscardLogger
+
+		projectionName := "db-writer"
+		resetAt := time.Now().UTC()
+
+		// Ping succeeds so the store-connectivity retrier passes immediately.
+		eventsStore := mockseventstore.NewEventsStore(t)
+		eventsStore.EXPECT().Ping(mock.Anything).Return(nil).Maybe()
+
+		// Ping succeeds but ResetOffset returns an error, causing preStart – and
+		// therefore runner.Start – to fail.
+		offsetStore := mocksoffsetstore.NewOffsetStore(t)
+		offsetStore.EXPECT().Ping(mock.Anything).Return(nil).Maybe()
+		offsetStore.EXPECT().ResetOffset(mock.Anything, mock.Anything, mock.Anything).
+			Return(errors.New("reset offset failed"))
+
+		handler := projection.NewDiscardHandler()
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(logger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventsStore),
+				extensions.NewOffsetStore(offsetStore),
+				extensions.NewProjectionExtension(handler, 500, ZeroTime, resetAt, time.Second, projection.NewRecovery(), nil)),
+			goakt.WithActorInitMaxRetries(1))
+
+		require.NoError(t, err)
+		require.NotNil(t, actorSystem)
+
+		require.NoError(t, actorSystem.Start(ctx))
+
+		pause.For(time.Second)
+
+		actor := NewProjectionActor()
+		_, err = actorSystem.Spawn(ctx, projectionName, actor, goakt.WithLongLived())
+		require.Error(t, err)
+
+		require.NoError(t, actorSystem.Stop(ctx))
 	})
 }
 

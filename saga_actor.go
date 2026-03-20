@@ -28,6 +28,7 @@ import (
 	"time"
 
 	goakt "github.com/tochemey/goakt/v4/actor"
+	"github.com/tochemey/goakt/v4/log"
 	"google.golang.org/protobuf/types/known/anypb"
 
 	"github.com/tochemey/ego/v4/egopb"
@@ -52,6 +53,12 @@ type SagaActor struct {
 	status        SagaStatus
 	sagaID        string
 	timeout       time.Duration
+
+	// actorSystem and logger are stored during PostStart so that the
+	// consumeEvents goroutine can use them safely after the ReceiveContext
+	// from PostStart has been returned to the pool.
+	actorSystem goakt.ActorSystem
+	logger      log.Logger
 
 	// stopCh is used to stop the event consumption loop
 	stopCh chan struct{}
@@ -114,8 +121,11 @@ func (s *SagaActor) PreStart(ctx *goakt.Context) error {
 func (s *SagaActor) Receive(ctx *goakt.ReceiveContext) {
 	switch ctx.Message().(type) {
 	case *goakt.PostStart:
+		// Capture stable references before the ReceiveContext is returned to the pool.
+		s.actorSystem = ctx.ActorSystem()
+		s.logger = ctx.Logger()
 		// Start consuming events from the stream
-		go s.consumeEvents(ctx)
+		go s.consumeEvents()
 		// Schedule timeout if configured
 		if s.timeout > 0 {
 			self := ctx.Self()
@@ -124,7 +134,7 @@ func (s *SagaActor) Receive(ctx *goakt.ReceiveContext) {
 	case *sagaTimeoutMsg:
 		if s.status == SagaRunning {
 			s.status = SagaCompensating
-			s.compensate(ctx)
+			s.compensate(ctx.Logger(), ctx.ActorSystem())
 		}
 	case *egopb.GetStateCommand:
 		s.replyWithState(ctx)
@@ -179,7 +189,9 @@ func (s *SagaActor) recover(ctx context.Context) error {
 }
 
 // consumeEvents reads events from the stream and processes them via the behavior.
-func (s *SagaActor) consumeEvents(ctx *goakt.ReceiveContext) {
+// It uses the stable actorSystem and logger fields captured during PostStart instead
+// of the ReceiveContext (which is returned to the pool once Receive returns).
+func (s *SagaActor) consumeEvents() {
 	for {
 		select {
 		case <-s.stopCh:
@@ -204,38 +216,38 @@ func (s *SagaActor) consumeEvents(ctx *goakt.ReceiveContext) {
 
 			eventMsg, err := event.GetEvent().UnmarshalNew()
 			if err != nil {
-				ctx.Logger().Errorf("saga %s: failed to unmarshal event: %v", s.sagaID, err)
+				s.logger.Errorf("saga %s: failed to unmarshal event: %v", s.sagaID, err)
 				continue
 			}
 
-			action, err := s.behavior.HandleEvent(ctx.Context(), eventMsg.(Event), s.currentState)
+			action, err := s.behavior.HandleEvent(context.Background(), eventMsg.(Event), s.currentState)
 			if err != nil {
-				ctx.Logger().Errorf("saga %s: HandleEvent failed: %v", s.sagaID, err)
+				s.logger.Errorf("saga %s: HandleEvent failed: %v", s.sagaID, err)
 				continue
 			}
 
-			s.processAction(ctx, action)
+			s.processAction(action)
 		}
 	}
 }
 
 // processAction executes a SagaAction: persists saga events, sends commands, and handles completion/compensation.
-func (s *SagaActor) processAction(ctx *goakt.ReceiveContext, action *SagaAction) {
+func (s *SagaActor) processAction(action *SagaAction) {
 	if action == nil {
 		return
 	}
 
 	// Persist saga events
 	if len(action.Events) > 0 {
-		if err := s.persistAndApplyEvents(ctx.Context(), action.Events); err != nil {
-			ctx.Logger().Errorf("saga %s: failed to persist events: %v", s.sagaID, err)
+		if err := s.persistAndApplyEvents(context.Background(), action.Events); err != nil {
+			s.logger.Errorf("saga %s: failed to persist events: %v", s.sagaID, err)
 			return
 		}
 	}
 
 	// Send commands to entities
 	for _, cmd := range action.Commands {
-		s.sendCommand(ctx, cmd)
+		s.sendCommand(cmd)
 	}
 
 	// Handle completion
@@ -247,7 +259,7 @@ func (s *SagaActor) processAction(ctx *goakt.ReceiveContext, action *SagaAction)
 	// Handle compensation
 	if action.Compensate {
 		s.status = SagaCompensating
-		s.compensate(ctx)
+		s.compensate(s.logger, s.actorSystem)
 	}
 }
 
@@ -277,55 +289,57 @@ func (s *SagaActor) persistAndApplyEvents(ctx context.Context, events []Event) e
 }
 
 // sendCommand sends a command to an entity and handles the result.
-func (s *SagaActor) sendCommand(ctx *goakt.ReceiveContext, cmd SagaCommand) {
+func (s *SagaActor) sendCommand(cmd SagaCommand) {
 	timeout := cmd.Timeout
 	if timeout == 0 {
 		timeout = 5 * time.Second
 	}
 
-	noSender := ctx.ActorSystem().NoSender()
-	reply, err := noSender.SendSync(ctx.Context(), cmd.EntityID, cmd.Command, timeout)
+	ctx := context.Background()
+	noSender := s.actorSystem.NoSender()
+	reply, err := noSender.SendSync(ctx, cmd.EntityID, cmd.Command, timeout)
 	if err != nil {
-		action, handleErr := s.behavior.HandleError(ctx.Context(), cmd.EntityID, err, s.currentState)
+		action, handleErr := s.behavior.HandleError(ctx, cmd.EntityID, err, s.currentState)
 		if handleErr != nil {
-			ctx.Logger().Errorf("saga %s: HandleError failed for entity %s: %v", s.sagaID, cmd.EntityID, handleErr)
+			s.logger.Errorf("saga %s: HandleError failed for entity %s: %v", s.sagaID, cmd.EntityID, handleErr)
 			return
 		}
-		s.processAction(ctx, action)
+		s.processAction(action)
 		return
 	}
 
 	// Parse the reply
 	commandReply, ok := reply.(*egopb.CommandReply)
 	if !ok {
-		ctx.Logger().Errorf("saga %s: unexpected reply type from entity %s", s.sagaID, cmd.EntityID)
+		s.logger.Errorf("saga %s: unexpected reply type from entity %s", s.sagaID, cmd.EntityID)
 		return
 	}
 
 	resultState, _, err := parseCommandReply(commandReply)
 	if err != nil {
-		action, handleErr := s.behavior.HandleError(ctx.Context(), cmd.EntityID, err, s.currentState)
+		action, handleErr := s.behavior.HandleError(ctx, cmd.EntityID, err, s.currentState)
 		if handleErr != nil {
-			ctx.Logger().Errorf("saga %s: HandleError failed for entity %s: %v", s.sagaID, cmd.EntityID, handleErr)
+			s.logger.Errorf("saga %s: HandleError failed for entity %s: %v", s.sagaID, cmd.EntityID, handleErr)
 			return
 		}
-		s.processAction(ctx, action)
+		s.processAction(action)
 		return
 	}
 
-	action, err := s.behavior.HandleResult(ctx.Context(), cmd.EntityID, resultState, s.currentState)
+	action, err := s.behavior.HandleResult(ctx, cmd.EntityID, resultState, s.currentState)
 	if err != nil {
-		ctx.Logger().Errorf("saga %s: HandleResult failed for entity %s: %v", s.sagaID, cmd.EntityID, err)
+		s.logger.Errorf("saga %s: HandleResult failed for entity %s: %v", s.sagaID, cmd.EntityID, err)
 		return
 	}
-	s.processAction(ctx, action)
+	s.processAction(action)
 }
 
 // compensate executes the compensation logic defined by the behavior.
-func (s *SagaActor) compensate(ctx *goakt.ReceiveContext) {
-	commands, err := s.behavior.Compensate(ctx.Context(), s.currentState)
+func (s *SagaActor) compensate(logger log.Logger, actorSystem goakt.ActorSystem) {
+	ctx := context.Background()
+	commands, err := s.behavior.Compensate(ctx, s.currentState)
 	if err != nil {
-		ctx.Logger().Errorf("saga %s: Compensate failed: %v", s.sagaID, err)
+		logger.Errorf("saga %s: Compensate failed: %v", s.sagaID, err)
 		s.status = SagaFailed
 		return
 	}
@@ -335,9 +349,9 @@ func (s *SagaActor) compensate(ctx *goakt.ReceiveContext) {
 		if timeout == 0 {
 			timeout = 5 * time.Second
 		}
-		noSender := ctx.ActorSystem().NoSender()
-		if _, err := noSender.SendSync(ctx.Context(), cmd.EntityID, cmd.Command, timeout); err != nil {
-			ctx.Logger().Errorf("saga %s: compensation command to %s failed: %v", s.sagaID, cmd.EntityID, err)
+		noSender := actorSystem.NoSender()
+		if _, err := noSender.SendSync(ctx, cmd.EntityID, cmd.Command, timeout); err != nil {
+			logger.Errorf("saga %s: compensation command to %s failed: %v", s.sagaID, cmd.EntityID, err)
 			s.status = SagaFailed
 			return
 		}

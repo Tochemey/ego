@@ -43,12 +43,257 @@ import (
 	"github.com/tochemey/ego/v4/encryption"
 	"github.com/tochemey/ego/v4/eventadapter"
 	"github.com/tochemey/ego/v4/internal/pause"
+	mockencryption "github.com/tochemey/ego/v4/mocks/encryption"
+	mockadapter "github.com/tochemey/ego/v4/mocks/eventadapter"
 	mocksoffsetstore "github.com/tochemey/ego/v4/mocks/offsetstore"
 	mockseventstore "github.com/tochemey/ego/v4/mocks/persistence"
 	"github.com/tochemey/ego/v4/projection"
 	testpb "github.com/tochemey/ego/v4/test/data/testpb"
 	testkit2 "github.com/tochemey/ego/v4/testkit"
 )
+
+func TestProjectionRunnerErrorPaths(t *testing.T) {
+	t.Run("with decrypt failure in processEnvelope stops the runner", func(t *testing.T) {
+		ctx := context.TODO()
+		projectionName := "db-writer"
+		persistenceID := uuid.NewString()
+		shardNumber := uint64(9)
+		timestamp := timestamppb.Now()
+
+		projectionID := &egopb.ProjectionId{
+			ProjectionName: projectionName,
+			ShardNumber:    shardNumber,
+		}
+
+		offset := &egopb.Offset{
+			ShardNumber:    shardNumber,
+			ProjectionName: projectionName,
+			Value:          timestamp.AsTime().Unix(),
+			Timestamp:      0,
+		}
+
+		// Build a valid anypb payload
+		eventProto := &testpb.AccountCredited{}
+		eventAny, err := anypb.New(eventProto)
+		require.NoError(t, err)
+
+		// Mark event as encrypted so the decrypt path is triggered
+		encryptedBytes := []byte("cipher")
+		events := []*egopb.Event{
+			{
+				PersistenceId:  persistenceID,
+				SequenceNumber: 1,
+				IsDeleted:      false,
+				Event: &anypb.Any{
+					TypeUrl: eventAny.GetTypeUrl(),
+					Value:   encryptedBytes,
+				},
+				Timestamp:       timestamp.AsTime().Unix(),
+				Shard:           shardNumber,
+				IsEncrypted:     true,
+				EncryptionKeyId: "key-1",
+			},
+		}
+
+		nextOffset := timestamppb.New(time.Now().Add(time.Minute))
+		maxBufferSize := 10
+		resetOffsetTo := time.Now().UTC()
+
+		encryptor := new(mockencryption.Encryptor)
+		encryptor.EXPECT().Decrypt(mock.Anything, persistenceID, encryptedBytes, "key-1").Return(nil, assert.AnError)
+
+		offsetStore := new(mocksoffsetstore.OffsetStore)
+		offsetStore.EXPECT().Ping(mock.Anything).Return(nil)
+		offsetStore.EXPECT().ResetOffset(mock.Anything, projectionName, resetOffsetTo.UnixMilli()).Return(nil)
+		offsetStore.EXPECT().GetCurrentOffset(mock.Anything, projectionID).Return(offset, nil)
+
+		eventsStore := new(mockseventstore.EventsStore)
+		eventsStore.EXPECT().Ping(mock.Anything).Return(nil)
+		eventsStore.EXPECT().ShardNumbers(mock.Anything).Return([]uint64{shardNumber}, nil)
+		eventsStore.EXPECT().GetShardEvents(mock.Anything, shardNumber, offset.GetValue(), uint64(maxBufferSize)).Return(events, nextOffset.AsTime().UnixMilli(), nil)
+
+		handler := projection.NewDiscardHandler()
+		runner := newProjectionRunner(projectionName, handler, eventsStore, offsetStore,
+			withPullInterval(time.Millisecond),
+			withEncryptor(encryptor),
+		)
+		runner.resetOffsetTo = resetOffsetTo
+		runner.maxBufferSize = maxBufferSize
+
+		err = runner.Start(ctx)
+		require.NoError(t, err)
+
+		runner.Run(ctx)
+
+		pause.For(time.Second)
+
+		encryptor.AssertExpectations(t)
+		eventsStore.AssertExpectations(t)
+		offsetStore.AssertExpectations(t)
+
+		assert.False(t, runner.running.Load())
+
+		require.NoError(t, runner.Stop())
+	})
+	t.Run("with unmarshal failure after decrypt in processEnvelope stops the runner", func(t *testing.T) {
+		ctx := context.TODO()
+		projectionName := "db-writer"
+		persistenceID := uuid.NewString()
+		shardNumber := uint64(9)
+		timestamp := timestamppb.Now()
+
+		projectionID := &egopb.ProjectionId{
+			ProjectionName: projectionName,
+			ShardNumber:    shardNumber,
+		}
+
+		offset := &egopb.Offset{
+			ShardNumber:    shardNumber,
+			ProjectionName: projectionName,
+			Value:          timestamp.AsTime().Unix(),
+			Timestamp:      0,
+		}
+
+		eventProto := &testpb.AccountCredited{}
+		eventAny, err := anypb.New(eventProto)
+		require.NoError(t, err)
+
+		encryptedBytes := []byte("cipher")
+		events := []*egopb.Event{
+			{
+				PersistenceId:  persistenceID,
+				SequenceNumber: 1,
+				IsDeleted:      false,
+				Event: &anypb.Any{
+					TypeUrl: eventAny.GetTypeUrl(),
+					Value:   encryptedBytes,
+				},
+				Timestamp:       timestamp.AsTime().Unix(),
+				Shard:           shardNumber,
+				IsEncrypted:     true,
+				EncryptionKeyId: "key-1",
+			},
+		}
+
+		nextOffset := timestamppb.New(time.Now().Add(time.Minute))
+		maxBufferSize := 10
+		resetOffsetTo := time.Now().UTC()
+
+		// Return invalid bytes that cannot be unmarshalled as a proto message
+		invalidBytes := []byte("not-valid-proto")
+
+		encryptor := new(mockencryption.Encryptor)
+		encryptor.EXPECT().Decrypt(mock.Anything, persistenceID, encryptedBytes, "key-1").Return(invalidBytes, nil)
+
+		offsetStore := new(mocksoffsetstore.OffsetStore)
+		offsetStore.EXPECT().Ping(mock.Anything).Return(nil)
+		offsetStore.EXPECT().ResetOffset(mock.Anything, projectionName, resetOffsetTo.UnixMilli()).Return(nil)
+		offsetStore.EXPECT().GetCurrentOffset(mock.Anything, projectionID).Return(offset, nil)
+
+		eventsStore := new(mockseventstore.EventsStore)
+		eventsStore.EXPECT().Ping(mock.Anything).Return(nil)
+		eventsStore.EXPECT().ShardNumbers(mock.Anything).Return([]uint64{shardNumber}, nil)
+		eventsStore.EXPECT().GetShardEvents(mock.Anything, shardNumber, offset.GetValue(), uint64(maxBufferSize)).Return(events, nextOffset.AsTime().UnixMilli(), nil)
+
+		handler := projection.NewDiscardHandler()
+		runner := newProjectionRunner(projectionName, handler, eventsStore, offsetStore,
+			withPullInterval(time.Millisecond),
+			withEncryptor(encryptor),
+		)
+		runner.resetOffsetTo = resetOffsetTo
+		runner.maxBufferSize = maxBufferSize
+
+		err = runner.Start(ctx)
+		require.NoError(t, err)
+
+		runner.Run(ctx)
+
+		pause.For(time.Second)
+
+		encryptor.AssertExpectations(t)
+		eventsStore.AssertExpectations(t)
+		offsetStore.AssertExpectations(t)
+
+		assert.False(t, runner.running.Load())
+
+		require.NoError(t, runner.Stop())
+	})
+	t.Run("with event adapter chain failure in processEnvelope stops the runner", func(t *testing.T) {
+		ctx := context.TODO()
+		projectionName := "db-writer"
+		persistenceID := uuid.NewString()
+		shardNumber := uint64(9)
+		timestamp := timestamppb.Now()
+
+		projectionID := &egopb.ProjectionId{
+			ProjectionName: projectionName,
+			ShardNumber:    shardNumber,
+		}
+
+		offset := &egopb.Offset{
+			ShardNumber:    shardNumber,
+			ProjectionName: projectionName,
+			Value:          timestamp.AsTime().Unix(),
+			Timestamp:      0,
+		}
+
+		eventProto := &testpb.AccountCredited{}
+		eventAny, err := anypb.New(eventProto)
+		require.NoError(t, err)
+
+		events := []*egopb.Event{
+			{
+				PersistenceId:  persistenceID,
+				SequenceNumber: 1,
+				IsDeleted:      false,
+				Event:          eventAny,
+				Timestamp:      timestamp.AsTime().Unix(),
+				Shard:          shardNumber,
+			},
+		}
+
+		nextOffset := timestamppb.New(time.Now().Add(time.Minute))
+		maxBufferSize := 10
+		resetOffsetTo := time.Now().UTC()
+
+		adapter := new(mockadapter.EventAdapter)
+		adapter.EXPECT().Adapt(eventAny, uint64(1)).Return(nil, assert.AnError)
+
+		offsetStore := new(mocksoffsetstore.OffsetStore)
+		offsetStore.EXPECT().Ping(mock.Anything).Return(nil)
+		offsetStore.EXPECT().ResetOffset(mock.Anything, projectionName, resetOffsetTo.UnixMilli()).Return(nil)
+		offsetStore.EXPECT().GetCurrentOffset(mock.Anything, projectionID).Return(offset, nil)
+
+		eventsStore := new(mockseventstore.EventsStore)
+		eventsStore.EXPECT().Ping(mock.Anything).Return(nil)
+		eventsStore.EXPECT().ShardNumbers(mock.Anything).Return([]uint64{shardNumber}, nil)
+		eventsStore.EXPECT().GetShardEvents(mock.Anything, shardNumber, offset.GetValue(), uint64(maxBufferSize)).Return(events, nextOffset.AsTime().UnixMilli(), nil)
+
+		handler := projection.NewDiscardHandler()
+		runner := newProjectionRunner(projectionName, handler, eventsStore, offsetStore,
+			withPullInterval(time.Millisecond),
+			withEventAdapters([]eventadapter.EventAdapter{adapter}),
+		)
+		runner.resetOffsetTo = resetOffsetTo
+		runner.maxBufferSize = maxBufferSize
+
+		err = runner.Start(ctx)
+		require.NoError(t, err)
+
+		runner.Run(ctx)
+
+		pause.For(time.Second)
+
+		adapter.AssertExpectations(t)
+		eventsStore.AssertExpectations(t)
+		offsetStore.AssertExpectations(t)
+
+		assert.False(t, runner.running.Load())
+
+		require.NoError(t, runner.Stop())
+
+	})
+}
 
 func TestRunner(t *testing.T) {
 	t.Run("with happy path", func(t *testing.T) {

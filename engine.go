@@ -663,7 +663,6 @@ func (engine *Engine) Saga(ctx context.Context, behavior SagaBehavior, timeout t
 	_, err := actorSystem.Spawn(ctx, behavior.ID(),
 		actor,
 		goakt.WithLongLived(),
-		goakt.WithRelocationDisabled(),
 		goakt.WithDependencies(behavior, sagaCfg),
 		goakt.WithSupervisor(newSupervisor(RestartDirective)))
 	if err != nil {
@@ -1030,6 +1029,7 @@ func (engine *Engine) clusterConfig() *goakt.ClusterConfig {
 		WithKinds(
 			new(EventSourcedActor),
 			new(DurableStateActor),
+			new(SagaActor),
 		)
 
 	// set roles if any

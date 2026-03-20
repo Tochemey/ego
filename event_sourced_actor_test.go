@@ -45,6 +45,8 @@ import (
 	"github.com/tochemey/ego/v4/eventstream"
 	"github.com/tochemey/ego/v4/internal/extensions"
 	"github.com/tochemey/ego/v4/internal/pause"
+	mockencryption "github.com/tochemey/ego/v4/mocks/encryption"
+	mockadapter "github.com/tochemey/ego/v4/mocks/eventadapter"
 	mocks "github.com/tochemey/ego/v4/mocks/persistence"
 	testpb "github.com/tochemey/ego/v4/test/data/testpb"
 	"github.com/tochemey/ego/v4/testkit"
@@ -1706,9 +1708,759 @@ func TestEventSourcedActor(t *testing.T) {
 	})
 }
 
+func TestEventSourcedActorErrorPaths(t *testing.T) {
+	t.Run("with missing behavior fails to start", func(t *testing.T) {
+		ctx := context.TODO()
+
+		eventStream := eventstream.New()
+		persistenceID := uuid.NewString()
+
+		eventStore := new(mocks.EventsStore)
+		eventStore.EXPECT().Ping(mock.Anything).Return(nil)
+		eventStore.EXPECT().GetLatestEvent(mock.Anything, persistenceID).Return(nil, nil)
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+			),
+			goakt.WithActorInitMaxRetries(1))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		// spawn with no behavior dependency
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, persistenceID, actor, goakt.WithLongLived())
+		require.Error(t, err)
+		require.Nil(t, pid)
+
+		eventStream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("with snapshot store GetLatestSnapshot failure during recovery", func(t *testing.T) {
+		ctx := context.TODO()
+
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+		eventStream := eventstream.New()
+
+		eventStore := new(mocks.EventsStore)
+		eventStore.EXPECT().Ping(mock.Anything).Return(nil)
+
+		snapshotStore := new(mocks.SnapshotStore)
+		snapshotStore.EXPECT().Ping(mock.Anything).Return(nil)
+		snapshotStore.EXPECT().GetLatestSnapshot(mock.Anything, persistenceID).Return(nil, assert.AnError)
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+				extensions.NewSnapshotStore(snapshotStore),
+			),
+			goakt.WithActorInitMaxRetries(1))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior), goakt.WithLongLived())
+		require.Error(t, err)
+		require.Nil(t, pid)
+
+		eventStream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("with snapshot decryption failure during recovery", func(t *testing.T) {
+		ctx := context.TODO()
+
+		eventStore := testkit.NewEventsStore()
+		snapshotStore := testkit.NewSnapshotStore()
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		require.NoError(t, eventStore.Connect(ctx))
+		require.NoError(t, snapshotStore.Connect(ctx))
+		pause.For(time.Second)
+
+		// write an "encrypted" snapshot with dummy ciphertext
+		stateAny, err := anypb.New(&testpb.Account{AccountId: persistenceID, AccountBalance: 100})
+		require.NoError(t, err)
+		encryptedState := &anypb.Any{TypeUrl: stateAny.GetTypeUrl(), Value: []byte("fake-ciphertext")}
+		snapshot := &egopb.Snapshot{
+			PersistenceId:   persistenceID,
+			SequenceNumber:  1,
+			State:           encryptedState,
+			Timestamp:       time.Now().Unix(),
+			IsEncrypted:     true,
+			EncryptionKeyId: "key-1",
+		}
+		require.NoError(t, snapshotStore.WriteSnapshot(ctx, snapshot))
+
+		eventStream := eventstream.New()
+
+		encryptor := new(mockencryption.Encryptor)
+		encryptor.EXPECT().Decrypt(mock.Anything, persistenceID, []byte("fake-ciphertext"), "key-1").Return(nil, assert.AnError)
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+				extensions.NewSnapshotStore(snapshotStore),
+				extensions.NewEncryptor(encryptor),
+			),
+			goakt.WithActorInitMaxRetries(1))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior), goakt.WithLongLived())
+		require.Error(t, err)
+		require.Nil(t, pid)
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		require.NoError(t, snapshotStore.Disconnect(ctx))
+		eventStream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("with snapshot unmarshal failure after decryption during recovery", func(t *testing.T) {
+		ctx := context.TODO()
+
+		eventStore := testkit.NewEventsStore()
+		snapshotStore := testkit.NewSnapshotStore()
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		require.NoError(t, eventStore.Connect(ctx))
+		require.NoError(t, snapshotStore.Connect(ctx))
+		pause.For(time.Second)
+
+		stateAny, err := anypb.New(&testpb.Account{AccountId: persistenceID, AccountBalance: 100})
+		require.NoError(t, err)
+		encryptedState := &anypb.Any{TypeUrl: stateAny.GetTypeUrl(), Value: []byte("fake-ciphertext")}
+		snapshot := &egopb.Snapshot{
+			PersistenceId:   persistenceID,
+			SequenceNumber:  1,
+			State:           encryptedState,
+			Timestamp:       time.Now().Unix(),
+			IsEncrypted:     true,
+			EncryptionKeyId: "key-1",
+		}
+		require.NoError(t, snapshotStore.WriteSnapshot(ctx, snapshot))
+
+		eventStream := eventstream.New()
+
+		// return non-proto garbage bytes so proto.Unmarshal fails
+		encryptor := new(mockencryption.Encryptor)
+		encryptor.EXPECT().Decrypt(mock.Anything, persistenceID, []byte("fake-ciphertext"), "key-1").Return([]byte("not-valid-proto"), nil)
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+				extensions.NewSnapshotStore(snapshotStore),
+				extensions.NewEncryptor(encryptor),
+			),
+			goakt.WithActorInitMaxRetries(1))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior), goakt.WithLongLived())
+		require.Error(t, err)
+		require.Nil(t, pid)
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		require.NoError(t, snapshotStore.Disconnect(ctx))
+		eventStream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("with snapshot state type mismatch unmarshal failure during recovery", func(t *testing.T) {
+		ctx := context.TODO()
+
+		eventStore := testkit.NewEventsStore()
+		snapshotStore := testkit.NewSnapshotStore()
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		require.NoError(t, eventStore.Connect(ctx))
+		require.NoError(t, snapshotStore.Connect(ctx))
+		pause.For(time.Second)
+
+		// write snapshot with incompatible state type (AccountCredited instead of Account)
+		wrongState, err := anypb.New(&testpb.AccountCredited{AccountId: persistenceID, AccountBalance: 100})
+		require.NoError(t, err)
+		snapshot := &egopb.Snapshot{
+			PersistenceId:  persistenceID,
+			SequenceNumber: 1,
+			State:          wrongState,
+			Timestamp:      time.Now().Unix(),
+		}
+		require.NoError(t, snapshotStore.WriteSnapshot(ctx, snapshot))
+
+		eventStream := eventstream.New()
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+				extensions.NewSnapshotStore(snapshotStore),
+			),
+			goakt.WithActorInitMaxRetries(1))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior), goakt.WithLongLived())
+		require.Error(t, err)
+		require.Nil(t, pid)
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		require.NoError(t, snapshotStore.Disconnect(ctx))
+		eventStream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("with event decryption failure during recovery", func(t *testing.T) {
+		ctx := context.TODO()
+
+		eventStore := testkit.NewEventsStore()
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		require.NoError(t, eventStore.Connect(ctx))
+		pause.For(time.Second)
+
+		// write an "encrypted" event with dummy ciphertext
+		eventAny, err := anypb.New(&testpb.AccountCreated{AccountId: persistenceID, AccountBalance: 100})
+		require.NoError(t, err)
+		encryptedEvent := &anypb.Any{TypeUrl: eventAny.GetTypeUrl(), Value: []byte("fake-cipher")}
+		event := &egopb.Event{
+			PersistenceId:   persistenceID,
+			SequenceNumber:  1,
+			Event:           encryptedEvent,
+			Timestamp:       time.Now().Unix(),
+			IsEncrypted:     true,
+			EncryptionKeyId: "key-1",
+		}
+		require.NoError(t, eventStore.WriteEvents(ctx, []*egopb.Event{event}))
+
+		eventStream := eventstream.New()
+
+		encryptor := new(mockencryption.Encryptor)
+		encryptor.EXPECT().Decrypt(mock.Anything, persistenceID, []byte("fake-cipher"), "key-1").Return(nil, assert.AnError)
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+				extensions.NewEncryptor(encryptor),
+			),
+			goakt.WithActorInitMaxRetries(1))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior), goakt.WithLongLived())
+		require.Error(t, err)
+		require.Nil(t, pid)
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		eventStream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("with event unmarshal failure after decryption during recovery", func(t *testing.T) {
+		ctx := context.TODO()
+
+		eventStore := testkit.NewEventsStore()
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		require.NoError(t, eventStore.Connect(ctx))
+		pause.For(time.Second)
+
+		eventAny, err := anypb.New(&testpb.AccountCreated{AccountId: persistenceID, AccountBalance: 100})
+		require.NoError(t, err)
+		encryptedEvent := &anypb.Any{TypeUrl: eventAny.GetTypeUrl(), Value: []byte("fake-cipher")}
+		event := &egopb.Event{
+			PersistenceId:   persistenceID,
+			SequenceNumber:  1,
+			Event:           encryptedEvent,
+			Timestamp:       time.Now().Unix(),
+			IsEncrypted:     true,
+			EncryptionKeyId: "key-1",
+		}
+		require.NoError(t, eventStore.WriteEvents(ctx, []*egopb.Event{event}))
+
+		eventStream := eventstream.New()
+
+		// return garbage bytes so proto.Unmarshal of the Any fails
+		encryptor := new(mockencryption.Encryptor)
+		encryptor.EXPECT().Decrypt(mock.Anything, persistenceID, []byte("fake-cipher"), "key-1").Return([]byte("not-valid-proto"), nil)
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+				extensions.NewEncryptor(encryptor),
+			),
+			goakt.WithActorInitMaxRetries(1))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior), goakt.WithLongLived())
+		require.Error(t, err)
+		require.Nil(t, pid)
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		eventStream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("with event adapter chain failure during recovery", func(t *testing.T) {
+		ctx := context.TODO()
+
+		eventStore := testkit.NewEventsStore()
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		require.NoError(t, eventStore.Connect(ctx))
+		pause.For(time.Second)
+
+		eventAny, err := anypb.New(&testpb.AccountCreated{AccountId: persistenceID, AccountBalance: 100})
+		require.NoError(t, err)
+		event := &egopb.Event{
+			PersistenceId:  persistenceID,
+			SequenceNumber: 1,
+			Event:          eventAny,
+			Timestamp:      time.Now().Unix(),
+		}
+		require.NoError(t, eventStore.WriteEvents(ctx, []*egopb.Event{event}))
+
+		eventStream := eventstream.New()
+
+		adapter := new(mockadapter.EventAdapter)
+		adapter.EXPECT().Adapt(mock.Anything, uint64(1)).Return(nil, assert.AnError)
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+				extensions.NewEventAdapters([]eventadapter.EventAdapter{adapter}),
+			),
+			goakt.WithActorInitMaxRetries(1))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior), goakt.WithLongLived())
+		require.Error(t, err)
+		require.Nil(t, pid)
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		eventStream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("with event UnmarshalNew failure during recovery", func(t *testing.T) {
+		ctx := context.TODO()
+
+		eventStore := testkit.NewEventsStore()
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		require.NoError(t, eventStore.Connect(ctx))
+		pause.For(time.Second)
+
+		// write an event with an unknown TypeUrl so UnmarshalNew fails
+		event := &egopb.Event{
+			PersistenceId:  persistenceID,
+			SequenceNumber: 1,
+			Event:          &anypb.Any{TypeUrl: "type.googleapis.com/unknown.TypeThatDoesNotExist", Value: []byte{}},
+			Timestamp:      time.Now().Unix(),
+		}
+		require.NoError(t, eventStore.WriteEvents(ctx, []*egopb.Event{event}))
+
+		eventStream := eventstream.New()
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+			),
+			goakt.WithActorInitMaxRetries(1))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior), goakt.WithLongLived())
+		require.Error(t, err)
+		require.Nil(t, pid)
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		eventStream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("with HandleEvent failure during recovery", func(t *testing.T) {
+		ctx := context.TODO()
+
+		eventStore := testkit.NewEventsStore()
+		persistenceID := uuid.NewString()
+		eventStream := eventstream.New()
+
+		require.NoError(t, eventStore.Connect(ctx))
+		pause.For(time.Second)
+
+		// pre-write an event that the behavior will fail to handle
+		eventAny, err := anypb.New(&testpb.AccountCreated{AccountId: persistenceID, AccountBalance: 100})
+		require.NoError(t, err)
+		event := &egopb.Event{
+			PersistenceId:  persistenceID,
+			SequenceNumber: 1,
+			Event:          eventAny,
+			Timestamp:      time.Now().Unix(),
+		}
+		require.NoError(t, eventStore.WriteEvents(ctx, []*egopb.Event{event}))
+
+		// use a behavior that returns an error from HandleEvent
+		behavior := NewFailingHandleEventBehavior(persistenceID)
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+			),
+			goakt.WithActorInitMaxRetries(1))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior), goakt.WithLongLived())
+		require.Error(t, err)
+		require.Nil(t, pid)
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		eventStream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("with event encryption failure during command processing", func(t *testing.T) {
+		ctx := context.TODO()
+
+		eventStore := testkit.NewEventsStore()
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		require.NoError(t, eventStore.Connect(ctx))
+		pause.For(time.Second)
+
+		eventStream := eventstream.New()
+
+		encryptor := new(mockencryption.Encryptor)
+		encryptor.EXPECT().Encrypt(mock.Anything, persistenceID, mock.Anything).Return(nil, "", assert.AnError)
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+				extensions.NewEncryptor(encryptor),
+			),
+			goakt.WithActorInitMaxRetries(1))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior), goakt.WithLongLived())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		pause.For(time.Second)
+
+		reply, err := goakt.Ask(ctx, pid, &testpb.CreateAccount{AccountBalance: 500.00}, 5*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+
+		commandReply := reply.(*egopb.CommandReply)
+		require.IsType(t, new(egopb.CommandReply_ErrorReply), commandReply.GetReply())
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		eventStream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("with snapshot encryption failure during command processing", func(t *testing.T) {
+		ctx := context.TODO()
+
+		eventStore := testkit.NewEventsStore()
+		snapshotStore := testkit.NewSnapshotStore()
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		require.NoError(t, eventStore.Connect(ctx))
+		require.NoError(t, snapshotStore.Connect(ctx))
+		pause.For(time.Second)
+
+		eventStream := eventstream.New()
+
+		encryptor := new(mockencryption.Encryptor)
+		// first Encrypt call (event) succeeds; second (snapshot) fails
+		encryptor.EXPECT().Encrypt(mock.Anything, persistenceID, mock.Anything).Return([]byte("ciphertext"), "key-1", nil).Once()
+		encryptor.EXPECT().Encrypt(mock.Anything, persistenceID, mock.Anything).Return(nil, "", assert.AnError).Once()
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+				extensions.NewSnapshotStore(snapshotStore),
+				extensions.NewEncryptor(encryptor),
+			),
+			goakt.WithActorInitMaxRetries(1))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		entityCfg := &extensions.EntityConfig{SnapshotInterval: 1}
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior, entityCfg), goakt.WithLongLived())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		pause.For(time.Second)
+
+		reply, err := goakt.Ask(ctx, pid, &testpb.CreateAccount{AccountBalance: 500.00}, 5*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+
+		commandReply := reply.(*egopb.CommandReply)
+		require.IsType(t, new(egopb.CommandReply_ErrorReply), commandReply.GetReply())
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		require.NoError(t, snapshotStore.Disconnect(ctx))
+		eventStream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("with DeleteEvents error in retention policy does not crash", func(t *testing.T) {
+		ctx := context.TODO()
+
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+		eventStream := eventstream.New()
+
+		eventStore := new(mocks.EventsStore)
+		eventStore.EXPECT().Ping(mock.Anything).Return(nil)
+		eventStore.EXPECT().GetLatestEvent(mock.Anything, persistenceID).Return(nil, nil)
+		eventStore.EXPECT().WriteEvents(mock.Anything, mock.Anything).Return(nil)
+		eventStore.EXPECT().DeleteEvents(mock.Anything, persistenceID, uint64(2)).Return(assert.AnError)
+
+		snapshotStore := new(mocks.SnapshotStore)
+		snapshotStore.EXPECT().Ping(mock.Anything).Return(nil)
+		snapshotStore.EXPECT().GetLatestSnapshot(mock.Anything, persistenceID).Return(nil, nil)
+		snapshotStore.EXPECT().WriteSnapshot(mock.Anything, mock.Anything).Return(nil)
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+				extensions.NewSnapshotStore(snapshotStore),
+			),
+			goakt.WithActorInitMaxRetries(1))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		entityCfg := &extensions.EntityConfig{
+			SnapshotInterval:       2,
+			HasRetentionPolicy:     true,
+			DeleteEventsOnSnapshot: true,
+			EventsRetentionCount:   0,
+		}
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior, entityCfg), goakt.WithLongLived())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		pause.For(time.Second)
+
+		// first command
+		reply, err := goakt.Ask(ctx, pid, &testpb.CreateAccount{AccountBalance: 500.00}, 5*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+		commandReply := reply.(*egopb.CommandReply)
+		require.IsType(t, new(egopb.CommandReply_StateReply), commandReply.GetReply())
+
+		// second command triggers snapshot interval (2) and then DeleteEvents which errors
+		reply, err = goakt.Ask(ctx, pid, &testpb.CreditAccount{AccountId: persistenceID, Balance: 100}, 5*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+
+		// actor must still be alive: error is only logged
+		commandReply = reply.(*egopb.CommandReply)
+		require.IsType(t, new(egopb.CommandReply_StateReply), commandReply.GetReply())
+
+		eventStream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("with DeleteSnapshots error in retention policy does not crash", func(t *testing.T) {
+		ctx := context.TODO()
+
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+		eventStream := eventstream.New()
+
+		eventStore := new(mocks.EventsStore)
+		eventStore.EXPECT().Ping(mock.Anything).Return(nil)
+		eventStore.EXPECT().GetLatestEvent(mock.Anything, persistenceID).Return(nil, nil)
+		eventStore.EXPECT().WriteEvents(mock.Anything, mock.Anything).Return(nil).Times(4)
+
+		snapshotStore := new(mocks.SnapshotStore)
+		snapshotStore.EXPECT().Ping(mock.Anything).Return(nil)
+		snapshotStore.EXPECT().GetLatestSnapshot(mock.Anything, persistenceID).Return(nil, nil)
+		snapshotStore.EXPECT().WriteSnapshot(mock.Anything, mock.Anything).Return(nil).Times(2)
+		snapshotStore.EXPECT().DeleteSnapshots(mock.Anything, persistenceID, uint64(2)).Return(assert.AnError)
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+				extensions.NewSnapshotStore(snapshotStore),
+			),
+			goakt.WithActorInitMaxRetries(1))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		entityCfg := &extensions.EntityConfig{
+			SnapshotInterval:          2,
+			HasRetentionPolicy:        true,
+			DeleteSnapshotsOnSnapshot: true,
+		}
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior, entityCfg), goakt.WithLongLived())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		pause.For(time.Second)
+
+		// commands 1 and 2: first snapshot at seq 2
+		reply, err := goakt.Ask(ctx, pid, &testpb.CreateAccount{AccountBalance: 500.00}, 5*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+
+		reply, err = goakt.Ask(ctx, pid, &testpb.CreditAccount{AccountId: persistenceID, Balance: 100}, 5*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+
+		// commands 3 and 4: second snapshot at seq 4 → DeleteSnapshots is called and errors
+		reply, err = goakt.Ask(ctx, pid, &testpb.CreditAccount{AccountId: persistenceID, Balance: 50}, 5*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+
+		reply, err = goakt.Ask(ctx, pid, &testpb.CreditAccount{AccountId: persistenceID, Balance: 25}, 5*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+
+		// actor still alive after logged error
+		commandReply := reply.(*egopb.CommandReply)
+		require.IsType(t, new(egopb.CommandReply_StateReply), commandReply.GetReply())
+
+		state := commandReply.GetReply().(*egopb.CommandReply_StateReply)
+		assert.EqualValues(t, 4, state.StateReply.GetSequenceNumber())
+
+		eventStream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+}
+
 // noopEventAdapter is a no-op event adapter that passes events through unchanged
 type noopEventAdapter struct{}
 
 func (a *noopEventAdapter) Adapt(event *anypb.Any, _ uint64) (*anypb.Any, error) {
 	return event, nil
+}
+
+// FailingHandleEventBehavior is a test behavior whose HandleEvent always returns an error.
+type FailingHandleEventBehavior struct {
+	id string
+}
+
+// NewFailingHandleEventBehavior creates a FailingHandleEventBehavior.
+func NewFailingHandleEventBehavior(id string) *FailingHandleEventBehavior {
+	return &FailingHandleEventBehavior{id: id}
+}
+
+func (f *FailingHandleEventBehavior) ID() string { return f.id }
+
+func (f *FailingHandleEventBehavior) InitialState() State {
+	return new(testpb.Account)
+}
+
+func (f *FailingHandleEventBehavior) HandleCommand(_ context.Context, command Command, _ State) ([]Event, error) {
+	switch command.(type) {
+	case *testpb.CreateAccount:
+		return []Event{&testpb.AccountCreated{AccountId: f.id, AccountBalance: 100}}, nil
+	}
+	return nil, nil
+}
+
+func (f *FailingHandleEventBehavior) HandleEvent(_ context.Context, _ Event, _ State) (State, error) {
+	return nil, assert.AnError
+}
+
+func (f *FailingHandleEventBehavior) MarshalBinary() ([]byte, error) {
+	return proto.Marshal(&egopb.StateReply{PersistenceId: f.id})
+}
+
+func (f *FailingHandleEventBehavior) UnmarshalBinary(data []byte) error {
+	msg := new(egopb.StateReply)
+	if err := proto.Unmarshal(data, msg); err != nil {
+		return err
+	}
+	f.id = msg.GetPersistenceId()
+	return nil
 }
