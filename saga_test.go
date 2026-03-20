@@ -20,61 +20,28 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-package projection
+package ego
 
 import (
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 )
 
-func TestNewRecovery_Defaults(t *testing.T) {
-	r := NewRecovery()
-	assert.EqualValues(t, 5, r.Retries())
-	assert.Equal(t, time.Second, r.RetryDelay())
-	assert.Equal(t, Fail, r.RecoveryPolicy())
-}
-
-func TestNewRecovery_WithAllOptions(t *testing.T) {
-	r := NewRecovery(
-		WithRetries(10),
-		WithRetryDelay(2*time.Second),
-		WithRecoveryPolicy(RetryAndSkip),
-	)
-	assert.EqualValues(t, 10, r.Retries())
-	assert.Equal(t, 2*time.Second, r.RetryDelay())
-	assert.Equal(t, RetryAndSkip, r.RecoveryPolicy())
-}
-
-func TestRecoveryOption(t *testing.T) {
-	ts := time.Second
-	testCases := []struct {
-		name     string
-		option   RecoveryOption
-		expected Recovery
+func TestSagaStatus_String(t *testing.T) {
+	tests := []struct {
+		status   SagaStatus
+		expected string
 	}{
-		{
-			name:     "WithRetries",
-			option:   WithRetries(5),
-			expected: Recovery{retries: 5},
-		},
-		{
-			name:     "WithRetryDelay",
-			option:   WithRetryDelay(ts),
-			expected: Recovery{retryDelay: ts},
-		},
-		{
-			name:     "WithRecoveryPolicy",
-			option:   WithRecoveryPolicy(Fail),
-			expected: Recovery{policy: Fail},
-		},
+		{SagaRunning, "running"},
+		{SagaCompleted, "completed"},
+		{SagaCompensating, "compensating"},
+		{SagaFailed, "failed"},
+		{SagaStatus(99), "unknown"},
 	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			var e Recovery
-			tc.option.Apply(&e)
-			assert.Equal(t, tc.expected, e)
+	for _, tc := range tests {
+		t.Run(tc.expected, func(t *testing.T) {
+			assert.Equal(t, tc.expected, tc.status.String())
 		})
 	}
 }

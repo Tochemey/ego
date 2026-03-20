@@ -1276,6 +1276,213 @@ func TestEngine(t *testing.T) {
 
 		require.NoError(t, engine.Stop(ctx))
 	})
+	t.Run("EraseEntity when not started", func(t *testing.T) {
+		ctx := context.TODO()
+		eventStore := testkit.NewEventsStore()
+		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		err := engine.EraseEntity(ctx, "entity-1", false)
+		require.Error(t, err)
+		require.ErrorIs(t, err, ErrEngineNotStarted)
+	})
+	t.Run("EraseEntity with full erasure", func(t *testing.T) {
+		ctx := context.TODO()
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+		snapshotStore := testkit.NewSnapshotStore()
+		require.NoError(t, snapshotStore.Connect(ctx))
+
+		engine := NewEngine("Sample", eventStore,
+			WithSnapshotStore(snapshotStore),
+			WithLogger(log.DiscardLogger))
+		require.NoError(t, engine.Start(ctx))
+		pause.For(time.Second)
+
+		// create an entity and send a command
+		entityID := uuid.NewString()
+		behavior := NewEventSourcedEntity(entityID)
+		require.NoError(t, engine.Entity(ctx, behavior))
+
+		_, _, err := engine.SendCommand(ctx, entityID, &samplepb.CreateAccount{
+			AccountId:      entityID,
+			AccountBalance: 100,
+		}, time.Minute)
+		require.NoError(t, err)
+
+		// erase the entity
+		err = engine.EraseEntity(ctx, entityID, true)
+		require.NoError(t, err)
+
+		// verify events are deleted
+		latest, err := eventStore.GetLatestEvent(ctx, entityID)
+		require.NoError(t, err)
+		assert.Nil(t, latest)
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		require.NoError(t, snapshotStore.Disconnect(ctx))
+		require.NoError(t, engine.Stop(ctx))
+	})
+	t.Run("EraseEntity without full erasure", func(t *testing.T) {
+		ctx := context.TODO()
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+
+		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		require.NoError(t, engine.Start(ctx))
+		pause.For(time.Second)
+
+		err := engine.EraseEntity(ctx, "entity-1", false)
+		require.NoError(t, err)
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		require.NoError(t, engine.Stop(ctx))
+	})
+	t.Run("ProjectionLag when not started", func(t *testing.T) {
+		ctx := context.TODO()
+		eventStore := testkit.NewEventsStore()
+		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		_, err := engine.ProjectionLag(ctx, "projection")
+		require.Error(t, err)
+		require.ErrorIs(t, err, ErrEngineNotStarted)
+	})
+	t.Run("ProjectionLag without offset store", func(t *testing.T) {
+		ctx := context.TODO()
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+
+		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		require.NoError(t, engine.Start(ctx))
+		pause.For(time.Second)
+
+		_, err := engine.ProjectionLag(ctx, "projection")
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "offset store is required")
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		require.NoError(t, engine.Stop(ctx))
+	})
+	t.Run("ProjectionLag with events and offsets", func(t *testing.T) {
+		ctx := context.TODO()
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+		offsetStore := testkit.NewOffsetStore()
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		engine := NewEngine("Sample", eventStore,
+			WithOffsetStore(offsetStore),
+			WithLogger(log.DiscardLogger))
+		require.NoError(t, engine.Start(ctx))
+		pause.For(time.Second)
+
+		// create an entity and send commands to produce events
+		entityID := uuid.NewString()
+		behavior := NewEventSourcedEntity(entityID)
+		require.NoError(t, engine.Entity(ctx, behavior))
+
+		_, _, err := engine.SendCommand(ctx, entityID, &samplepb.CreateAccount{
+			AccountId:      entityID,
+			AccountBalance: 100,
+		}, time.Minute)
+		require.NoError(t, err)
+
+		lags, err := engine.ProjectionLag(ctx, "test-projection")
+		require.NoError(t, err)
+		require.NotNil(t, lags)
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		require.NoError(t, offsetStore.Disconnect(ctx))
+		require.NoError(t, engine.Stop(ctx))
+	})
+	t.Run("Saga with integration test", func(t *testing.T) {
+		ctx := context.TODO()
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+
+		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		require.NoError(t, engine.Start(ctx))
+		pause.For(time.Second)
+
+		// create an event-sourced entity that the saga can command
+		entityID := uuid.NewString()
+		entityBehavior := NewEventSourcedEntity(entityID)
+		require.NoError(t, engine.Entity(ctx, entityBehavior))
+
+		// create a saga behavior
+		sagaBehavior := &testSagaBehavior{
+			sagaID:   "test-saga-" + uuid.NewString(),
+			entityID: entityID,
+		}
+
+		// start the saga
+		err := engine.Saga(ctx, sagaBehavior, 30*time.Second)
+		require.NoError(t, err)
+
+		pause.For(2 * time.Second)
+
+		// query saga status
+		info, err := engine.SagaStatus(ctx, sagaBehavior.sagaID, time.Minute)
+		require.NoError(t, err)
+		require.NotNil(t, info)
+		assert.Equal(t, sagaBehavior.sagaID, info.ID)
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		require.NoError(t, engine.Stop(ctx))
+	})
+	t.Run("Saga when not started", func(t *testing.T) {
+		ctx := context.TODO()
+		eventStore := testkit.NewEventsStore()
+		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		err := engine.Saga(ctx, nil, time.Minute)
+		require.Error(t, err)
+		require.ErrorIs(t, err, ErrEngineNotStarted)
+	})
+	t.Run("SagaStatus when not started", func(t *testing.T) {
+		ctx := context.TODO()
+		eventStore := testkit.NewEventsStore()
+		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		_, err := engine.SagaStatus(ctx, "saga-1", time.Minute)
+		require.Error(t, err)
+		require.ErrorIs(t, err, ErrEngineNotStarted)
+	})
+	t.Run("SagaStatus with empty sagaID", func(t *testing.T) {
+		ctx := context.TODO()
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+
+		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		require.NoError(t, engine.Start(ctx))
+		pause.For(time.Second)
+
+		_, err := engine.SagaStatus(ctx, "", time.Minute)
+		require.Error(t, err)
+		require.ErrorIs(t, err, ErrUndefinedEntityID)
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		require.NoError(t, engine.Stop(ctx))
+	})
+	t.Run("RebuildProjection when not started", func(t *testing.T) {
+		ctx := context.TODO()
+		eventStore := testkit.NewEventsStore()
+		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		err := engine.RebuildProjection(ctx, "projection", time.Now())
+		require.Error(t, err)
+		require.ErrorIs(t, err, ErrEngineNotStarted)
+	})
+	t.Run("RebuildProjection without offset store", func(t *testing.T) {
+		ctx := context.TODO()
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+
+		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		require.NoError(t, engine.Start(ctx))
+		pause.For(time.Second)
+
+		err := engine.RebuildProjection(ctx, "projection", time.Now())
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "offset store is required")
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		require.NoError(t, engine.Stop(ctx))
+	})
 }
 
 func TestToSpawnPlacement(t *testing.T) {

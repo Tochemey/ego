@@ -47,3 +47,18 @@ func TestQueueLength(t *testing.T) {
 		t.Fatalf("count of dequeue wrong, want %d, got %d", 0, q.Length())
 	}
 }
+
+func TestQueueIsEmpty(t *testing.T) {
+	q := NewQueue()
+	if !q.IsEmpty() {
+		t.Fatalf("new queue should be empty")
+	}
+	q.Enqueue(1)
+	if q.IsEmpty() {
+		t.Fatalf("queue with item should not be empty")
+	}
+	q.Dequeue()
+	if !q.IsEmpty() {
+		t.Fatalf("queue after dequeue should be empty")
+	}
+}

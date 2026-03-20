@@ -83,3 +83,28 @@ func TestForEach(t *testing.T) {
 		t.Errorf("Expected keys 1 and 2, got %v", keys)
 	}
 }
+
+func TestValues(t *testing.T) {
+	sm := New[int, string]()
+	sm.Set(1, "one")
+	sm.Set(2, "two")
+	sm.Set(3, "three")
+
+	values := sm.Values()
+	assert.Exactly(t, 3, len(values))
+	assert.ElementsMatch(t, []string{"one", "two", "three"}, values)
+}
+
+func TestReset(t *testing.T) {
+	sm := New[int, string]()
+	sm.Set(1, "one")
+	sm.Set(2, "two")
+	sm.Set(3, "three")
+	require.Equal(t, 3, sm.Len())
+
+	sm.Reset()
+	assert.Equal(t, 0, sm.Len())
+
+	_, ok := sm.Get(1)
+	assert.False(t, ok)
+}

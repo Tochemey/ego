@@ -35,8 +35,10 @@ import (
 	nooptrace "go.opentelemetry.io/otel/trace/noop"
 	"google.golang.org/protobuf/types/known/anypb"
 
+	"github.com/tochemey/ego/v4/encryption"
 	"github.com/tochemey/ego/v4/eventadapter"
 	"github.com/tochemey/ego/v4/projection"
+	"github.com/tochemey/ego/v4/testkit"
 )
 
 func TestOptions(t *testing.T) {
@@ -176,6 +178,51 @@ func TestOptionWithProjectionNil(t *testing.T) {
 	opt := WithProjection(nil)
 	opt.Apply(engine)
 	assert.Nil(t, engine.projectionExtension)
+}
+
+func TestOptionWithSnapshotStore(t *testing.T) {
+	store := testkit.NewSnapshotStore()
+	engine := new(Engine)
+	opt := WithSnapshotStore(store)
+	opt.Apply(engine)
+	require.NotNil(t, engine.snapshotStore)
+	assert.Equal(t, store, engine.snapshotStore)
+}
+
+func TestOptionWithEncryptor(t *testing.T) {
+	enc := encryption.NewAESEncryptor(testkit.NewKeyStore())
+	engine := new(Engine)
+	opt := WithEncryptor(enc)
+	opt.Apply(engine)
+	require.NotNil(t, engine.encryptor)
+	assert.Equal(t, enc, engine.encryptor)
+}
+
+func TestOptionWithStateStore(t *testing.T) {
+	store := testkit.NewDurableStore()
+	engine := new(Engine)
+	opt := WithStateStore(store)
+	opt.Apply(engine)
+	require.NotNil(t, engine.stateStore)
+	assert.Equal(t, store, engine.stateStore)
+}
+
+func TestOptionWithOffsetStore(t *testing.T) {
+	store := testkit.NewOffsetStore()
+	engine := new(Engine)
+	opt := WithOffsetStore(store)
+	opt.Apply(engine)
+	require.NotNil(t, engine.offsetStore)
+	assert.Equal(t, store, engine.offsetStore)
+}
+
+func TestOptionWithTLS(t *testing.T) {
+	tls := &TLS{}
+	engine := new(Engine)
+	opt := WithTLS(tls)
+	opt.Apply(engine)
+	require.NotNil(t, engine.tls)
+	assert.Equal(t, tls, engine.tls)
 }
 
 // testEventAdapter is a no-op EventAdapter for testing

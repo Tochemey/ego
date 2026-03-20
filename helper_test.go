@@ -26,9 +26,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"google.golang.org/protobuf/types/known/emptypb"
 
+	samplepb "github.com/tochemey/ego/v4/example/examplepb"
 	testpb "github.com/tochemey/ego/v4/test/data/testpb"
 )
 
@@ -194,3 +196,66 @@ func (x *AccountDurableStateBehavior) UnmarshalBinary(data []byte) error {
 	x.id = serializable.ID
 	return nil
 }
+
+// testSagaBehavior implements SagaBehavior for testing
+type testSagaBehavior struct {
+	sagaID   string
+	entityID string
+}
+
+var _ SagaBehavior = (*testSagaBehavior)(nil)
+
+func (s *testSagaBehavior) ID() string {
+	return s.sagaID
+}
+
+func (s *testSagaBehavior) InitialState() State {
+	return new(samplepb.Account)
+}
+
+func (s *testSagaBehavior) HandleEvent(_ context.Context, _ Event, _ State) (*SagaAction, error) {
+	return &SagaAction{}, nil
+}
+
+func (s *testSagaBehavior) HandleResult(_ context.Context, _ string, _ State, _ State) (*SagaAction, error) {
+	return &SagaAction{Complete: true}, nil
+}
+
+func (s *testSagaBehavior) HandleError(_ context.Context, _ string, _ error, _ State) (*SagaAction, error) {
+	return &SagaAction{Compensate: true}, nil
+}
+
+func (s *testSagaBehavior) ApplyEvent(_ context.Context, _ Event, state State) (State, error) {
+	return state, nil
+}
+
+func (s *testSagaBehavior) Compensate(_ context.Context, _ State) ([]SagaCommand, error) {
+	return nil, nil
+}
+
+func (s *testSagaBehavior) MarshalBinary() ([]byte, error) {
+	data := struct {
+		SagaID   string `json:"saga_id"`
+		EntityID string `json:"entity_id"`
+	}{
+		SagaID:   s.sagaID,
+		EntityID: s.entityID,
+	}
+	return json.Marshal(data)
+}
+
+func (s *testSagaBehavior) UnmarshalBinary(data []byte) error {
+	aux := struct {
+		SagaID   string `json:"saga_id"`
+		EntityID string `json:"entity_id"`
+	}{}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	s.sagaID = aux.SagaID
+	s.entityID = aux.EntityID
+	return nil
+}
+
+// ensure time is used
+var _ = time.Second

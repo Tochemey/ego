@@ -69,4 +69,30 @@ func TestSpawnOption(t *testing.T) {
 		config := newSpawnConfig()
 		require.EqualValues(t, 0, config.snapshotInterval)
 	})
+	t.Run("WithRetentionPolicy", func(t *testing.T) {
+		policy := RetentionPolicy{
+			DeleteEventsOnSnapshot:    true,
+			DeleteSnapshotsOnSnapshot: true,
+			EventsRetentionCount:      100,
+		}
+		config := &spawnConfig{}
+		option := WithRetentionPolicy(policy)
+		option.Apply(config)
+		require.NotNil(t, config.retentionPolicy)
+		require.True(t, config.retentionPolicy.DeleteEventsOnSnapshot)
+		require.True(t, config.retentionPolicy.DeleteSnapshotsOnSnapshot)
+		require.EqualValues(t, 100, config.retentionPolicy.EventsRetentionCount)
+	})
+	t.Run("default config has no retention policy", func(t *testing.T) {
+		config := newSpawnConfig()
+		require.Nil(t, config.retentionPolicy)
+	})
+	t.Run("default config has RestartDirective", func(t *testing.T) {
+		config := newSpawnConfig()
+		require.Equal(t, RestartDirective, config.supervisorDirective)
+	})
+	t.Run("default config has RoundRobin placement", func(t *testing.T) {
+		config := newSpawnConfig()
+		require.Equal(t, RoundRobin, config.entitiesPlacement)
+	})
 }

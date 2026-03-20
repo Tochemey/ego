@@ -31,8 +31,10 @@ import (
 	"github.com/tochemey/goakt/v4/log"
 	"google.golang.org/protobuf/types/known/anypb"
 
+	"github.com/tochemey/ego/v4/encryption"
 	"github.com/tochemey/ego/v4/eventadapter"
 	"github.com/tochemey/ego/v4/projection"
+	"github.com/tochemey/ego/v4/testkit"
 )
 
 func TestOption(t *testing.T) {
@@ -100,6 +102,21 @@ func TestWithEventAdaptersEmpty(t *testing.T) {
 	var r projectionRunner
 	withEventAdapters(nil).Apply(&r)
 	assert.Nil(t, r.eventAdapters)
+}
+
+func TestWithMetrics(t *testing.T) {
+	m := &metrics{}
+	var r projectionRunner
+	withMetrics(m).Apply(&r)
+	assert.Equal(t, m, r.metrics)
+}
+
+func TestWithEncryptor(t *testing.T) {
+	enc := encryption.NewAESEncryptor(testkit.NewKeyStore())
+	var r projectionRunner
+	withEncryptor(enc).Apply(&r)
+	require.NotNil(t, r.encryptor)
+	assert.Equal(t, enc, r.encryptor)
 }
 
 // runnerTestAdapter is a no-op EventAdapter for testing

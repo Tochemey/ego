@@ -32,6 +32,21 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
+func TestDiscardHandler_InterfaceCompliance(t *testing.T) {
+	var _ Handler = (*DiscardHandler)(nil)
+}
+
+func TestNewDiscardHandler(t *testing.T) {
+	handler := NewDiscardHandler()
+	require.NotNil(t, handler)
+}
+
+func TestDiscardHandler_Handle(t *testing.T) {
+	handler := NewDiscardHandler()
+	err := handler.Handle(context.Background(), "persistence-id-1", &anypb.Any{}, 1)
+	assert.NoError(t, err)
+}
+
 func TestDiscardDeadLetterHandler_InterfaceCompliance(t *testing.T) {
 	var _ DeadLetterHandler = (*DiscardDeadLetterHandler)(nil)
 }
