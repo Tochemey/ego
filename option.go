@@ -23,8 +23,6 @@
 package ego
 
 import (
-	"github.com/tochemey/goakt/v4/discovery"
-
 	"github.com/tochemey/ego/v4/encryption"
 	"github.com/tochemey/ego/v4/eventadapter"
 	"github.com/tochemey/ego/v4/internal/extensions"
@@ -59,7 +57,7 @@ func (f OptionFunc) Apply(e *Engine) {
 // for distributed communication and peer discovery.
 //
 // Parameters:
-//   - provider: The discovery.Provider responsible for peers discovery in the cluster.
+//   - provider: The ClusterProvider responsible for peer discovery in the cluster.
 //   - partitionCount: The number of partitions used for distributing data across the cluster.
 //   - minimumPeersQuorum: The minimum number of peers required to form a quorum.
 //   - host: The hostname or IP address of the current node.
@@ -69,10 +67,10 @@ func (f OptionFunc) Apply(e *Engine) {
 //
 // Returns:
 //   - Option: A functional option that configures the cluster settings.
-func WithCluster(provider discovery.Provider, partitionCount uint64, minimumPeersQuorum uint16, host string, remotingPort, discoveryPort, peersPort int) Option {
+func WithCluster(provider ClusterProvider, partitionCount uint64, minimumPeersQuorum uint16, host string, remotingPort, discoveryPort, peersPort int) Option {
 	return OptionFunc(func(e *Engine) {
 		e.clusterEnabled.Store(true)
-		e.discoveryProvider = provider
+		e.clusterProvider = provider
 		e.partitionsCount = partitionCount
 		e.peersPort = peersPort
 		e.minimumPeersQuorum = minimumPeersQuorum

@@ -31,7 +31,6 @@ import (
 
 	goset "github.com/deckarep/golang-set/v2"
 	goakt "github.com/tochemey/goakt/v4/actor"
-	"github.com/tochemey/goakt/v4/discovery"
 	"github.com/tochemey/goakt/v4/passivation"
 	"github.com/tochemey/goakt/v4/remote"
 	"github.com/tochemey/goakt/v4/supervisor"
@@ -85,7 +84,7 @@ type Engine struct {
 	clusterEnabled     atomic.Bool
 	actorSystem        goakt.ActorSystem
 	logger             Logger
-	discoveryProvider  discovery.Provider
+	clusterProvider    ClusterProvider
 	partitionsCount    uint64
 	started            atomic.Bool
 	bindAddr           string
@@ -1016,7 +1015,7 @@ func (engine *Engine) clusterConfig() *goakt.ClusterConfig {
 
 	clusterConfig := goakt.
 		NewClusterConfig().
-		WithDiscovery(engine.discoveryProvider).
+		WithDiscovery(newClusterProviderAdapter(engine.clusterProvider)).
 		WithDiscoveryPort(engine.discoveryPort).
 		WithPeersPort(engine.peersPort).
 		WithMinimumPeersQuorum(uint32(engine.minimumPeersQuorum)).

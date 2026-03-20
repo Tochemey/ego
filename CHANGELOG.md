@@ -120,6 +120,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   configuration (snapshot interval, retention policy) is now passed via the `extensions.EntityConfig` dependency,
   ensuring correct behavior during cluster relocation.
 
+- **🌐 Cluster discovery API** — `WithCluster()` now accepts `ego.ClusterProvider` instead of GoAkt’s
+  `discovery.Provider`. The engine wraps your implementation when wiring the actor system, so application code no longer
+  depends on GoAkt’s discovery package for this option. Implement `ClusterProvider` (`ID`, `Start`, `DiscoverPeers`,
+  `Stop`) or add a thin adapter around a GoAkt discovery implementation if you still use one.
+
 ### ⬆️ Dependencies
 
 - **Go OpenTelemetry** — `go.opentelemetry.io/otel`, `go.opentelemetry.io/otel/metric`, and
@@ -140,6 +145,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Testkit** — Added in-memory `KeyStore` implementation (`testkit/keystore.go`) for encryption testing
 - **Projection runner** — Decrypts encrypted events before handing them to the handler and event adapters
 - **Projection runner** — Records per-shard lag, offset, and events-behind metrics when telemetry is enabled
+- **Clustering** — `ClusterProvider` documentation aligned with engine lifecycle; peer discovery is configured only
+  through ego’s `ClusterProvider` surface (no direct `discovery.Provider` on `WithCluster`)
 
 ### 📖 Migration Guide
 
@@ -155,3 +162,6 @@ To upgrade from v3 to v4:
    `ego.Logger` implementation (e.g. `ego.DiscardLogger`). If you have a custom GoAkt logger, wrap it in the new
    `Logger` interface instead
 6. **Regenerate protobuf** — If you depend on the `Event` message directly, regenerate from the updated `.proto` files
+7. **Cluster mode** — Replace `WithCluster(goaktDiscoveryProvider, ...)` with `WithCluster(ego.ClusterProvider, ...)`.
+   Map GoAkt’s `Initialize`/`Close` to `Start`/`Stop`, and `DiscoverPeers()` to `DiscoverPeers(ctx)`; `Register`/`Deregister`
+   can be no-ops if your backend folds them into start/stop

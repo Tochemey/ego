@@ -29,7 +29,6 @@ import (
 	goset "github.com/deckarep/golang-set/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tochemey/goakt/v4/discovery/kubernetes"
 	"go.opentelemetry.io/otel/trace"
 	nooptrace "go.opentelemetry.io/otel/trace/noop"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -41,10 +40,8 @@ import (
 )
 
 func TestOptions(t *testing.T) {
-	// use the discard logger
 	logger := DiscardLogger
-	// create a discovery provider
-	discoveryProvider := kubernetes.NewDiscovery(&kubernetes.Config{})
+	clusterProvider := &mockClusterProvider{id: "test"}
 
 	testCases := []struct {
 		name     string
@@ -53,10 +50,10 @@ func TestOptions(t *testing.T) {
 	}{
 		{
 			name:   "WithCluster",
-			option: WithCluster(discoveryProvider, 30, 3, "localhost", 1334, 1335, 1336),
+			option: WithCluster(clusterProvider, 30, 3, "localhost", 1334, 1335, 1336),
 			expected: func() *Engine {
 				expected := &Engine{
-					discoveryProvider:  discoveryProvider,
+					clusterProvider:    clusterProvider,
 					minimumPeersQuorum: 3,
 					bindAddr:           "localhost",
 					discoveryPort:      1335,

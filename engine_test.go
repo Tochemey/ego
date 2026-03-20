@@ -40,7 +40,6 @@ import (
 	"github.com/stretchr/testify/require"
 	goakt "github.com/tochemey/goakt/v4/actor"
 	gerrors "github.com/tochemey/goakt/v4/errors"
-	mockdisco "github.com/tochemey/goakt/v4/mocks/discovery"
 	"github.com/tochemey/goakt/v4/supervisor"
 	"github.com/travisjeffery/go-dynaport"
 	noopmetric "go.opentelemetry.io/otel/metric/noop"
@@ -80,19 +79,10 @@ func TestEngine(t *testing.T) {
 			net.JoinHostPort(host, strconv.Itoa(clusterPort)),
 		}
 
-		// mock the discovery provider
-		provider := new(mockdisco.Provider)
-
-		provider.EXPECT().ID().Return("id")
-		provider.EXPECT().Initialize().Return(nil)
-		provider.EXPECT().Register().Return(nil)
-		provider.EXPECT().Deregister().Return(nil)
-		provider.EXPECT().DiscoverPeers().Return(addrs, nil)
-		provider.EXPECT().Close().Return(nil)
+		provider := &mockClusterProvider{id: "id", peers: addrs}
 
 		// create a projection message handler
 		handler := projection.NewDiscardHandler()
-		// create the ego engine
 		// AutoGenerate TLS certs
 		conf := autotls.Config{
 			AutoTLS:            true,
@@ -199,7 +189,6 @@ func TestEngine(t *testing.T) {
 		assert.NoError(t, eventStore.Disconnect(ctx))
 		assert.NoError(t, offsetStore.Disconnect(ctx))
 		assert.NoError(t, engine.Stop(ctx))
-		provider.AssertExpectations(t)
 	})
 	t.Run("EventSourced entity With no cluster enabled", func(t *testing.T) {
 		ctx := context.TODO()
@@ -449,15 +438,7 @@ func TestEngine(t *testing.T) {
 			net.JoinHostPort(host, strconv.Itoa(gossipPort)),
 		}
 
-		// mock the discovery provider
-		provider := new(mockdisco.Provider)
-
-		provider.EXPECT().ID().Return("id")
-		provider.EXPECT().Initialize().Return(nil)
-		provider.EXPECT().Register().Return(nil)
-		provider.EXPECT().Deregister().Return(nil)
-		provider.EXPECT().DiscoverPeers().Return(addrs, nil)
-		provider.EXPECT().Close().Return(nil)
+		provider := &mockClusterProvider{id: "id", peers: addrs}
 
 		// create the ego engine
 		engine := NewEngine("Sample", nil,
@@ -526,7 +507,6 @@ func TestEngine(t *testing.T) {
 		require.NoError(t, engine.Stop(ctx))
 		pause.For(time.Second)
 		require.NoError(t, stateStore.Disconnect(ctx))
-		provider.AssertExpectations(t)
 	})
 	t.Run("DurableStore entity With no cluster enabled", func(t *testing.T) {
 		ctx := context.TODO()
@@ -675,15 +655,7 @@ func TestEngine(t *testing.T) {
 			net.JoinHostPort(host, strconv.Itoa(discoveryPort)),
 		}
 
-		// mock the discovery provider
-		provider := new(mockdisco.Provider)
-
-		provider.EXPECT().ID().Return("id")
-		provider.EXPECT().Initialize().Return(nil)
-		provider.EXPECT().Register().Return(nil)
-		provider.EXPECT().Deregister().Return(nil)
-		provider.EXPECT().DiscoverPeers().Return(addrs, nil)
-		provider.EXPECT().Close().Return(nil)
+		provider := &mockClusterProvider{id: "id", peers: addrs}
 
 		// mock the event publisher
 		publisher := new(egomock.EventPublisher)
@@ -704,7 +676,6 @@ func TestEngine(t *testing.T) {
 
 		// create a projection message handler
 		handler := projection.NewDiscardHandler()
-		// create the ego engine
 		// AutoGenerate TLS certs
 		conf := autotls.Config{
 			AutoTLS:            true,
@@ -828,7 +799,6 @@ func TestEngine(t *testing.T) {
 		require.NoError(t, engine.Stop(ctx))
 
 		publisher.AssertExpectations(t)
-		provider.AssertExpectations(t)
 	})
 	t.Run("With DurableState Publisher with no cluster enabled", func(t *testing.T) {
 		ctx := context.TODO()
@@ -949,15 +919,7 @@ func TestEngine(t *testing.T) {
 				return nil
 			})
 
-		// mock the discovery provider
-		provider := new(mockdisco.Provider)
-
-		provider.EXPECT().ID().Return("id")
-		provider.EXPECT().Initialize().Return(nil)
-		provider.EXPECT().Register().Return(nil)
-		provider.EXPECT().Deregister().Return(nil)
-		provider.EXPECT().DiscoverPeers().Return(addrs, nil)
-		provider.EXPECT().Close().Return(nil)
+		provider := &mockClusterProvider{id: "id", peers: addrs}
 
 		// create the ego engine
 		engine := NewEngine("Sample", nil,
@@ -1040,7 +1002,6 @@ func TestEngine(t *testing.T) {
 		require.NoError(t, engine.Stop(ctx))
 		require.NoError(t, stateStore.Disconnect(ctx))
 		publisher.AssertExpectations(t)
-		provider.AssertExpectations(t)
 	})
 	t.Run("With DurableState Publisher when not started", func(t *testing.T) {
 		ctx := context.TODO()
@@ -1694,7 +1655,7 @@ func TestEngine(t *testing.T) {
 			WithSnapshotInterval(5),
 			WithRetentionPolicy(RetentionPolicy{
 				DeleteEventsOnSnapshot: true,
-				EventsRetentionCount:  10,
+				EventsRetentionCount:   10,
 			}),
 			WithPassivateAfter(time.Minute),
 		)
