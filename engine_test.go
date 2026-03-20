@@ -40,7 +40,6 @@ import (
 	"github.com/stretchr/testify/require"
 	goakt "github.com/tochemey/goakt/v4/actor"
 	gerrors "github.com/tochemey/goakt/v4/errors"
-	"github.com/tochemey/goakt/v4/log"
 	mockdisco "github.com/tochemey/goakt/v4/mocks/discovery"
 	"github.com/tochemey/goakt/v4/supervisor"
 	"github.com/travisjeffery/go-dynaport"
@@ -103,7 +102,7 @@ func TestEngine(t *testing.T) {
 		require.NoError(t, autotls.Setup(&conf))
 
 		engine := NewEngine("Sample", eventStore,
-			WithLogger(log.DiscardLogger),
+			WithLogger(DiscardLogger),
 			WithTLS(&TLS{
 				ClientTLS: conf.ClientTLS,
 				ServerTLS: conf.ServerTLS,
@@ -225,7 +224,7 @@ func TestEngine(t *testing.T) {
 			Return(nil)
 
 		// create the ego engine
-		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
 		// start ego engine
 		err := engine.Start(ctx)
 		require.NoError(t, err)
@@ -296,7 +295,7 @@ func TestEngine(t *testing.T) {
 		require.NoError(t, eventStore.Connect(ctx))
 
 		// create the ego engine
-		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
 		// create a persistence id
 		entityID := uuid.NewString()
 
@@ -313,7 +312,7 @@ func TestEngine(t *testing.T) {
 		require.NoError(t, eventStore.Connect(ctx))
 
 		// create the ego engine
-		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
 		err := engine.Start(ctx)
 		require.NoError(t, err)
 
@@ -334,7 +333,7 @@ func TestEngine(t *testing.T) {
 		require.NoError(t, eventStore.Connect(ctx))
 
 		// create the ego engine
-		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
 		err := engine.Start(ctx)
 		require.NoError(t, err)
 
@@ -355,7 +354,7 @@ func TestEngine(t *testing.T) {
 		require.NoError(t, eventStore.Connect(ctx))
 
 		// create the ego engine
-		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
 
 		running, err := engine.IsProjectionRunning(ctx, "isProjectionRunning")
 		require.Error(t, err)
@@ -388,7 +387,7 @@ func TestEngine(t *testing.T) {
 				PullInterval: time.Second,
 				Recovery:     projection.NewRecovery(),
 			}),
-			WithLogger(log.DiscardLogger))
+			WithLogger(DiscardLogger))
 		// start ego engine
 		err := engine.Start(ctx)
 		require.NoError(t, err)
@@ -425,7 +424,7 @@ func TestEngine(t *testing.T) {
 		require.NoError(t, eventStore.Connect(ctx))
 
 		// create the ego engine
-		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
 
 		err := engine.RemoveProjection(ctx, "isProjectionRunning")
 		require.Error(t, err)
@@ -462,7 +461,7 @@ func TestEngine(t *testing.T) {
 
 		// create the ego engine
 		engine := NewEngine("Sample", nil,
-			WithLogger(log.DiscardLogger),
+			WithLogger(DiscardLogger),
 			WithStateStore(stateStore),
 			WithCluster(provider, 4, 1, host, remotingPort, gossipPort, clusterPort))
 
@@ -537,7 +536,7 @@ func TestEngine(t *testing.T) {
 		// create the ego engine
 		engine := NewEngine("Sample", nil,
 			WithStateStore(stateStore),
-			WithLogger(log.DiscardLogger))
+			WithLogger(DiscardLogger))
 
 		err := engine.Start(ctx)
 		require.NoError(t, err)
@@ -603,7 +602,7 @@ func TestEngine(t *testing.T) {
 		// create the ego engine
 		engine := NewEngine("Sample", nil,
 			WithStateStore(stateStore),
-			WithLogger(log.DiscardLogger))
+			WithLogger(DiscardLogger))
 
 		entityID := uuid.NewString()
 
@@ -621,7 +620,7 @@ func TestEngine(t *testing.T) {
 		// create the ego engine
 		engine := NewEngine("Sample", nil,
 			WithStateStore(stateStore),
-			WithLogger(log.DiscardLogger))
+			WithLogger(DiscardLogger))
 		err := engine.Start(ctx)
 		require.NoError(t, err)
 
@@ -643,7 +642,7 @@ func TestEngine(t *testing.T) {
 		// create the ego engine
 		engine := NewEngine("Sample", nil,
 			WithStateStore(stateStore),
-			WithLogger(log.DiscardLogger))
+			WithLogger(DiscardLogger))
 		err := engine.Start(ctx)
 		require.NoError(t, err)
 
@@ -715,7 +714,7 @@ func TestEngine(t *testing.T) {
 		require.NoError(t, autotls.Setup(&conf))
 
 		engine := NewEngine("Sample", eventStore,
-			WithLogger(log.DiscardLogger),
+			WithLogger(DiscardLogger),
 			WithTLS(&TLS{
 				ClientTLS: conf.ClientTLS,
 				ServerTLS: conf.ServerTLS,
@@ -856,7 +855,7 @@ func TestEngine(t *testing.T) {
 		// create the ego engine
 		engine := NewEngine("Sample", nil,
 			WithStateStore(stateStore),
-			WithLogger(log.DiscardLogger))
+			WithLogger(DiscardLogger))
 
 		err := engine.Start(ctx)
 		require.NoError(t, err)
@@ -962,7 +961,7 @@ func TestEngine(t *testing.T) {
 
 		// create the ego engine
 		engine := NewEngine("Sample", nil,
-			WithLogger(log.DiscardLogger),
+			WithLogger(DiscardLogger),
 			WithStateStore(stateStore),
 			WithCluster(provider, 4, 1, host, remotingPort, gossipPort, clusterPort))
 
@@ -1052,7 +1051,7 @@ func TestEngine(t *testing.T) {
 		publisher := new(egomock.StatePublisher)
 
 		// create the ego engine
-		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
 		err := engine.AddStatePublishers(publisher)
 		require.Error(t, err)
 		assert.EqualError(t, err, ErrEngineNotStarted.Error())
@@ -1068,7 +1067,7 @@ func TestEngine(t *testing.T) {
 		publisher := new(egomock.EventPublisher)
 
 		// create the ego engine
-		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
 		err := engine.AddEventPublishers(publisher)
 		require.Error(t, err)
 		assert.EqualError(t, err, ErrEngineNotStarted.Error())
@@ -1089,7 +1088,7 @@ func TestEngine(t *testing.T) {
 		// create the ego engine
 		engine := NewEngine("Sample", nil,
 			WithStateStore(stateStore),
-			WithLogger(log.DiscardLogger))
+			WithLogger(DiscardLogger))
 
 		err := engine.Start(ctx)
 		require.NoError(t, err)
@@ -1119,7 +1118,7 @@ func TestEngine(t *testing.T) {
 		// create the ego engine
 		engine := NewEngine("Sample", nil,
 			WithStateStore(stateStore),
-			WithLogger(log.DiscardLogger))
+			WithLogger(DiscardLogger))
 
 		err := engine.Start(ctx)
 		require.NoError(t, err)
@@ -1155,7 +1154,7 @@ func TestEngine(t *testing.T) {
 				PullInterval: time.Second,
 				Recovery:     projection.NewRecovery(),
 			}),
-			WithLogger(log.DiscardLogger))
+			WithLogger(DiscardLogger))
 
 		projectionName := "projection"
 		err := engine.AddProjection(ctx, projectionName)
@@ -1184,7 +1183,7 @@ func TestEngine(t *testing.T) {
 				PullInterval: time.Second,
 				Recovery:     projection.NewRecovery(),
 			}),
-			WithLogger(log.DiscardLogger))
+			WithLogger(DiscardLogger))
 
 		// start ego engine
 		err := engine.Start(ctx)
@@ -1210,7 +1209,7 @@ func TestEngine(t *testing.T) {
 		require.NoError(t, eventStore.Connect(ctx))
 
 		engine := NewEngine("Sample", eventStore,
-			WithLogger(log.DiscardLogger))
+			WithLogger(DiscardLogger))
 
 		// subscribe to events
 		subscriber, err := engine.Subscribe()
@@ -1229,7 +1228,7 @@ func TestEngine(t *testing.T) {
 		require.NoError(t, eventStore.Connect(ctx))
 
 		// create the ego engine
-		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
 		// create a persistence id
 		entityID := uuid.NewString()
 		// create an entity behavior with a given id
@@ -1250,7 +1249,7 @@ func TestEngine(t *testing.T) {
 		// create the ego engine
 		engine := NewEngine("Sample", nil,
 			WithStateStore(stateStore),
-			WithLogger(log.DiscardLogger))
+			WithLogger(DiscardLogger))
 
 		entityID := uuid.NewString()
 		behavior := NewAccountDurableStateBehavior(entityID)
@@ -1267,7 +1266,7 @@ func TestEngine(t *testing.T) {
 
 		// create the ego engine
 		engine := NewEngine("Sample", nil,
-			WithLogger(log.DiscardLogger))
+			WithLogger(DiscardLogger))
 
 		require.NoError(t, engine.Start(ctx))
 
@@ -1283,7 +1282,7 @@ func TestEngine(t *testing.T) {
 	t.Run("EraseEntity when not started", func(t *testing.T) {
 		ctx := context.TODO()
 		eventStore := testkit.NewEventsStore()
-		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
 		err := engine.EraseEntity(ctx, "entity-1", false)
 		require.Error(t, err)
 		require.ErrorIs(t, err, ErrEngineNotStarted)
@@ -1297,7 +1296,7 @@ func TestEngine(t *testing.T) {
 
 		engine := NewEngine("Sample", eventStore,
 			WithSnapshotStore(snapshotStore),
-			WithLogger(log.DiscardLogger))
+			WithLogger(DiscardLogger))
 		require.NoError(t, engine.Start(ctx))
 		pause.For(time.Second)
 
@@ -1330,7 +1329,7 @@ func TestEngine(t *testing.T) {
 		eventStore := testkit.NewEventsStore()
 		require.NoError(t, eventStore.Connect(ctx))
 
-		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
 		require.NoError(t, engine.Start(ctx))
 		pause.For(time.Second)
 
@@ -1343,7 +1342,7 @@ func TestEngine(t *testing.T) {
 	t.Run("ProjectionLag when not started", func(t *testing.T) {
 		ctx := context.TODO()
 		eventStore := testkit.NewEventsStore()
-		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
 		_, err := engine.ProjectionLag(ctx, "projection")
 		require.Error(t, err)
 		require.ErrorIs(t, err, ErrEngineNotStarted)
@@ -1353,7 +1352,7 @@ func TestEngine(t *testing.T) {
 		eventStore := testkit.NewEventsStore()
 		require.NoError(t, eventStore.Connect(ctx))
 
-		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
 		require.NoError(t, engine.Start(ctx))
 		pause.For(time.Second)
 
@@ -1373,7 +1372,7 @@ func TestEngine(t *testing.T) {
 
 		engine := NewEngine("Sample", eventStore,
 			WithOffsetStore(offsetStore),
-			WithLogger(log.DiscardLogger))
+			WithLogger(DiscardLogger))
 		require.NoError(t, engine.Start(ctx))
 		pause.For(time.Second)
 
@@ -1401,7 +1400,7 @@ func TestEngine(t *testing.T) {
 		eventStore := testkit.NewEventsStore()
 		require.NoError(t, eventStore.Connect(ctx))
 
-		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
 		require.NoError(t, engine.Start(ctx))
 		pause.For(time.Second)
 
@@ -1434,7 +1433,7 @@ func TestEngine(t *testing.T) {
 	t.Run("Saga when not started", func(t *testing.T) {
 		ctx := context.TODO()
 		eventStore := testkit.NewEventsStore()
-		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
 		err := engine.Saga(ctx, nil, time.Minute)
 		require.Error(t, err)
 		require.ErrorIs(t, err, ErrEngineNotStarted)
@@ -1442,7 +1441,7 @@ func TestEngine(t *testing.T) {
 	t.Run("SagaStatus when not started", func(t *testing.T) {
 		ctx := context.TODO()
 		eventStore := testkit.NewEventsStore()
-		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
 		_, err := engine.SagaStatus(ctx, "saga-1", time.Minute)
 		require.Error(t, err)
 		require.ErrorIs(t, err, ErrEngineNotStarted)
@@ -1452,7 +1451,7 @@ func TestEngine(t *testing.T) {
 		eventStore := testkit.NewEventsStore()
 		require.NoError(t, eventStore.Connect(ctx))
 
-		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
 		require.NoError(t, engine.Start(ctx))
 		pause.For(time.Second)
 
@@ -1468,7 +1467,7 @@ func TestEngine(t *testing.T) {
 		eventStore := testkit.NewEventsStore()
 		require.NoError(t, eventStore.Connect(ctx))
 
-		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
 		require.NoError(t, engine.Start(ctx))
 		pause.For(time.Second)
 
@@ -1483,7 +1482,7 @@ func TestEngine(t *testing.T) {
 		eventStore := testkit.NewEventsStore()
 		require.NoError(t, eventStore.Connect(ctx))
 
-		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
 		require.NoError(t, engine.Start(ctx))
 		pause.For(time.Second)
 
@@ -1498,7 +1497,7 @@ func TestEngine(t *testing.T) {
 		eventStore := testkit.NewEventsStore()
 		require.NoError(t, eventStore.Connect(ctx))
 
-		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
 		require.NoError(t, engine.Start(ctx))
 		pause.For(time.Second)
 
@@ -1522,7 +1521,7 @@ func TestEngine(t *testing.T) {
 
 		engine := NewEngine("Sample", eventStore,
 			WithOffsetStore(offsetStore),
-			WithLogger(log.DiscardLogger))
+			WithLogger(DiscardLogger))
 		require.NoError(t, engine.Start(ctx))
 		pause.For(time.Second)
 
@@ -1578,7 +1577,7 @@ func TestEngine(t *testing.T) {
 
 		engine := NewEngine("Sample", eventStore,
 			WithSnapshotStore(snapshotStore),
-			WithLogger(log.DiscardLogger))
+			WithLogger(DiscardLogger))
 		require.NoError(t, engine.Start(ctx))
 		pause.For(time.Second)
 
@@ -1593,7 +1592,7 @@ func TestEngine(t *testing.T) {
 	t.Run("RebuildProjection when not started", func(t *testing.T) {
 		ctx := context.TODO()
 		eventStore := testkit.NewEventsStore()
-		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
 		err := engine.RebuildProjection(ctx, "projection", time.Now())
 		require.Error(t, err)
 		require.ErrorIs(t, err, ErrEngineNotStarted)
@@ -1616,7 +1615,7 @@ func TestEngine(t *testing.T) {
 				PullInterval: time.Second,
 				Recovery:     projection.NewRecovery(),
 			}),
-			WithLogger(log.DiscardLogger))
+			WithLogger(DiscardLogger))
 
 		require.NoError(t, engine.Start(ctx))
 		pause.For(time.Second)
@@ -1645,7 +1644,7 @@ func TestEngine(t *testing.T) {
 		eventStore := testkit.NewEventsStore()
 		require.NoError(t, eventStore.Connect(ctx))
 
-		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
 		require.NoError(t, engine.Start(ctx))
 		pause.For(time.Second)
 
@@ -1667,7 +1666,7 @@ func TestEngine(t *testing.T) {
 
 		engine := NewEngine("Sample", eventStore,
 			WithTelemetry(tel),
-			WithLogger(log.DiscardLogger))
+			WithLogger(DiscardLogger))
 		require.NoError(t, engine.Start(ctx))
 		pause.For(time.Second)
 
@@ -1685,7 +1684,7 @@ func TestEngine(t *testing.T) {
 
 		engine := NewEngine("Sample", eventStore,
 			WithSnapshotStore(snapshotStore),
-			WithLogger(log.DiscardLogger))
+			WithLogger(DiscardLogger))
 		require.NoError(t, engine.Start(ctx))
 		pause.For(time.Second)
 
@@ -1710,7 +1709,7 @@ func TestEngine(t *testing.T) {
 		eventStore := testkit.NewEventsStore()
 		require.NoError(t, eventStore.Connect(ctx))
 
-		engine := NewEngine("Sample", eventStore, WithLogger(log.DiscardLogger))
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
 		require.NoError(t, engine.Start(ctx))
 		pause.For(time.Second)
 
@@ -1740,7 +1739,7 @@ func TestEngine(t *testing.T) {
 				Handler:      handler,
 				PullInterval: time.Second,
 			}),
-			WithLogger(log.DiscardLogger))
+			WithLogger(DiscardLogger))
 
 		err := engine.Start(ctx)
 		require.Error(t, err)
@@ -1774,7 +1773,7 @@ func TestEngine(t *testing.T) {
 				Handler:      handler,
 				PullInterval: time.Second,
 			}),
-			WithLogger(log.DiscardLogger))
+			WithLogger(DiscardLogger))
 
 		require.NoError(t, engine.Start(ctx))
 		pause.For(time.Second)

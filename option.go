@@ -24,7 +24,6 @@ package ego
 
 import (
 	"github.com/tochemey/goakt/v4/discovery"
-	"github.com/tochemey/goakt/v4/log"
 
 	"github.com/tochemey/ego/v4/encryption"
 	"github.com/tochemey/ego/v4/eventadapter"
@@ -86,11 +85,11 @@ func WithCluster(provider discovery.Provider, partitionCount uint64, minimumPeer
 // WithLogger sets the logger for the system, allowing custom logging implementations.
 //
 // Parameters:
-//   - logger: An instance of log.Logger used for logging system events and debugging information.
+//   - logger: An instance of Logger used for logging system events and debugging information.
 //
 // Returns:
 //   - Option: A functional option that configures the logger.
-func WithLogger(logger log.Logger) Option {
+func WithLogger(logger Logger) Option {
 	return OptionFunc(func(e *Engine) {
 		e.logger = logger
 	})

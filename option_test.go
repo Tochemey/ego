@@ -30,7 +30,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tochemey/goakt/v4/discovery/kubernetes"
-	"github.com/tochemey/goakt/v4/log"
 	"go.opentelemetry.io/otel/trace"
 	nooptrace "go.opentelemetry.io/otel/trace/noop"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -42,8 +41,8 @@ import (
 )
 
 func TestOptions(t *testing.T) {
-	// use the default logger of GoAkt
-	logger := log.DefaultLogger
+	// use the discard logger
+	logger := DiscardLogger
 	// create a discovery provider
 	discoveryProvider := kubernetes.NewDiscovery(&kubernetes.Config{})
 

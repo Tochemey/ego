@@ -71,6 +71,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `WithEncryptor()` engine option to enable encryption
     - In-memory `testkit.KeyStore` for testing
 
+- **📝 Pluggable Logger Interface** — Introduced a minimal `Logger` interface (`logger.go`) that lets developers plug in
+  any logging backend (zap, zerolog, slog, logrus, etc.). Methods follow the slog convention with structured key-value
+  pairs. The engine now stores `Logger` directly and wraps it via `loggerAdapter` when passing to the underlying actor
+  system. Includes:
+    - `Logger` interface with `Debug`, `Info`, `Warn`, `Error` methods
+    - Optional `LeveledLogger` interface for engine-side log gating
+    - `DiscardLogger` — exported no-op logger for tests or silent operation
+    - Default `slog`-based logger used when no logger is explicitly configured
+    - `WithLogger()` engine option now accepts `Logger` instead of `log.Logger`
+
 - **🔄 Saga/Process Manager** — First-class abstraction for long-running business processes that coordinate multiple
   entities with compensation logic for rollback on failures. Includes:
     - `SagaBehavior` interface with `HandleEvent`, `HandleResult`, `HandleError`, `ApplyEvent`, and `Compensate` methods
@@ -98,6 +108,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **🔧 Event-Sourced Recovery Rewrite** — Entity recovery no longer reads state from the latest event's
   `resulting_state`. Recovery now loads the latest snapshot (if available) and replays only subsequent events, applying
   event adapters in the chain.
+
+- **📝 Logger Interface** — `WithLogger()` now accepts `ego.Logger` instead of `goakt/log.Logger`. Callers that
+  previously passed a GoAkt logger (e.g. `log.DiscardLogger`) must switch to the new `ego.Logger` interface (e.g.
+  `ego.DiscardLogger`). The engine's internal logging calls use `Logger.Debug/Info/Warn/Error` instead of `Debugf/Infof`.
 
 - **🏗️ Internal Extension Constructors** — `extensions.NewProjectionExtension()` now requires an additional
   `DeadLetterHandler` parameter.
@@ -137,4 +151,7 @@ To upgrade from v3 to v4:
    snapshot store
 4. **Configure a snapshot store** — Pass a `SnapshotStore` implementation via `WithSnapshotStore()` for optimal recovery
    performance
-5. **Regenerate protobuf** — If you depend on the `Event` message directly, regenerate from the updated `.proto` files
+5. **Update logger usage** — Replace `WithLogger(log.DiscardLogger)` or any `goakt/log.Logger` value with an
+   `ego.Logger` implementation (e.g. `ego.DiscardLogger`). If you have a custom GoAkt logger, wrap it in the new
+   `Logger` interface instead
+6. **Regenerate protobuf** — If you depend on the `Event` message directly, regenerate from the updated `.proto` files

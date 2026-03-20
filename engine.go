@@ -26,14 +26,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"sync"
 	"time"
 
 	goset "github.com/deckarep/golang-set/v2"
 	goakt "github.com/tochemey/goakt/v4/actor"
 	"github.com/tochemey/goakt/v4/discovery"
-	"github.com/tochemey/goakt/v4/log"
 	"github.com/tochemey/goakt/v4/passivation"
 	"github.com/tochemey/goakt/v4/remote"
 	"github.com/tochemey/goakt/v4/supervisor"
@@ -86,7 +84,7 @@ type Engine struct {
 	offsetStore        offsetstore.OffsetStore
 	clusterEnabled     atomic.Bool
 	actorSystem        goakt.ActorSystem
-	logger             log.Logger
+	logger             Logger
 	discoveryProvider  discovery.Provider
 	partitionsCount    uint64
 	started            atomic.Bool
@@ -130,7 +128,7 @@ func NewEngine(name string, eventsStore persistence.EventsStore, opts ...Option)
 	e := &Engine{
 		name:          name,
 		eventsStore:   eventsStore,
-		logger:        log.NewZap(log.ErrorLevel, os.Stderr),
+		logger:        defaultLogger{},
 		eventStream:   eventstream.New(),
 		bindAddr:      "0.0.0.0",
 		eventsStreams: syncmap.New[string, *eventsStream](),
@@ -565,7 +563,7 @@ func (engine *Engine) AddEventPublishers(publishers ...EventPublisher) error {
 		subscriber := engine.eventStream.AddSubscriber()
 		topics := generateTopics(eventsTopic, engine.partitionsCount)
 		for _, topic := range topics {
-			engine.logger.Debugf("%s subscribing to topic: %s", publisher.ID(), topic)
+			engine.logger.Debug(fmt.Sprintf("%s subscribing to topic: %s", publisher.ID(), topic))
 			engine.eventStream.Subscribe(subscriber, topic)
 		}
 
@@ -580,7 +578,7 @@ func (engine *Engine) AddEventPublishers(publishers ...EventPublisher) error {
 		engine.eventsStreams.Set(publisher.ID(), eventSubscriber)
 
 		// start the event publisher
-		engine.logger.Infof("starting %s events publisher....", publisher.ID())
+		engine.logger.Info(fmt.Sprintf("starting %s events publisher....", publisher.ID()))
 		go engine.sendEvent(eventSubscriber)
 	}
 
@@ -610,7 +608,7 @@ func (engine *Engine) AddStatePublishers(publishers ...StatePublisher) error {
 		topics := generateTopics(statesTopic, engine.partitionsCount)
 
 		for _, topic := range topics {
-			engine.logger.Debugf("%s subscribing to topic: %s", publisher.ID(), topic)
+			engine.logger.Debug(fmt.Sprintf("%s subscribing to topic: %s", publisher.ID(), topic))
 			engine.eventStream.Subscribe(subscriber, topic)
 		}
 
@@ -625,7 +623,7 @@ func (engine *Engine) AddStatePublishers(publishers ...StatePublisher) error {
 		engine.statesStreams.Set(publisher.ID(), stateSubscriber)
 
 		// start the state publisher
-		engine.logger.Infof("starting %s durable state publisher....", publisher.ID())
+		engine.logger.Info(fmt.Sprintf("starting %s durable state publisher....", publisher.ID()))
 		go engine.sendState(stateSubscriber)
 	}
 
@@ -930,7 +928,7 @@ func (engine *Engine) actorSystemOptions() ([]goakt.Option, error) {
 // baseOptions returns the always-on options for the engine actor system.
 func (engine *Engine) baseOptions() []goakt.Option {
 	return []goakt.Option{
-		goakt.WithLogger(engine.logger),
+		goakt.WithLogger(newLoggerAdapter(engine.logger)),
 		goakt.WithActorInitMaxRetries(1),
 		goakt.WithDefaultSupervisor(
 			supervisor.NewSupervisor(supervisor.WithAnyErrorDirective(supervisor.ResumeDirective))),
@@ -1093,18 +1091,18 @@ func (engine *Engine) sendEvent(stream *eventsStream) {
 			}
 
 			if err := stream.publisher.Publish(context.Background(), event); err != nil {
-				engine.logger.Errorf("(%s) failed to publish event=[persistenceID=%s, sequenceNumber=%d]: %s",
+				engine.logger.Error(fmt.Sprintf("(%s) failed to publish event=[persistenceID=%s, sequenceNumber=%d]: %s",
 					stream.publisher.ID(),
 					event.GetPersistenceId(),
 					event.GetSequenceNumber(),
-					err.Error())
+					err.Error()))
 				continue
 			}
 
-			engine.logger.Infof("(%s) successfully published event=[persistenceID=%s, sequenceNumber=%d]: %s",
+			engine.logger.Info(fmt.Sprintf("(%s) successfully published event=[persistenceID=%s, sequenceNumber=%d]",
 				stream.publisher.ID(),
 				event.GetPersistenceId(),
-				event.GetSequenceNumber())
+				event.GetSequenceNumber()))
 		}
 	}
 }
@@ -1127,18 +1125,18 @@ func (engine *Engine) sendState(stream *statesStream) {
 
 			publisher := stream.publisher
 			if err := publisher.Publish(context.Background(), msg); err != nil {
-				engine.logger.Errorf("(%s) failed to publish state=[persistenceID=%s, version=%d]: %s",
+				engine.logger.Error(fmt.Sprintf("(%s) failed to publish state=[persistenceID=%s, version=%d]: %s",
 					publisher.ID(),
 					msg.GetPersistenceId(),
 					msg.GetVersionNumber(),
-					err.Error())
+					err.Error()))
 				continue
 			}
 
-			engine.logger.Infof("(%s) successfully published state=[persistenceID=%s, version=%d]: %s",
+			engine.logger.Info(fmt.Sprintf("(%s) successfully published state=[persistenceID=%s, version=%d]",
 				publisher.ID(),
 				msg.GetPersistenceId(),
-				msg.GetVersionNumber())
+				msg.GetVersionNumber()))
 		}
 	}
 }
