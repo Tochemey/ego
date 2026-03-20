@@ -86,9 +86,11 @@ func (s *SagaActor) PreStart(ctx *goakt.Context) error {
 		if dependency == nil {
 			continue
 		}
+
 		if behavior, ok := dependency.(SagaBehavior); ok {
 			s.behavior = behavior
 		}
+
 		if cfg, ok := dependency.(*extensions.SagaConfig); ok {
 			s.timeout = cfg.Timeout
 		}
@@ -200,6 +202,7 @@ func (s *SagaActor) consumeEvents() {
 			if message == nil {
 				continue
 			}
+
 			if s.status != SagaRunning {
 				continue
 			}
@@ -349,6 +352,7 @@ func (s *SagaActor) compensate(logger log.Logger, actorSystem goakt.ActorSystem)
 		if timeout == 0 {
 			timeout = 5 * time.Second
 		}
+
 		noSender := actorSystem.NoSender()
 		if _, err := noSender.SendSync(ctx, cmd.EntityID, cmd.Command, timeout); err != nil {
 			logger.Errorf("saga %s: compensation command to %s failed: %v", s.sagaID, cmd.EntityID, err)
