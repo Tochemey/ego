@@ -21,14 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **📊 OpenTelemetry Integration** — First-class observability via the new `Telemetry` struct and `WithTelemetry()`
   engine option. Includes:
-    - Trace spans on command processing (`ego.command`) with `ego.persistence_id` and `ego.command_type` attributes
-    - Metrics:
-        - `ego.commands.total` (counter) — total number of commands processed
-        - `ego.commands.duration` (histogram, ms) — command processing latency
-        - `ego.events.persisted` (counter) — total number of events persisted
-        - `ego.projection.events.processed` (counter) — total events processed by projections
-        - `ego.entities.active` (up/down counter) — number of currently active entities
-        - `ego.projections.active` (up/down counter) — number of currently active projections
+  - Trace spans on command processing (`ego.command`) with `ego.persistence_id` and `ego.command_type` attributes
+  - Metrics:
+    - `ego.commands.total` (counter) — total number of commands processed
+    - `ego.commands.duration` (histogram, ms) — command processing latency
+    - `ego.events.persisted` (counter) — total number of events persisted
+    - `ego.projection.events.processed` (counter) — total events processed by projections
+    - `ego.entities.active` (up/down counter) — number of currently active entities
+    - `ego.projections.active` (up/down counter) — number of currently active projections
 
 - **💀 Dead Letter Handler** — Added the `DeadLetterHandler` interface (`projection/deadletter.go`) for receiving events
   that a projection failed to process after exhausting its recovery policy. Includes a `DiscardDeadLetterHandler` as the
@@ -38,9 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resets its offset to a given timestamp, and restarts it. Enables re-processing events from any point in time.
 
 - **🧪 Testkit Scenarios** — Fluent Given/When/Then API for testing behaviors without starting an engine:
-    - `EventSourcedScenario` — `Given(events...)`, `When(command)`, then assert with `ThenEvents()`, `ThenState()`,
+  - `EventSourcedScenario` — `Given(events...)`, `When(command)`, then assert with `ThenEvents()`, `ThenState()`,
       `ThenError()`, or `ThenNoEvents()`
-    - `DurableStateScenario` — `Given(state, version)`, `When(command)`, then assert with `ThenState()`,
+  - `DurableStateScenario` — `Given(state, version)`, `When(command)`, then assert with `ThenState()`,
       `ThenVersion()`, or `ThenError()`
 
 - **🔀 Migration Utility** — One-time `Migrator` (`migration/`) that reads legacy events (which embedded
@@ -49,47 +49,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **📈 Projection Lag Monitoring** — Operators can now observe how far behind each projection is relative to the latest
   events in the store. Includes:
-    - New metrics:
-        - `ego.projection.lag_ms` (gauge, ms) — per-projection, per-shard lag
-        - `ego.projection.latest_offset` (gauge, ms) — current projection offset timestamp per shard
-        - `ego.projection.events_behind` (gauge) — approximate number of unprocessed events per shard
-    - New `Engine.ProjectionLag(ctx, projectionName)` API returning per-shard lag as `map[uint64]time.Duration`
+  - New metrics:
+    - `ego.projection.lag_ms` (gauge, ms) — per-projection, per-shard lag
+    - `ego.projection.latest_offset` (gauge, ms) — current projection offset timestamp per shard
+    - `ego.projection.events_behind` (gauge) — approximate number of unprocessed events per shard
+  - New `Engine.ProjectionLag(ctx, projectionName)` API returning per-shard lag as `map[uint64]time.Duration`
 
 - **🗑️ Snapshot/Event Retention Policies** — Automatic cleanup of old events and snapshots after a snapshot has been
   successfully written, preventing unbounded storage growth. Configurable via `WithRetentionPolicy()` spawn option with:
-    - `DeleteEventsOnSnapshot` — delete events up to the snapshot sequence number
-    - `DeleteSnapshotsOnSnapshot` — delete older snapshots, keeping only the latest
-    - `EventsRetentionCount` — number of events to retain before the snapshot point as a safety margin
+  - `DeleteEventsOnSnapshot` — delete events up to the snapshot sequence number
+  - `DeleteSnapshotsOnSnapshot` — delete older snapshots, keeping only the latest
+  - `EventsRetentionCount` — number of events to retain before the snapshot point as a safety margin
 
 - **🔐 Event Encryption / GDPR Support** — Transparent encryption of event and snapshot payloads at rest with
   crypto-shredding support for GDPR "right to erasure". Includes:
-    - New `encryption` package with `Encryptor` and `KeyStore` interfaces
-    - Default AES-256-GCM implementation (`encryption.AESEncryptor`)
-    - New `encryption_key_id` and `is_encrypted` fields on `Event` and `Snapshot` protobuf messages
-    - Events encrypted before persistence, decrypted during entity recovery and projection consumption
-    - `Engine.EraseEntity(ctx, persistenceID, full)` API for GDPR erasure (physical deletion of events/snapshots)
-    - `WithEncryptor()` engine option to enable encryption
-    - In-memory `testkit.KeyStore` for testing
+  - New `encryption` package with `Encryptor` and `KeyStore` interfaces
+  - Default AES-256-GCM implementation (`encryption.AESEncryptor`)
+  - New `encryption_key_id` and `is_encrypted` fields on `Event` and `Snapshot` protobuf messages
+  - Events encrypted before persistence, decrypted during entity recovery and projection consumption
+  - `Engine.EraseEntity(ctx, persistenceID, full)` API for GDPR erasure (physical deletion of events/snapshots)
+  - `WithEncryptor()` engine option to enable encryption
+  - In-memory `testkit.KeyStore` for testing
 
 - **📝 Pluggable Logger Interface** — Introduced a minimal `Logger` interface (`logger.go`) that lets developers plug in
   any logging backend (zap, zerolog, slog, logrus, etc.). Methods follow the slog convention with structured key-value
   pairs. The engine now stores `Logger` directly and wraps it via `loggerAdapter` when passing to the underlying actor
   system. Includes:
-    - `Logger` interface with `Debug`, `Info`, `Warn`, `Error` methods
-    - Optional `LeveledLogger` interface for engine-side log gating
-    - `DiscardLogger` — exported no-op logger for tests or silent operation
-    - Default `slog`-based logger used when no logger is explicitly configured
-    - `WithLogger()` engine option now accepts `Logger` instead of `log.Logger`
+  - `Logger` interface with `Debug`, `Info`, `Warn`, `Error` methods
+  - Optional `LeveledLogger` interface for engine-side log gating
+  - `DiscardLogger` — exported no-op logger for tests or silent operation
+  - Default `slog`-based logger used when no logger is explicitly configured
+  - `WithLogger()` engine option now accepts `Logger` instead of `log.Logger`
 
 - **🔄 Saga/Process Manager** — First-class abstraction for long-running business processes that coordinate multiple
   entities with compensation logic for rollback on failures. Includes:
-    - `SagaBehavior` interface with `HandleEvent`, `HandleResult`, `HandleError`, `ApplyEvent`, and `Compensate` methods
-    - `SagaAction` type for declaring commands to send, events to persist, and completion/compensation signals
-    - `SagaCommand` type for targeting commands to specific entities with configurable timeouts
-    - Event-sourced saga actor that subscribes to the event stream, persists its own events, and recovers after restarts
-    - `Engine.Saga(ctx, behavior, timeout)` API to start a saga
-    - `Engine.SagaStatus(ctx, sagaID, timeout)` API to query saga state
-    - Automatic compensation on timeout
+  - `SagaBehavior` interface with `HandleEvent`, `HandleResult`, `HandleError`, `ApplyEvent`, and `Compensate` methods
+  - `SagaAction` type for declaring commands to send, events to persist, and completion/compensation signals
+  - `SagaCommand` type for targeting commands to specific entities with configurable timeouts
+  - Event-sourced saga actor that subscribes to the event stream, persists its own events, and recovers after restarts
+  - `Engine.Saga(ctx, behavior, timeout)` API to start a saga
+  - `Engine.SagaStatus(ctx, sagaID, timeout)` API to query saga state
+  - Automatic compensation on timeout
 
 ### 💥 Breaking Changes
 
@@ -102,8 +102,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **📐 Projection Handler Signature** — `projection.Handler.Handle()` signature changed: the `state *anypb.Any` parameter
   has been removed.
-    - **Before:** `Handle(ctx, persistenceID, event, state, revision)`
-    - **After:** `Handle(ctx, persistenceID, event, revision)`
+  - **Before:** `Handle(ctx, persistenceID, event, state, revision)`
+  - **After:** `Handle(ctx, persistenceID, event, revision)`
 
 - **🔧 Event-Sourced Recovery Rewrite** — Entity recovery no longer reads state from the latest event's
   `resulting_state`. Recovery now loads the latest snapshot (if available) and replays only subsequent events, applying
