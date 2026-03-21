@@ -1,0 +1,131 @@
+# Headless service for gossip-based peer discovery (must remain clusterIP: None).
+apiVersion: v1
+kind: Service
+metadata:
+  name: ego-cluster-headless
+  namespace: ego-example
+spec:
+  clusterIP: None
+  selector:
+    app: ego-cluster
+  ports:
+    - name: remoting
+      port: 9000
+      targetPort: remoting
+    - name: discovery
+      port: 9001
+      targetPort: discovery
+    - name: peers
+      port: 9002
+      targetPort: peers
+---
+# ClusterIP service for HTTP traffic — the Ingress routes to this.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ego-cluster
+  namespace: ego-example
+spec:
+  selector:
+    app: ego-cluster
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+# Ingress — routes external HTTP traffic through NGINX to all pods
+# with random round-robin load balancing.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ego-cluster
+  namespace: ego-example
+  annotations:
+    nginx.ingress.kubernetes.io/load-balance: "round_robin"
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ego-cluster
+                port:
+                  number: 8080
+---
+# StatefulSet with OrderedReady policy ensures pods start one at a time.
+# Pod-0 must pass its readiness probe before pod-1 starts, guaranteeing
+# that each new pod can discover and join existing cluster members.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: ego-cluster
+  namespace: ego-example
+spec:
+  serviceName: ego-cluster-headless
+  replicas: 3
+  podManagementPolicy: OrderedReady
+  selector:
+    matchLabels:
+      app: ego-cluster
+  template:
+    metadata:
+      labels:
+        app: ego-cluster
+    spec:
+      serviceAccountName: ego-cluster
+      containers:
+        - name: ego-cluster
+          image: ego-cluster-example:latest
+          imagePullPolicy: Never # Image is loaded into Kind directly
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: remoting
+              containerPort: 9000
+            - name: discovery
+              containerPort: 9001
+            - name: peers
+              containerPort: 9002
+          env:
+            - name: POSTGRES_DSN
+              value: "postgres://ego:ego_secret@postgres.ego-example.svc.cluster.local:5432/ego?sslmode=disable"
+            - name: NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: REMOTING_PORT
+              value: "9000"
+            - name: DISCOVERY_PORT
+              value: "9001"
+            - name: PEERS_PORT
+              value: "9002"
+            - name: HTTP_PORT
+              value: "8080"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://otel-collector.ego-example.svc.cluster.local:4317"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"

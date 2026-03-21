@@ -62,14 +62,13 @@ func newMetrics(meter metric.Meter) *metrics {
 
 	commandsDuration, _ := meter.Float64Histogram("ego.commands.duration",
 		metric.WithDescription("Duration of command processing in milliseconds"),
-		metric.WithUnit("ms"),
 	)
 
-	eventsPersisted, _ := meter.Int64Counter("ego.events.persisted",
+	eventsPersisted, _ := meter.Int64Counter("ego.events.persisted.total",
 		metric.WithDescription("Total number of events persisted"),
 	)
 
-	projectionHandled, _ := meter.Int64Counter("ego.projection.events.processed",
+	projectionHandled, _ := meter.Int64Counter("ego.projection.events.processed.total",
 		metric.WithDescription("Total number of events processed by projections"),
 	)
 
@@ -83,12 +82,10 @@ func newMetrics(meter metric.Meter) *metrics {
 
 	projectionLag, _ := meter.Int64Gauge("ego.projection.lag_ms",
 		metric.WithDescription("Projection lag in milliseconds per shard"),
-		metric.WithUnit("ms"),
 	)
 
 	projectionOffset, _ := meter.Int64Gauge("ego.projection.latest_offset",
 		metric.WithDescription("Current projection offset timestamp per shard"),
-		metric.WithUnit("ms"),
 	)
 
 	projectionBehind, _ := meter.Int64Gauge("ego.projection.events_behind",

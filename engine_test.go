@@ -28,6 +28,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
+	nethttp "net/http"
 	"strconv"
 	"strings"
 	"testing"
@@ -42,7 +43,10 @@ import (
 	gerrors "github.com/tochemey/goakt/v4/errors"
 	"github.com/tochemey/goakt/v4/supervisor"
 	"github.com/travisjeffery/go-dynaport"
+	"go.opentelemetry.io/otel"
 	noopmetric "go.opentelemetry.io/otel/metric/noop"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 	nooptrace "go.opentelemetry.io/otel/trace/noop"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -1744,6 +1748,110 @@ func TestEngine(t *testing.T) {
 		require.NoError(t, snapshotStore.Disconnect(ctx))
 		require.NoError(t, engine.Stop(ctx))
 	})
+	t.Run("With AddProjection as singleton in cluster mode", func(t *testing.T) {
+		ctx := context.TODO()
+		// create the event store
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+
+		offsetStore := testkit.NewOffsetStore()
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		// grab dynamic ports
+		nodePorts := dynaport.Get(3)
+		remotingPort := nodePorts[0]
+		gossipPort := nodePorts[1]
+		clusterPort := nodePorts[2]
+
+		host := "127.0.0.1"
+		addrs := []string{net.JoinHostPort(host, strconv.Itoa(gossipPort))}
+
+		provider := &mockClusterProvider{id: "id", peers: addrs}
+
+		// create a projection message handler
+		handler := projection.NewDiscardHandler()
+
+		engine := NewEngine("Sample", eventStore,
+			WithLogger(DiscardLogger),
+			WithOffsetStore(offsetStore),
+			WithProjection(&projection.Options{
+				Handler:      handler,
+				BufferSize:   500,
+				StartOffset:  ZeroTime,
+				ResetOffset:  ZeroTime,
+				PullInterval: time.Second,
+				Recovery:     projection.NewRecovery(),
+			}),
+			WithCluster(provider, 4, 1, host, remotingPort, gossipPort, clusterPort))
+
+		err := engine.Start(ctx)
+		require.NoError(t, err)
+
+		// wait for the cluster to fully start
+		pause.For(time.Second)
+
+		// add projection — in cluster mode this should spawn a singleton
+		projectionName := "singleton-projection"
+		err = engine.AddProjection(ctx, projectionName)
+		require.NoError(t, err)
+
+		pause.For(time.Second)
+
+		running, err := engine.IsProjectionRunning(ctx, projectionName)
+		require.NoError(t, err)
+		require.True(t, running)
+
+		// free resources
+		assert.NoError(t, offsetStore.Disconnect(ctx))
+		assert.NoError(t, eventStore.Disconnect(ctx))
+		assert.NoError(t, engine.Stop(ctx))
+	})
+	t.Run("With AddProjection as regular actor in standalone mode", func(t *testing.T) {
+		ctx := context.TODO()
+		// create the event store
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+
+		offsetStore := testkit.NewOffsetStore()
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		// create a projection message handler
+		handler := projection.NewDiscardHandler()
+
+		// no cluster — standalone mode
+		engine := NewEngine("Sample", eventStore,
+			WithLogger(DiscardLogger),
+			WithOffsetStore(offsetStore),
+			WithProjection(&projection.Options{
+				Handler:      handler,
+				BufferSize:   500,
+				StartOffset:  ZeroTime,
+				ResetOffset:  ZeroTime,
+				PullInterval: time.Second,
+				Recovery:     projection.NewRecovery(),
+			}))
+
+		err := engine.Start(ctx)
+		require.NoError(t, err)
+
+		pause.For(time.Second)
+
+		// add projection — in standalone mode this should spawn a regular long-lived actor
+		projectionName := "standalone-projection"
+		err = engine.AddProjection(ctx, projectionName)
+		require.NoError(t, err)
+
+		pause.For(time.Second)
+
+		running, err := engine.IsProjectionRunning(ctx, projectionName)
+		require.NoError(t, err)
+		require.True(t, running)
+
+		// free resources
+		assert.NoError(t, offsetStore.Disconnect(ctx))
+		assert.NoError(t, eventStore.Disconnect(ctx))
+		assert.NoError(t, engine.Stop(ctx))
+	})
 }
 
 func TestToSpawnPlacement(t *testing.T) {
@@ -1969,5 +2077,81 @@ func TestEnsureBindAddr(t *testing.T) {
 		e := &Engine{bindAddr: "192.168.1.1"}
 		e.ensureBindAddr()
 		assert.Equal(t, "192.168.1.1", e.bindAddr)
+	})
+}
+
+func TestOtelContextPropagator(t *testing.T) {
+	// Install W3C TraceContext propagator for the duration of this test.
+	prev := otel.GetTextMapPropagator()
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{}, propagation.Baggage{}))
+	t.Cleanup(func() { otel.SetTextMapPropagator(prev) })
+
+	propagator := otelContextPropagator{}
+
+	// Build a context carrying a valid span context (no SDK required).
+	traceID := trace.TraceID{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+		0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10}
+	spanID := trace.SpanID{0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18}
+	sc := trace.NewSpanContext(trace.SpanContextConfig{
+		TraceID:    traceID,
+		SpanID:     spanID,
+		TraceFlags: trace.FlagsSampled,
+		Remote:     false,
+	})
+	ctxWithSpan := trace.ContextWithRemoteSpanContext(context.Background(), sc)
+
+	t.Run("Inject writes traceparent header", func(t *testing.T) {
+		headers := make(nethttp.Header)
+		err := propagator.Inject(ctxWithSpan, headers)
+		require.NoError(t, err)
+		assert.NotEmpty(t, headers.Get("Traceparent"),
+			"Inject should write a traceparent header")
+	})
+
+	t.Run("Extract recovers span context from headers", func(t *testing.T) {
+		headers := make(nethttp.Header)
+		require.NoError(t, propagator.Inject(ctxWithSpan, headers))
+		require.NotEmpty(t, headers.Get("Traceparent"))
+
+		extractedCtx, err := propagator.Extract(context.Background(), headers)
+		require.NoError(t, err)
+
+		extracted := trace.SpanContextFromContext(extractedCtx)
+		assert.Equal(t, traceID, extracted.TraceID(),
+			"Extract should recover the same trace ID")
+		assert.Equal(t, spanID, extracted.SpanID(),
+			"Extract should recover the same span ID")
+	})
+
+	t.Run("Inject with no span writes no traceparent", func(t *testing.T) {
+		headers := make(nethttp.Header)
+		err := propagator.Inject(context.Background(), headers)
+		require.NoError(t, err)
+		assert.Empty(t, headers.Get("Traceparent"),
+			"Inject without an active span should not write traceparent")
+	})
+
+	t.Run("Extract with empty headers returns invalid span context", func(t *testing.T) {
+		headers := make(nethttp.Header)
+		extractedCtx, err := propagator.Extract(context.Background(), headers)
+		require.NoError(t, err)
+
+		extracted := trace.SpanContextFromContext(extractedCtx)
+		assert.False(t, extracted.IsValid(),
+			"Extract from empty headers should not produce a valid span context")
+	})
+
+	t.Run("round-trip preserves trace context", func(t *testing.T) {
+		headers := make(nethttp.Header)
+		require.NoError(t, propagator.Inject(ctxWithSpan, headers))
+
+		extractedCtx, err := propagator.Extract(context.Background(), headers)
+		require.NoError(t, err)
+
+		recovered := trace.SpanContextFromContext(extractedCtx)
+		assert.Equal(t, traceID, recovered.TraceID())
+		assert.Equal(t, spanID, recovered.SpanID())
+		assert.True(t, recovered.IsSampled())
 	})
 }

@@ -26,15 +26,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	nethttp "net/http"
 	"sync"
 	"time"
 
 	goset "github.com/deckarep/golang-set/v2"
 	goakt "github.com/tochemey/goakt/v4/actor"
+	gerrors "github.com/tochemey/goakt/v4/errors"
 	"github.com/tochemey/goakt/v4/passivation"
 	"github.com/tochemey/goakt/v4/remote"
 	"github.com/tochemey/goakt/v4/supervisor"
 	gtls "github.com/tochemey/goakt/v4/tls"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/atomic"
 
 	"github.com/tochemey/ego/v4/egopb"
@@ -159,6 +166,15 @@ func NewEngine(name string, eventsStore persistence.EventsStore, opts ...Option)
 func (engine *Engine) Start(ctx context.Context) error {
 	if engine.telemetry != nil {
 		engine.metrics = newMetrics(engine.telemetry.Meter)
+
+		// Set the global OTel text map propagator so that trace context is
+		// propagated across process boundaries (HTTP headers, gRPC metadata,
+		// goakt remote calls). This is required for end-to-end distributed
+		// tracing — without it, each service/node starts a new root trace.
+		otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+			propagation.TraceContext{},
+			propagation.Baggage{},
+		))
 	}
 
 	opts, err := engine.actorSystemOptions()
@@ -182,13 +198,13 @@ func (engine *Engine) Start(ctx context.Context) error {
 //
 // Key behavior:
 //   - Projections once created, will persist for the entire lifespan of the running eGo system.
+//   - In cluster mode, the projection runs as a singleton on the oldest node. If that node
+//     leaves the cluster, the singleton is automatically restarted on the new oldest node.
+//   - In standalone (non-cluster) mode, the projection runs as a regular long-lived actor.
 //
 // Parameters:
 //   - ctx: Execution context used for cancellation and deadlines.
 //   - name: A unique identifier for the projection.
-//   - handler: The event handler responsible for processing events and updating the projection state.
-//   - offsetStore: The storage mechanism for tracking the last processed event, ensuring resumability.
-//   - opts: Optional configuration settings that modify projection behavior.
 //
 // Returns an error if the projection fails to start due to misconfiguration or underlying system issues.
 func (engine *Engine) AddProjection(ctx context.Context, name string) error {
@@ -202,15 +218,27 @@ func (engine *Engine) AddProjection(ctx context.Context, name string) error {
 	actorSystem := engine.actorSystem
 	engine.mutex.Unlock()
 
-	// projections are long-lived actors
-	// TODO: resuming the projection may not be a good option. Need to figure out the correlation between the handler
-	// TODO: retry policy and the backing actor behavior
-	supervisor := supervisor.NewSupervisor(supervisor.WithAnyErrorDirective(supervisor.ResumeDirective))
+	if engine.clusterEnabled.Load() {
+		// In cluster mode, run the projection as a singleton to avoid
+		// duplicate event processing across nodes. The singleton is placed
+		// on the oldest node; other nodes that call SpawnSingleton receive
+		// ErrSingletonAlreadyExists which is expected and safe to ignore.
+		if _, err := actorSystem.SpawnSingleton(ctx, name, actor); err != nil {
+			if errors.Is(err, gerrors.ErrSingletonAlreadyExists) {
+				return nil
+			}
+			return fmt.Errorf("failed to register the projection=(%s): %w", name, err)
+		}
+		return nil
+	}
+
+	// In standalone mode, run as a regular long-lived actor.
+	sup := supervisor.NewSupervisor(supervisor.WithAnyErrorDirective(supervisor.ResumeDirective))
 	if _, err := actorSystem.Spawn(ctx, name,
 		actor,
 		goakt.WithLongLived(),
 		goakt.WithRelocationDisabled(),
-		goakt.WithSupervisor(supervisor)); err != nil {
+		goakt.WithSupervisor(sup)); err != nil {
 		return fmt.Errorf("failed to register the projection=(%s): %w", name, err)
 	}
 
@@ -522,6 +550,24 @@ func (engine *Engine) SendCommand(ctx context.Context, entityID string, cmd Comm
 	// entityID is not defined
 	if entityID == "" {
 		return nil, 0, ErrUndefinedEntityID
+	}
+
+	// Create a trace span that connects the caller's context (e.g. an HTTP
+	// request span) to the command dispatch, providing end-to-end visibility.
+	if engine.telemetry != nil && engine.telemetry.Tracer != nil {
+		var span trace.Span
+		ctx, span = engine.telemetry.Tracer.Start(ctx, "ego.send_command",
+			trace.WithAttributes(
+				attribute.String("ego.entity_id", entityID),
+				attribute.String("ego.command_type", string(cmd.ProtoReflect().Descriptor().FullName())),
+			))
+		defer func() {
+			if err != nil {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, err.Error())
+			}
+			span.End()
+		}()
 	}
 
 	engine.mutex.Lock()
@@ -995,10 +1041,29 @@ func (engine *Engine) appendClusterOptions(opts []goakt.Option) []goakt.Option {
 
 	engine.ensureBindAddr()
 	clusterConfig := engine.clusterConfig()
+
+	remoteOpts := []remote.Option{}
+	if engine.telemetry != nil {
+		remoteOpts = append(remoteOpts, remote.WithContextPropagator(otelContextPropagator{}))
+	}
+
 	return append(opts,
 		goakt.WithCluster(clusterConfig),
-		goakt.WithRemote(remote.NewConfig(engine.bindAddr, engine.remotingPort)),
+		goakt.WithRemote(remote.NewConfig(engine.bindAddr, engine.remotingPort, remoteOpts...)),
 	)
+}
+
+// otelContextPropagator propagates OpenTelemetry trace context across remote
+// actor boundaries using the globally registered TextMapPropagator (W3C TraceContext + Baggage).
+type otelContextPropagator struct{}
+
+func (otelContextPropagator) Inject(ctx context.Context, headers nethttp.Header) error {
+	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(headers))
+	return nil
+}
+
+func (otelContextPropagator) Extract(ctx context.Context, headers nethttp.Header) (context.Context, error) {
+	return otel.GetTextMapPropagator().Extract(ctx, propagation.HeaderCarrier(headers)), nil
 }
 
 // ensureBindAddr sets a default bind address when none is configured.
@@ -1027,6 +1092,7 @@ func (engine *Engine) clusterConfig() *goakt.ClusterConfig {
 			new(EventSourcedActor),
 			new(DurableStateActor),
 			new(SagaActor),
+			new(ProjectionActor),
 		)
 
 	// set roles if any

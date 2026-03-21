@@ -23,6 +23,8 @@
 package ego
 
 import (
+	"context"
+
 	goakt "github.com/tochemey/goakt/v4/actor"
 
 	"github.com/tochemey/ego/v4/internal/extensions"
@@ -80,12 +82,16 @@ func (x *ProjectionActor) PreStart(ctx *goakt.Context) error {
 
 	x.runner = newProjectionRunner(ctx.ActorName(), projection.Handler(), eventsStore, offsetStore, opts...)
 
-	if err := x.runner.Start(ctx.Context()); err != nil {
+	// Use context.Background() instead of ctx.Context() because PreStart's
+	// context is ephemeral — goakt wraps it in context.WithTimeout and cancels
+	// it immediately after PreStart returns. The runner's Start performs store
+	// pings and offset resets that must not be tied to that short-lived context.
+	if err := x.runner.Start(context.Background()); err != nil {
 		return err
 	}
 
 	if x.metrics != nil {
-		x.metrics.projectionsActive.Add(ctx.Context(), 1)
+		x.metrics.projectionsActive.Add(context.Background(), 1)
 	}
 
 	return nil
