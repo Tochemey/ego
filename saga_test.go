@@ -39,8 +39,8 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/tochemey/ego/v4/egopb"
-	samplepb "github.com/tochemey/ego/v4/example/examplepb"
 	"github.com/tochemey/ego/v4/eventstream"
+	samplepb "github.com/tochemey/ego/v4/example/examplepb"
 	"github.com/tochemey/ego/v4/internal/extensions"
 	"github.com/tochemey/ego/v4/internal/pause"
 	mocks "github.com/tochemey/ego/v4/mocks/persistence"

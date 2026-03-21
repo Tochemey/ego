@@ -360,6 +360,16 @@ func (x *projectionRunner) doProcess(ctx context.Context, shard uint64) error {
 	}
 
 	if len(events) == 0 {
+		// Projection is caught up — reset gauges so Grafana doesn't show stale values.
+		if x.metrics != nil {
+			attrs := attribute.NewSet(
+				attribute.String("projection_name", x.name),
+				attribute.Int64("shard", int64(shard)),
+			)
+			x.metrics.projectionLag.Record(ctx, 0, metric.WithAttributeSet(attrs))
+			x.metrics.projectionOffset.Record(ctx, currOffset, metric.WithAttributeSet(attrs))
+			x.metrics.projectionBehind.Record(ctx, 0, metric.WithAttributeSet(attrs))
+		}
 		return nil
 	}
 
@@ -369,9 +379,11 @@ func (x *projectionRunner) doProcess(ctx context.Context, shard uint64) error {
 			attribute.String("projection_name", x.name),
 			attribute.Int64("shard", int64(shard)),
 		)
-		latestTimestamp := events[len(events)-1].GetTimestamp()
-		lagMs := latestTimestamp - currOffset
-		if lagMs < 0 {
+		// Use wall-clock lag: how far behind real time the projection is.
+		// Event timestamps use time.Unix() (seconds), so compute lag in
+		// seconds and convert to milliseconds for the gauge.
+		lagMs := (time.Now().Unix() - currOffset) * 1000
+		if lagMs < 0 || currOffset == 0 {
 			lagMs = 0
 		}
 		x.metrics.projectionLag.Record(ctx, lagMs, metric.WithAttributeSet(attrs))

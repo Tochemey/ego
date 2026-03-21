@@ -1438,6 +1438,121 @@ func TestRunner(t *testing.T) {
 	})
 }
 
+func TestProjectionRunnerLagMetrics(t *testing.T) {
+	t.Run("lag resets to zero when projection is caught up", func(t *testing.T) {
+		ctx := context.TODO()
+		projectionName := "lag-test"
+		persistenceID := uuid.NewString()
+		shardNumber := uint64(3)
+
+		journalStore := testkit2.NewEventsStore()
+		require.NoError(t, journalStore.Connect(ctx))
+		offsetStore := testkit2.NewOffsetStore()
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		handler := projection.NewDiscardHandler()
+		meter := noopmetric.NewMeterProvider().Meter("test")
+		m := newMetrics(meter)
+
+		event, err := anypb.New(&testpb.AccountCredited{AccountId: persistenceID, AccountBalance: 50})
+		require.NoError(t, err)
+		timestamp := time.Now().Unix()
+
+		journals := []*egopb.Event{
+			{
+				PersistenceId:  persistenceID,
+				SequenceNumber: 1,
+				IsDeleted:      false,
+				Event:          event,
+				Timestamp:      timestamp,
+				Shard:          shardNumber,
+			},
+		}
+		require.NoError(t, journalStore.WriteEvents(ctx, journals))
+
+		runner := newProjectionRunner(projectionName, handler, journalStore, offsetStore,
+			withPullInterval(time.Millisecond),
+			withMetrics(m))
+
+		require.NoError(t, runner.Start(ctx))
+		runner.Run(ctx)
+
+		// Wait for the runner to process the event and then tick again with no events.
+		pause.For(time.Second)
+
+		// Verify the offset was committed (projection processed the event).
+		projectionID := &egopb.ProjectionId{
+			ProjectionName: projectionName,
+			ShardNumber:    shardNumber,
+		}
+		actual, err := offsetStore.GetCurrentOffset(ctx, projectionID)
+		require.NoError(t, err)
+		require.NotNil(t, actual)
+		assert.Equal(t, timestamp, actual.GetValue())
+
+		require.NoError(t, runner.Stop())
+		require.NoError(t, journalStore.Disconnect(ctx))
+		require.NoError(t, offsetStore.Disconnect(ctx))
+	})
+
+	t.Run("lag uses seconds-based offset and converts to milliseconds", func(t *testing.T) {
+		ctx := context.TODO()
+		projectionName := "lag-formula-test"
+		persistenceID := uuid.NewString()
+		shardNumber := uint64(5)
+
+		journalStore := testkit2.NewEventsStore()
+		require.NoError(t, journalStore.Connect(ctx))
+		offsetStore := testkit2.NewOffsetStore()
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		handler := projection.NewDiscardHandler()
+		meter := noopmetric.NewMeterProvider().Meter("test")
+		m := newMetrics(meter)
+
+		// Write an event with a timestamp 2 seconds in the past.
+		pastTimestamp := time.Now().Unix() - 2
+		event, err := anypb.New(&testpb.AccountCredited{AccountId: persistenceID, AccountBalance: 100})
+		require.NoError(t, err)
+
+		journals := []*egopb.Event{
+			{
+				PersistenceId:  persistenceID,
+				SequenceNumber: 1,
+				IsDeleted:      false,
+				Event:          event,
+				Timestamp:      pastTimestamp,
+				Shard:          shardNumber,
+			},
+		}
+		require.NoError(t, journalStore.WriteEvents(ctx, journals))
+
+		runner := newProjectionRunner(projectionName, handler, journalStore, offsetStore,
+			withPullInterval(time.Millisecond),
+			withMetrics(m))
+
+		require.NoError(t, runner.Start(ctx))
+		runner.Run(ctx)
+
+		// Wait for processing and a subsequent caught-up tick.
+		pause.For(time.Second)
+
+		// Verify the offset was committed with the event's timestamp.
+		projectionID := &egopb.ProjectionId{
+			ProjectionName: projectionName,
+			ShardNumber:    shardNumber,
+		}
+		actual, err := offsetStore.GetCurrentOffset(ctx, projectionID)
+		require.NoError(t, err)
+		require.NotNil(t, actual)
+		assert.Equal(t, pastTimestamp, actual.GetValue())
+
+		require.NoError(t, runner.Stop())
+		require.NoError(t, journalStore.Disconnect(ctx))
+		require.NoError(t, offsetStore.Disconnect(ctx))
+	})
+}
+
 type testHandler1 struct{}
 
 var _ projection.Handler = &testHandler1{}
