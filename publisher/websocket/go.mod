@@ -1,10 +1,10 @@
-module github.com/tochemey/ego/v3/publisher/websocket
+module github.com/tochemey/ego/v4/publisher/websocket
 
 go 1.26.0
 
 require (
 	github.com/gorilla/websocket v1.5.3
-	github.com/tochemey/ego/v3 v3.6.3
+	github.com/tochemey/ego/v4 v4.0.0-20260321152355-6025fed3e493
 	github.com/tochemey/gopack v0.2.1
 	go.uber.org/atomic v1.11.0
 	google.golang.org/protobuf v1.36.11
@@ -45,7 +45,6 @@ require (
 	github.com/tidwall/btree v1.8.1 // indirect
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/redcon v1.6.2 // indirect
-	github.com/tochemey/goakt/v3 v3.14.0 // indirect
 	github.com/tochemey/goakt/v4 v4.1.0 // indirect
 	github.com/tochemey/olric v0.3.8 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
