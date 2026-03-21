@@ -369,6 +369,372 @@ func (x *AccountCredited) GetAccountBalance() float64 {
 	return 0
 }
 
+// DebitAccount is a command to debit a given amount from an account.
+type DebitAccount struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AccountId     string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	Balance       float64                `protobuf:"fixed64,2,opt,name=balance,proto3" json:"balance,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DebitAccount) Reset() {
+	*x = DebitAccount{}
+	mi := &file_sample_sample_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DebitAccount) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DebitAccount) ProtoMessage() {}
+
+func (x *DebitAccount) ProtoReflect() protoreflect.Message {
+	mi := &file_sample_sample_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DebitAccount.ProtoReflect.Descriptor instead.
+func (*DebitAccount) Descriptor() ([]byte, []int) {
+	return file_sample_sample_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *DebitAccount) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+func (x *DebitAccount) GetBalance() float64 {
+	if x != nil {
+		return x.Balance
+	}
+	return 0
+}
+
+// AccountDebited is an event emitted when an account is debited.
+type AccountDebited struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	AccountId      string                 `protobuf:"bytes,1,opt,name=account_id,json=accountId,proto3" json:"account_id,omitempty"`
+	AccountBalance float64                `protobuf:"fixed64,2,opt,name=account_balance,json=accountBalance,proto3" json:"account_balance,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *AccountDebited) Reset() {
+	*x = AccountDebited{}
+	mi := &file_sample_sample_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AccountDebited) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccountDebited) ProtoMessage() {}
+
+func (x *AccountDebited) ProtoReflect() protoreflect.Message {
+	mi := &file_sample_sample_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccountDebited.ProtoReflect.Descriptor instead.
+func (*AccountDebited) Descriptor() ([]byte, []int) {
+	return file_sample_sample_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *AccountDebited) GetAccountId() string {
+	if x != nil {
+		return x.AccountId
+	}
+	return ""
+}
+
+func (x *AccountDebited) GetAccountBalance() float64 {
+	if x != nil {
+		return x.AccountBalance
+	}
+	return 0
+}
+
+// TransferState is the saga's internal state tracking a fund transfer.
+type TransferState struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	TransferId           string                 `protobuf:"bytes,1,opt,name=transfer_id,json=transferId,proto3" json:"transfer_id,omitempty"`
+	SourceAccountId      string                 `protobuf:"bytes,2,opt,name=source_account_id,json=sourceAccountId,proto3" json:"source_account_id,omitempty"`
+	DestinationAccountId string                 `protobuf:"bytes,3,opt,name=destination_account_id,json=destinationAccountId,proto3" json:"destination_account_id,omitempty"`
+	Amount               float64                `protobuf:"fixed64,4,opt,name=amount,proto3" json:"amount,omitempty"`
+	SourceDebited        bool                   `protobuf:"varint,5,opt,name=source_debited,json=sourceDebited,proto3" json:"source_debited,omitempty"`
+	DestinationCredited  bool                   `protobuf:"varint,6,opt,name=destination_credited,json=destinationCredited,proto3" json:"destination_credited,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *TransferState) Reset() {
+	*x = TransferState{}
+	mi := &file_sample_sample_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TransferState) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TransferState) ProtoMessage() {}
+
+func (x *TransferState) ProtoReflect() protoreflect.Message {
+	mi := &file_sample_sample_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TransferState.ProtoReflect.Descriptor instead.
+func (*TransferState) Descriptor() ([]byte, []int) {
+	return file_sample_sample_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *TransferState) GetTransferId() string {
+	if x != nil {
+		return x.TransferId
+	}
+	return ""
+}
+
+func (x *TransferState) GetSourceAccountId() string {
+	if x != nil {
+		return x.SourceAccountId
+	}
+	return ""
+}
+
+func (x *TransferState) GetDestinationAccountId() string {
+	if x != nil {
+		return x.DestinationAccountId
+	}
+	return ""
+}
+
+func (x *TransferState) GetAmount() float64 {
+	if x != nil {
+		return x.Amount
+	}
+	return 0
+}
+
+func (x *TransferState) GetSourceDebited() bool {
+	if x != nil {
+		return x.SourceDebited
+	}
+	return false
+}
+
+func (x *TransferState) GetDestinationCredited() bool {
+	if x != nil {
+		return x.DestinationCredited
+	}
+	return false
+}
+
+// TransferStarted is a saga event recorded when a transfer begins.
+type TransferStarted struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	TransferId           string                 `protobuf:"bytes,1,opt,name=transfer_id,json=transferId,proto3" json:"transfer_id,omitempty"`
+	SourceAccountId      string                 `protobuf:"bytes,2,opt,name=source_account_id,json=sourceAccountId,proto3" json:"source_account_id,omitempty"`
+	DestinationAccountId string                 `protobuf:"bytes,3,opt,name=destination_account_id,json=destinationAccountId,proto3" json:"destination_account_id,omitempty"`
+	Amount               float64                `protobuf:"fixed64,4,opt,name=amount,proto3" json:"amount,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *TransferStarted) Reset() {
+	*x = TransferStarted{}
+	mi := &file_sample_sample_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TransferStarted) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TransferStarted) ProtoMessage() {}
+
+func (x *TransferStarted) ProtoReflect() protoreflect.Message {
+	mi := &file_sample_sample_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TransferStarted.ProtoReflect.Descriptor instead.
+func (*TransferStarted) Descriptor() ([]byte, []int) {
+	return file_sample_sample_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *TransferStarted) GetTransferId() string {
+	if x != nil {
+		return x.TransferId
+	}
+	return ""
+}
+
+func (x *TransferStarted) GetSourceAccountId() string {
+	if x != nil {
+		return x.SourceAccountId
+	}
+	return ""
+}
+
+func (x *TransferStarted) GetDestinationAccountId() string {
+	if x != nil {
+		return x.DestinationAccountId
+	}
+	return ""
+}
+
+func (x *TransferStarted) GetAmount() float64 {
+	if x != nil {
+		return x.Amount
+	}
+	return 0
+}
+
+// SourceDebited is a saga event recorded when the source account is debited.
+type SourceDebited struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	SourceAccountId string                 `protobuf:"bytes,1,opt,name=source_account_id,json=sourceAccountId,proto3" json:"source_account_id,omitempty"`
+	Amount          float64                `protobuf:"fixed64,2,opt,name=amount,proto3" json:"amount,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *SourceDebited) Reset() {
+	*x = SourceDebited{}
+	mi := &file_sample_sample_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SourceDebited) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SourceDebited) ProtoMessage() {}
+
+func (x *SourceDebited) ProtoReflect() protoreflect.Message {
+	mi := &file_sample_sample_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SourceDebited.ProtoReflect.Descriptor instead.
+func (*SourceDebited) Descriptor() ([]byte, []int) {
+	return file_sample_sample_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *SourceDebited) GetSourceAccountId() string {
+	if x != nil {
+		return x.SourceAccountId
+	}
+	return ""
+}
+
+func (x *SourceDebited) GetAmount() float64 {
+	if x != nil {
+		return x.Amount
+	}
+	return 0
+}
+
+// DestinationCredited is a saga event recorded when the destination account is credited.
+type DestinationCredited struct {
+	state                protoimpl.MessageState `protogen:"open.v1"`
+	DestinationAccountId string                 `protobuf:"bytes,1,opt,name=destination_account_id,json=destinationAccountId,proto3" json:"destination_account_id,omitempty"`
+	Amount               float64                `protobuf:"fixed64,2,opt,name=amount,proto3" json:"amount,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *DestinationCredited) Reset() {
+	*x = DestinationCredited{}
+	mi := &file_sample_sample_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DestinationCredited) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DestinationCredited) ProtoMessage() {}
+
+func (x *DestinationCredited) ProtoReflect() protoreflect.Message {
+	mi := &file_sample_sample_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DestinationCredited.ProtoReflect.Descriptor instead.
+func (*DestinationCredited) Descriptor() ([]byte, []int) {
+	return file_sample_sample_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *DestinationCredited) GetDestinationAccountId() string {
+	if x != nil {
+		return x.DestinationAccountId
+	}
+	return ""
+}
+
+func (x *DestinationCredited) GetAmount() float64 {
+	if x != nil {
+		return x.Amount
+	}
+	return 0
+}
+
 var File_sample_sample_proto protoreflect.FileDescriptor
 
 const file_sample_sample_proto_rawDesc = "" +
@@ -397,7 +763,35 @@ const file_sample_sample_proto_rawDesc = "" +
 	"\x0fAccountCredited\x12\x1d\n" +
 	"\n" +
 	"account_id\x18\x01 \x01(\tR\taccountId\x12'\n" +
-	"\x0faccount_balance\x18\x02 \x01(\x01R\x0eaccountBalanceB\x9a\x01\n" +
+	"\x0faccount_balance\x18\x02 \x01(\x01R\x0eaccountBalance\"G\n" +
+	"\fDebitAccount\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x01 \x01(\tR\taccountId\x12\x18\n" +
+	"\abalance\x18\x02 \x01(\x01R\abalance\"X\n" +
+	"\x0eAccountDebited\x12\x1d\n" +
+	"\n" +
+	"account_id\x18\x01 \x01(\tR\taccountId\x12'\n" +
+	"\x0faccount_balance\x18\x02 \x01(\x01R\x0eaccountBalance\"\x84\x02\n" +
+	"\rTransferState\x12\x1f\n" +
+	"\vtransfer_id\x18\x01 \x01(\tR\n" +
+	"transferId\x12*\n" +
+	"\x11source_account_id\x18\x02 \x01(\tR\x0fsourceAccountId\x124\n" +
+	"\x16destination_account_id\x18\x03 \x01(\tR\x14destinationAccountId\x12\x16\n" +
+	"\x06amount\x18\x04 \x01(\x01R\x06amount\x12%\n" +
+	"\x0esource_debited\x18\x05 \x01(\bR\rsourceDebited\x121\n" +
+	"\x14destination_credited\x18\x06 \x01(\bR\x13destinationCredited\"\xac\x01\n" +
+	"\x0fTransferStarted\x12\x1f\n" +
+	"\vtransfer_id\x18\x01 \x01(\tR\n" +
+	"transferId\x12*\n" +
+	"\x11source_account_id\x18\x02 \x01(\tR\x0fsourceAccountId\x124\n" +
+	"\x16destination_account_id\x18\x03 \x01(\tR\x14destinationAccountId\x12\x16\n" +
+	"\x06amount\x18\x04 \x01(\x01R\x06amount\"S\n" +
+	"\rSourceDebited\x12*\n" +
+	"\x11source_account_id\x18\x01 \x01(\tR\x0fsourceAccountId\x12\x16\n" +
+	"\x06amount\x18\x02 \x01(\x01R\x06amount\"c\n" +
+	"\x13DestinationCredited\x124\n" +
+	"\x16destination_account_id\x18\x01 \x01(\tR\x14destinationAccountId\x12\x16\n" +
+	"\x06amount\x18\x02 \x01(\x01R\x06amountB\x9a\x01\n" +
 	"\fcom.samplepbB\vSampleProtoH\x02P\x01Z;github.com/tochemey/goakt/examples/protos/samplepb;samplepb\xa2\x02\x03SXX\xaa\x02\bSamplepb\xca\x02\bSamplepb\xe2\x02\x14Samplepb\\GPBMetadata\xea\x02\bSamplepbb\x06proto3"
 
 var (
@@ -412,15 +806,21 @@ func file_sample_sample_proto_rawDescGZIP() []byte {
 	return file_sample_sample_proto_rawDescData
 }
 
-var file_sample_sample_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_sample_sample_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_sample_sample_proto_goTypes = []any{
-	(*Ping)(nil),            // 0: samplepb.Ping
-	(*Pong)(nil),            // 1: samplepb.Pong
-	(*Account)(nil),         // 2: samplepb.Account
-	(*CreateAccount)(nil),   // 3: samplepb.CreateAccount
-	(*CreditAccount)(nil),   // 4: samplepb.CreditAccount
-	(*AccountCreated)(nil),  // 5: samplepb.AccountCreated
-	(*AccountCredited)(nil), // 6: samplepb.AccountCredited
+	(*Ping)(nil),                // 0: samplepb.Ping
+	(*Pong)(nil),                // 1: samplepb.Pong
+	(*Account)(nil),             // 2: samplepb.Account
+	(*CreateAccount)(nil),       // 3: samplepb.CreateAccount
+	(*CreditAccount)(nil),       // 4: samplepb.CreditAccount
+	(*AccountCreated)(nil),      // 5: samplepb.AccountCreated
+	(*AccountCredited)(nil),     // 6: samplepb.AccountCredited
+	(*DebitAccount)(nil),        // 7: samplepb.DebitAccount
+	(*AccountDebited)(nil),      // 8: samplepb.AccountDebited
+	(*TransferState)(nil),       // 9: samplepb.TransferState
+	(*TransferStarted)(nil),     // 10: samplepb.TransferStarted
+	(*SourceDebited)(nil),       // 11: samplepb.SourceDebited
+	(*DestinationCredited)(nil), // 12: samplepb.DestinationCredited
 }
 var file_sample_sample_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
@@ -441,7 +841,7 @@ func file_sample_sample_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sample_sample_proto_rawDesc), len(file_sample_sample_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

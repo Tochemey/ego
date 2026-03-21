@@ -8,33 +8,33 @@ message TestReply {}
 message TestPanic {}
 message TestTimeout {}
 message Reply {
-    string content = 1;
+  string content = 1;
 }
 
 message TestSend {}
 
 message Account {
-    string account_id = 1;
-    double account_balance = 2;
+  string account_id = 1;
+  double account_balance = 2;
 }
 
 message CreateAccount {
-    double account_balance = 2;
+  double account_balance = 2;
 }
 
 message CreditAccount {
-    string account_id = 1;
-    double balance = 2;
+  string account_id = 1;
+  double balance = 2;
 }
 
 message AccountCreated {
-    string account_id = 1;
-    double account_balance = 2;
+  string account_id = 1;
+  double account_balance = 2;
 }
 
 message AccountCredited {
-    string account_id = 1;
-    double account_balance = 2;
+  string account_id = 1;
+  double account_balance = 2;
 }
 
 message TestNoEvent {}

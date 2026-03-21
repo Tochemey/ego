@@ -8,57 +8,57 @@ option go_package = "github.com/tochemey/ego/v4/egopb;egopb";
 
 // Event defines the event that needs to be persisted onto the events store
 message Event {
-    // Specifies the persistence unique identifier
-    string persistence_id = 1;
-    // Specifies the sequence number
-    uint64 sequence_number = 2;
-    // Specifies the deletion state
-    bool is_deleted = 3;
-    // the event emitted
-    google.protobuf.Any event = 4;
-    // field 5 was resulting_state, now persisted separately in the snapshot store
-    reserved 5;
-    // Specifies the timestamp
-    int64 timestamp = 6;
-    // Specifies the shard number
-    uint64 shard = 7;
-    // Specifies the encryption key ID used to encrypt the event payload.
-    // Empty when the event is not encrypted.
-    string encryption_key_id = 8;
-    // When true, the event payload is encrypted.
-    bool is_encrypted = 9;
+  // Specifies the persistence unique identifier
+  string persistence_id = 1;
+  // Specifies the sequence number
+  uint64 sequence_number = 2;
+  // Specifies the deletion state
+  bool is_deleted = 3;
+  // the event emitted
+  google.protobuf.Any event = 4;
+  // field 5 was resulting_state, now persisted separately in the snapshot store
+  reserved 5;
+  // Specifies the timestamp
+  int64 timestamp = 6;
+  // Specifies the shard number
+  uint64 shard = 7;
+  // Specifies the encryption key ID used to encrypt the event payload.
+  // Empty when the event is not encrypted.
+  string encryption_key_id = 8;
+  // When true, the event payload is encrypted.
+  bool is_encrypted = 9;
 }
 
 // CommandReply specifies the reply to a command sent to
 // the aggregate
 message CommandReply {
-    // the actual command reply
-    oneof reply {
-        // actual state is wrapped with metadata
-        StateReply state_reply = 1;
-        // gRPC failure
-        ErrorReply error_reply = 2;
-    }
+  // the actual command reply
+  oneof reply {
+    // actual state is wrapped with metadata
+    StateReply state_reply = 1;
+    // gRPC failure
+    ErrorReply error_reply = 2;
+  }
 }
 
 // StateReply is a command reply.
 // This is reply is used when there is a no-op
 message StateReply {
-    // Specifies the persistence unique identifier
-    string persistence_id = 1;
-    // the entity state
-    google.protobuf.Any state = 2;
-    // Specifies the sequence number
-    uint64 sequence_number = 3;
-    // Specifies the timestamp
-    int64 timestamp = 4;
+  // Specifies the persistence unique identifier
+  string persistence_id = 1;
+  // the entity state
+  google.protobuf.Any state = 2;
+  // Specifies the sequence number
+  uint64 sequence_number = 3;
+  // Specifies the timestamp
+  int64 timestamp = 4;
 }
 
 // ErrorReply is used when a command processing has
 // failed.
 message ErrorReply {
-    // Specifies the error message
-    string message = 1;
+  // Specifies the error message
+  string message = 1;
 }
 
 // NoReply is used when a command does not need a reply
@@ -70,54 +70,54 @@ message GetStateCommand {}
 
 // Offset defines the projection offset
 message Offset {
-    // Specifies the shard number
-    uint64 shard_number = 1;
-    // Specifies the projection name.
-    string projection_name = 2;
-    // Specifies the value
-    int64 value = 3;
-    // Specifies the timestamp
-    int64 timestamp = 5;
+  // Specifies the shard number
+  uint64 shard_number = 1;
+  // Specifies the projection name.
+  string projection_name = 2;
+  // Specifies the value
+  int64 value = 3;
+  // Specifies the timestamp
+  int64 timestamp = 5;
 }
 
 // ProjectionId defines the projection id
 message ProjectionId {
-    // Specifies the projection name
-    string projection_name = 1;
-    // Specifies the shard number
-    uint64 shard_number = 2;
+  // Specifies the projection name
+  string projection_name = 1;
+  // Specifies the shard number
+  uint64 shard_number = 2;
 }
 
 // Snapshot defines a point-in-time snapshot of an event-sourced entity's state.
 // Snapshots are persisted separately from events and are used to speed up recovery
 // by avoiding full event replay.
 message Snapshot {
-    // Specifies the persistence unique identifier
-    string persistence_id = 1;
-    // Specifies the sequence number of the event at which this snapshot was taken
-    uint64 sequence_number = 2;
-    // the entity state at the time of the snapshot
-    google.protobuf.Any state = 3;
-    // Specifies the timestamp
-    int64 timestamp = 4;
-    // Specifies the encryption key ID used to encrypt the snapshot state.
-    // Empty when the snapshot is not encrypted.
-    string encryption_key_id = 5;
-    // When true, the snapshot state is encrypted.
-    bool is_encrypted = 6;
+  // Specifies the persistence unique identifier
+  string persistence_id = 1;
+  // Specifies the sequence number of the event at which this snapshot was taken
+  uint64 sequence_number = 2;
+  // the entity state at the time of the snapshot
+  google.protobuf.Any state = 3;
+  // Specifies the timestamp
+  int64 timestamp = 4;
+  // Specifies the encryption key ID used to encrypt the snapshot state.
+  // Empty when the snapshot is not encrypted.
+  string encryption_key_id = 5;
+  // When true, the snapshot state is encrypted.
+  bool is_encrypted = 6;
 }
 
 // DurableState defines the durable state behavior
 // actor
 message DurableState {
-    // Specifies the persistence unique identifier
-    string persistence_id = 1;
-    // Specifies the version number
-    uint64 version_number = 2;
-    // the state obtained from processing a command
-    google.protobuf.Any resulting_state = 3;
-    // Specifies the timestamp
-    int64 timestamp = 5;
-    // Specifies the shard number
-    uint64 shard = 6;
+  // Specifies the persistence unique identifier
+  string persistence_id = 1;
+  // Specifies the version number
+  uint64 version_number = 2;
+  // the state obtained from processing a command
+  google.protobuf.Any resulting_state = 3;
+  // Specifies the timestamp
+  int64 timestamp = 5;
+  // Specifies the shard number
+  uint64 shard = 6;
 }
