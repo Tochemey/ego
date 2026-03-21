@@ -29,17 +29,19 @@ import (
 	goset "github.com/deckarep/golang-set/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/tochemey/goakt/v4/discovery/kubernetes"
-	"github.com/tochemey/goakt/v4/log"
+	"go.opentelemetry.io/otel/trace"
+	nooptrace "go.opentelemetry.io/otel/trace/noop"
+	"google.golang.org/protobuf/types/known/anypb"
 
-	"github.com/tochemey/ego/v3/projection"
+	"github.com/tochemey/ego/v4/encryption"
+	"github.com/tochemey/ego/v4/eventadapter"
+	"github.com/tochemey/ego/v4/projection"
+	"github.com/tochemey/ego/v4/testkit"
 )
 
 func TestOptions(t *testing.T) {
-	// use the default logger of GoAkt
-	logger := log.DefaultLogger
-	// create a discovery provider
-	discoveryProvider := kubernetes.NewDiscovery(&kubernetes.Config{})
+	logger := DiscardLogger
+	clusterProvider := &mockClusterProvider{id: "test"}
 
 	testCases := []struct {
 		name     string
@@ -48,10 +50,10 @@ func TestOptions(t *testing.T) {
 	}{
 		{
 			name:   "WithCluster",
-			option: WithCluster(discoveryProvider, 30, 3, "localhost", 1334, 1335, 1336),
+			option: WithCluster(clusterProvider, 30, 3, "localhost", 1334, 1335, 1336),
 			expected: func() *Engine {
 				expected := &Engine{
-					discoveryProvider:  discoveryProvider,
+					clusterProvider:    clusterProvider,
 					minimumPeersQuorum: 3,
 					bindAddr:           "localhost",
 					discoveryPort:      1335,
@@ -103,3 +105,130 @@ func TestOptionWithRoles(t *testing.T) {
 	opt.Apply(engine)
 	assert.ElementsMatch(t, []string{"role1", "role2"}, engine.roles.ToSlice())
 }
+
+func TestOptionWithTelemetry(t *testing.T) {
+	tracer := nooptrace.NewTracerProvider().Tracer("test")
+	tel := &Telemetry{Tracer: tracer}
+	engine := new(Engine)
+	opt := WithTelemetry(tel)
+	opt.Apply(engine)
+	require.NotNil(t, engine.telemetry)
+	assert.Equal(t, tracer, engine.telemetry.Tracer)
+}
+
+func TestOptionWithTelemetryNil(t *testing.T) {
+	engine := new(Engine)
+	opt := WithTelemetry(nil)
+	opt.Apply(engine)
+	assert.Nil(t, engine.telemetry)
+}
+
+func TestOptionWithEventAdapters(t *testing.T) {
+	adapter := &testEventAdapter{}
+	engine := new(Engine)
+	opt := WithEventAdapters(adapter)
+	opt.Apply(engine)
+	require.Len(t, engine.eventAdapters, 1)
+	assert.Equal(t, adapter, engine.eventAdapters[0])
+}
+
+func TestOptionWithEventAdaptersMultiple(t *testing.T) {
+	a1 := &testEventAdapter{}
+	a2 := &testEventAdapter{}
+	engine := new(Engine)
+	WithEventAdapters(a1).Apply(engine)
+	WithEventAdapters(a2).Apply(engine)
+	require.Len(t, engine.eventAdapters, 2)
+}
+
+func TestOptionWithProjectionDeadLetterHandler(t *testing.T) {
+	handler := projection.NewDiscardHandler()
+	dlh := projection.NewDiscardDeadLetterHandler()
+	engine := new(Engine)
+	opt := WithProjection(&projection.Options{
+		Handler:           handler,
+		BufferSize:        100,
+		PullInterval:      time.Second,
+		DeadLetterHandler: dlh,
+	})
+	opt.Apply(engine)
+	require.NotNil(t, engine.projectionExtension)
+	assert.Equal(t, dlh, engine.projectionExtension.DeadLetterHandler())
+}
+
+func TestOptionWithProjectionNilRecoveryDefaultsToNewRecovery(t *testing.T) {
+	handler := projection.NewDiscardHandler()
+	engine := new(Engine)
+	opt := WithProjection(&projection.Options{
+		Handler:      handler,
+		PullInterval: time.Second,
+		Recovery:     nil,
+	})
+	opt.Apply(engine)
+	require.NotNil(t, engine.projectionExtension)
+	assert.NotNil(t, engine.projectionExtension.Recovery())
+}
+
+func TestOptionWithProjectionNil(t *testing.T) {
+	engine := new(Engine)
+	opt := WithProjection(nil)
+	opt.Apply(engine)
+	assert.Nil(t, engine.projectionExtension)
+}
+
+func TestOptionWithSnapshotStore(t *testing.T) {
+	store := testkit.NewSnapshotStore()
+	engine := new(Engine)
+	opt := WithSnapshotStore(store)
+	opt.Apply(engine)
+	require.NotNil(t, engine.snapshotStore)
+	assert.Equal(t, store, engine.snapshotStore)
+}
+
+func TestOptionWithEncryptor(t *testing.T) {
+	enc := encryption.NewAESEncryptor(testkit.NewKeyStore())
+	engine := new(Engine)
+	opt := WithEncryptor(enc)
+	opt.Apply(engine)
+	require.NotNil(t, engine.encryptor)
+	assert.Equal(t, enc, engine.encryptor)
+}
+
+func TestOptionWithStateStore(t *testing.T) {
+	store := testkit.NewDurableStore()
+	engine := new(Engine)
+	opt := WithStateStore(store)
+	opt.Apply(engine)
+	require.NotNil(t, engine.stateStore)
+	assert.Equal(t, store, engine.stateStore)
+}
+
+func TestOptionWithOffsetStore(t *testing.T) {
+	store := testkit.NewOffsetStore()
+	engine := new(Engine)
+	opt := WithOffsetStore(store)
+	opt.Apply(engine)
+	require.NotNil(t, engine.offsetStore)
+	assert.Equal(t, store, engine.offsetStore)
+}
+
+func TestOptionWithTLS(t *testing.T) {
+	tls := &TLS{}
+	engine := new(Engine)
+	opt := WithTLS(tls)
+	opt.Apply(engine)
+	require.NotNil(t, engine.tls)
+	assert.Equal(t, tls, engine.tls)
+}
+
+// testEventAdapter is a no-op EventAdapter for testing
+type testEventAdapter struct{}
+
+var _ eventadapter.EventAdapter = (*testEventAdapter)(nil)
+
+func (a *testEventAdapter) Adapt(event *anypb.Any, _ uint64) (*anypb.Any, error) {
+	return event, nil
+}
+
+// ensure trace.Tracer is used to satisfy the compiler
+var _ trace.Tracer = nooptrace.NewTracerProvider().Tracer("compile-check")

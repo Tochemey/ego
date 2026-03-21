@@ -72,7 +72,7 @@ jobs:
       - name: Wait for ego module to be available on proxy
         run: |
           EGO_VERSION="${{ steps.ego-version.outputs.version }}"
-          MODULE="github.com/tochemey/ego/v3@${EGO_VERSION}"
+          MODULE="github.com/tochemey/ego/v4@${EGO_VERSION}"
           echo "Waiting for ${MODULE} on Go proxy..."
           for i in $(seq 1 30); do
             if go list -m "${MODULE}" 2>/dev/null; then
@@ -128,7 +128,7 @@ jobs:
 
             # Update go.mod
             cd "publisher/${PUB}"
-            go get "github.com/tochemey/ego/v3@${EGO_VERSION}"
+            go get "github.com/tochemey/ego/v4@${EGO_VERSION}"
             go mod tidy
             cd ../..
 

@@ -96,6 +96,8 @@ mock:
     RUN mockery  --dir offsetstore --name OffsetStore --keeptree --exported=true --with-expecter=true --inpackage=true --disable-version-string=true --output ./mocks/offsetstore --case snake
     RUN mockery  --dir . --name EventPublisher --keeptree --exported=true --with-expecter=true --inpackage=true --disable-version-string=true --output ./mocks/ego --case snake
     RUN mockery  --dir . --name StatePublisher --keeptree --exported=true --with-expecter=true --inpackage=true --disable-version-string=true --output ./mocks/ego --case snake
+    RUN mockery  --dir encryption --all --keeptree --exported=true --with-expecter=true --inpackage=true --disable-version-string=true --output ./mocks/encryption --case snake
+    RUN mockery  --dir eventadapter --all --keeptree --exported=true --with-expecter=true --inpackage=true --disable-version-string=true --output ./mocks/eventadapter --case snake
 
 
     SAVE ARTIFACT ./mocks mocks AS LOCAL mocks

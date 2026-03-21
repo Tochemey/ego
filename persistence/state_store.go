@@ -25,7 +25,7 @@ package persistence
 import (
 	"context"
 
-	"github.com/tochemey/ego/v3/egopb"
+	"github.com/tochemey/ego/v4/egopb"
 )
 
 // StateStore defines the API to interact with the durable state store

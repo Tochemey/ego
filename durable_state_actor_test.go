@@ -24,6 +24,7 @@ package ego
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -33,16 +34,18 @@ import (
 	"github.com/stretchr/testify/require"
 	goakt "github.com/tochemey/goakt/v4/actor"
 	"github.com/tochemey/goakt/v4/log"
+	"go.opentelemetry.io/otel/metric/noop"
+	tracenoop "go.opentelemetry.io/otel/trace/noop"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
-	"github.com/tochemey/ego/v3/egopb"
-	"github.com/tochemey/ego/v3/eventstream"
-	"github.com/tochemey/ego/v3/internal/extensions"
-	"github.com/tochemey/ego/v3/internal/pause"
-	mocks "github.com/tochemey/ego/v3/mocks/persistence"
-	testpb "github.com/tochemey/ego/v3/test/data/testpb"
-	"github.com/tochemey/ego/v3/testkit"
+	"github.com/tochemey/ego/v4/egopb"
+	"github.com/tochemey/ego/v4/eventstream"
+	"github.com/tochemey/ego/v4/internal/extensions"
+	"github.com/tochemey/ego/v4/internal/pause"
+	mocks "github.com/tochemey/ego/v4/mocks/persistence"
+	testpb "github.com/tochemey/ego/v4/test/data/testpb"
+	"github.com/tochemey/ego/v4/testkit"
 )
 
 func TestDurableStateBehavior(t *testing.T) {
@@ -464,4 +467,251 @@ func TestDurableStateBehavior(t *testing.T) {
 		eventStream.Close()
 		durableStore.AssertExpectations(t)
 	})
+	t.Run("with telemetry extension", func(t *testing.T) {
+		ctx := context.TODO()
+
+		durableStore := testkit.NewDurableStore()
+		require.NoError(t, durableStore.Connect(ctx))
+
+		persistenceID := uuid.NewString()
+		behavior := NewAccountDurableStateBehavior(persistenceID)
+
+		eventStream := eventstream.New()
+
+		noopTracer := tracenoop.NewTracerProvider().Tracer("test")
+		noopMeter := noop.NewMeterProvider().Meter("test")
+
+		// create an actor system with telemetry extension
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewDurableStateStore(durableStore),
+				extensions.NewEventsStream(eventStream),
+				extensions.NewTelemetryExtension(noopTracer, noopMeter),
+			),
+			goakt.WithActorInitMaxRetries(3))
+		require.NoError(t, err)
+		require.NotNil(t, actorSystem)
+
+		err = actorSystem.Start(ctx)
+		require.NoError(t, err)
+
+		pause.For(time.Second)
+
+		actor := newDurableStateActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior), goakt.WithLongLived())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		pause.For(time.Second)
+
+		command := &testpb.CreateAccount{AccountBalance: 500.00}
+		reply, err := goakt.Ask(ctx, pid, command, 5*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+		require.IsType(t, new(egopb.CommandReply), reply)
+
+		commandReply := reply.(*egopb.CommandReply)
+		require.IsType(t, new(egopb.CommandReply_StateReply), commandReply.GetReply())
+
+		state := commandReply.GetReply().(*egopb.CommandReply_StateReply)
+		require.EqualValues(t, 1, state.StateReply.GetSequenceNumber())
+
+		// stop the actor system (exercises PostStop metrics path)
+		err = actorSystem.Stop(ctx)
+		require.NoError(t, err)
+
+		err = durableStore.Disconnect(ctx)
+		require.NoError(t, err)
+
+		pause.For(time.Second)
+		eventStream.Close()
+	})
+	t.Run("with mismatched state types from HandleCommand", func(t *testing.T) {
+		ctx := context.TODO()
+
+		durableStore := testkit.NewDurableStore()
+		require.NoError(t, durableStore.Connect(ctx))
+
+		persistenceID := uuid.NewString()
+		behavior := &badStateDurableStateBehavior{id: persistenceID}
+
+		eventStream := eventstream.New()
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewDurableStateStore(durableStore),
+				extensions.NewEventsStream(eventStream),
+			),
+			goakt.WithActorInitMaxRetries(3))
+		require.NoError(t, err)
+		require.NotNil(t, actorSystem)
+
+		err = actorSystem.Start(ctx)
+		require.NoError(t, err)
+
+		pause.For(time.Second)
+
+		actor := newDurableStateActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior), goakt.WithLongLived())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		pause.For(time.Second)
+
+		command := &testpb.CreateAccount{AccountBalance: 500.00}
+		reply, err := goakt.Ask(ctx, pid, command, 5*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+		require.IsType(t, new(egopb.CommandReply), reply)
+
+		commandReply := reply.(*egopb.CommandReply)
+		require.IsType(t, new(egopb.CommandReply_ErrorReply), commandReply.GetReply())
+
+		errorReply := commandReply.GetReply().(*egopb.CommandReply_ErrorReply)
+		assert.Contains(t, errorReply.ErrorReply.GetMessage(), "mismatch state types")
+
+		err = actorSystem.Stop(ctx)
+		require.NoError(t, err)
+
+		err = durableStore.Disconnect(ctx)
+		require.NoError(t, err)
+
+		pause.For(time.Second)
+		eventStream.Close()
+	})
+	t.Run("with invalid version increment from HandleCommand", func(t *testing.T) {
+		ctx := context.TODO()
+
+		durableStore := testkit.NewDurableStore()
+		require.NoError(t, durableStore.Connect(ctx))
+
+		persistenceID := uuid.NewString()
+		behavior := &badVersionDurableStateBehavior{id: persistenceID}
+
+		eventStream := eventstream.New()
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewDurableStateStore(durableStore),
+				extensions.NewEventsStream(eventStream),
+			),
+			goakt.WithActorInitMaxRetries(3))
+		require.NoError(t, err)
+		require.NotNil(t, actorSystem)
+
+		err = actorSystem.Start(ctx)
+		require.NoError(t, err)
+
+		pause.For(time.Second)
+
+		actor := newDurableStateActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor, goakt.WithDependencies(behavior), goakt.WithLongLived())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		pause.For(time.Second)
+
+		command := &testpb.CreateAccount{AccountBalance: 500.00}
+		reply, err := goakt.Ask(ctx, pid, command, 5*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+		require.IsType(t, new(egopb.CommandReply), reply)
+
+		commandReply := reply.(*egopb.CommandReply)
+		require.IsType(t, new(egopb.CommandReply_ErrorReply), commandReply.GetReply())
+
+		errorReply := commandReply.GetReply().(*egopb.CommandReply_ErrorReply)
+		assert.Contains(t, errorReply.ErrorReply.GetMessage(), "received version")
+
+		err = actorSystem.Stop(ctx)
+		require.NoError(t, err)
+
+		err = durableStore.Disconnect(ctx)
+		require.NoError(t, err)
+
+		pause.For(time.Second)
+		eventStream.Close()
+	})
+}
+
+// badStateDurableStateBehavior returns a different state type from HandleCommand than InitialState
+type badStateDurableStateBehavior struct {
+	id string
+}
+
+var _ DurableStateBehavior = (*badStateDurableStateBehavior)(nil)
+
+func (x *badStateDurableStateBehavior) ID() string {
+	return x.id
+}
+
+func (x *badStateDurableStateBehavior) InitialState() State {
+	return new(testpb.Account)
+}
+
+func (x *badStateDurableStateBehavior) HandleCommand(_ context.Context, _ Command, priorVersion uint64, _ State) (State, uint64, error) {
+	// return a different protobuf type than InitialState
+	return &testpb.AccountCreated{
+		AccountId:      x.id,
+		AccountBalance: 500.00,
+	}, priorVersion + 1, nil
+}
+
+func (x *badStateDurableStateBehavior) MarshalBinary() ([]byte, error) {
+	return json.Marshal(struct {
+		ID string `json:"id"`
+	}{ID: x.id})
+}
+
+func (x *badStateDurableStateBehavior) UnmarshalBinary(data []byte) error {
+	aux := struct {
+		ID string `json:"id"`
+	}{}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	x.id = aux.ID
+	return nil
+}
+
+// badVersionDurableStateBehavior returns an invalid version increment from HandleCommand
+type badVersionDurableStateBehavior struct {
+	id string
+}
+
+var _ DurableStateBehavior = (*badVersionDurableStateBehavior)(nil)
+
+func (x *badVersionDurableStateBehavior) ID() string {
+	return x.id
+}
+
+func (x *badVersionDurableStateBehavior) InitialState() State {
+	return new(testpb.Account)
+}
+
+func (x *badVersionDurableStateBehavior) HandleCommand(_ context.Context, _ Command, priorVersion uint64, _ State) (State, uint64, error) {
+	return &testpb.Account{
+		AccountId:      x.id,
+		AccountBalance: 500.00,
+	}, priorVersion + 5, nil // +5 instead of +1
+}
+
+func (x *badVersionDurableStateBehavior) MarshalBinary() ([]byte, error) {
+	return json.Marshal(struct {
+		ID string `json:"id"`
+	}{ID: x.id})
+}
+
+func (x *badVersionDurableStateBehavior) UnmarshalBinary(data []byte) error {
+	aux := struct {
+		ID string `json:"id"`
+	}{}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	x.id = aux.ID
+	return nil
 }

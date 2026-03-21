@@ -23,13 +23,12 @@
 package ego
 
 import (
-	"github.com/tochemey/goakt/v4/discovery"
-	"github.com/tochemey/goakt/v4/log"
-
-	"github.com/tochemey/ego/v3/internal/extensions"
-	"github.com/tochemey/ego/v3/offsetstore"
-	"github.com/tochemey/ego/v3/persistence"
-	"github.com/tochemey/ego/v3/projection"
+	"github.com/tochemey/ego/v4/encryption"
+	"github.com/tochemey/ego/v4/eventadapter"
+	"github.com/tochemey/ego/v4/internal/extensions"
+	"github.com/tochemey/ego/v4/offsetstore"
+	"github.com/tochemey/ego/v4/persistence"
+	"github.com/tochemey/ego/v4/projection"
 )
 
 // Option defines a configuration option that can be applied to a Engine.
@@ -58,7 +57,7 @@ func (f OptionFunc) Apply(e *Engine) {
 // for distributed communication and peer discovery.
 //
 // Parameters:
-//   - provider: The discovery.Provider responsible for peers discovery in the cluster.
+//   - provider: The ClusterProvider responsible for peer discovery in the cluster.
 //   - partitionCount: The number of partitions used for distributing data across the cluster.
 //   - minimumPeersQuorum: The minimum number of peers required to form a quorum.
 //   - host: The hostname or IP address of the current node.
@@ -68,10 +67,10 @@ func (f OptionFunc) Apply(e *Engine) {
 //
 // Returns:
 //   - Option: A functional option that configures the cluster settings.
-func WithCluster(provider discovery.Provider, partitionCount uint64, minimumPeersQuorum uint16, host string, remotingPort, discoveryPort, peersPort int) Option {
+func WithCluster(provider ClusterProvider, partitionCount uint64, minimumPeersQuorum uint16, host string, remotingPort, discoveryPort, peersPort int) Option {
 	return OptionFunc(func(e *Engine) {
 		e.clusterEnabled.Store(true)
-		e.discoveryProvider = provider
+		e.clusterProvider = provider
 		e.partitionsCount = partitionCount
 		e.peersPort = peersPort
 		e.minimumPeersQuorum = minimumPeersQuorum
@@ -84,11 +83,11 @@ func WithCluster(provider discovery.Provider, partitionCount uint64, minimumPeer
 // WithLogger sets the logger for the system, allowing custom logging implementations.
 //
 // Parameters:
-//   - logger: An instance of log.Logger used for logging system events and debugging information.
+//   - logger: An instance of Logger used for logging system events and debugging information.
 //
 // Returns:
 //   - Option: A functional option that configures the logger.
-func WithLogger(logger log.Logger) Option {
+func WithLogger(logger Logger) Option {
 	return OptionFunc(func(e *Engine) {
 		e.logger = logger
 	})
@@ -207,8 +206,78 @@ func WithProjection(options *projection.Options) Option {
 				options.ResetOffset,
 				options.PullInterval,
 				recovery,
+				options.DeadLetterHandler,
 			)
 		}
+	})
+}
+
+// WithSnapshotStore sets the snapshot store for persisting entity state snapshots.
+// When configured alongside WithSnapshotInterval on an entity, the engine will
+// periodically save state snapshots to speed up recovery.
+// Without a snapshot store, event-sourced entities recover by replaying all events.
+//
+// Parameters:
+//   - snapshotStore: An instance of persistence.SnapshotStore responsible for storing snapshots.
+//
+// Returns:
+//   - Option: A functional option that configures the snapshot store.
+func WithSnapshotStore(snapshotStore persistence.SnapshotStore) Option {
+	return OptionFunc(func(e *Engine) {
+		e.snapshotStore = snapshotStore
+	})
+}
+
+// WithTelemetry configures OpenTelemetry instrumentation for the engine.
+//
+// When set, the engine will emit tracing spans and metrics for command processing,
+// event persistence, and projection handling. When nil, no instrumentation is performed.
+//
+// Parameters:
+//   - telemetry: A pointer to a Telemetry configuration struct containing the tracer and meter.
+//
+// Returns:
+//   - Option: A functional option that configures telemetry.
+func WithTelemetry(telemetry *Telemetry) Option {
+	return OptionFunc(func(e *Engine) {
+		e.telemetry = telemetry
+	})
+}
+
+// WithEventAdapters registers one or more EventAdapter instances with the engine.
+//
+// Event adapters transform persisted events from older schema versions into the
+// current expected shape. They are applied transparently during entity recovery
+// (event replay) and projection consumption.
+//
+// Adapters are applied in registration order. Each adapter inspects the event
+// and decides whether to transform it. If multiple adapters match, they are
+// chained: the output of one becomes the input of the next.
+//
+// Parameters:
+//   - adapters: One or more EventAdapter implementations to register.
+//
+// Returns:
+//   - Option: A functional option that configures the event adapters.
+func WithEventAdapters(adapters ...eventadapter.EventAdapter) Option {
+	return OptionFunc(func(e *Engine) {
+		e.eventAdapters = append(e.eventAdapters, adapters...)
+	})
+}
+
+// WithEncryptor configures transparent encryption for event and snapshot payloads.
+// When set, events are encrypted before persistence and decrypted during recovery
+// and projection consumption. This enables GDPR crypto-shredding via the underlying
+// key store: deleting an entity's encryption key makes its events irrecoverable.
+//
+// Parameters:
+//   - encryptor: An implementation of encryption.Encryptor that handles encrypt/decrypt.
+//
+// Returns:
+//   - Option: A functional option that configures the encryptor.
+func WithEncryptor(encryptor encryption.Encryptor) Option {
+	return OptionFunc(func(e *Engine) {
+		e.encryptor = encryptor
 	})
 }
 

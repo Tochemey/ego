@@ -69,6 +69,12 @@ type spawnConfig struct {
 	supervisorDirective SupervisorDirective
 	// specifies the placement strategy to use
 	entitiesPlacement EntitiesPlacement
+	// snapshotInterval defines how often resulting state is stored alongside events.
+	// A value of 0 or 1 means every event carries a snapshot (default behavior).
+	// A value of N > 1 means only every Nth event carries a resulting state snapshot.
+	snapshotInterval uint64
+	// retentionPolicy controls cleanup of old events and snapshots after a snapshot write.
+	retentionPolicy *RetentionPolicy
 }
 
 // newSpawnConfig creates an instance of spawnConfig
@@ -141,6 +147,27 @@ func WithRelocation(toRelocate bool) SpawnOption {
 func WithSupervisorDirective(directive SupervisorDirective) SpawnOption {
 	return spawnOption(func(config *spawnConfig) {
 		config.supervisorDirective = directive
+	})
+}
+
+// WithSnapshotInterval sets how often the resulting state is persisted alongside events.
+// A value of 0 or 1 means every event carries a snapshot (default behavior).
+// A value of N > 1 means only every Nth event carries the resulting state.
+// During recovery, the entity replays events since the last snapshot point.
+//
+// This reduces storage cost for entities with large state and frequent events.
+func WithSnapshotInterval(every uint64) SpawnOption {
+	return spawnOption(func(config *spawnConfig) {
+		config.snapshotInterval = every
+	})
+}
+
+// WithRetentionPolicy sets the retention policy that controls cleanup of old events
+// and snapshots after a snapshot has been successfully written. This requires a
+// snapshot store and a snapshot interval to be configured.
+func WithRetentionPolicy(policy RetentionPolicy) SpawnOption {
+	return spawnOption(func(config *spawnConfig) {
+		config.retentionPolicy = &policy
 	})
 }
 

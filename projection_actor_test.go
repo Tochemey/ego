@@ -24,23 +24,31 @@ package ego
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	goakt "github.com/tochemey/goakt/v4/actor"
 	"github.com/tochemey/goakt/v4/log"
+	"go.opentelemetry.io/otel/metric/noop"
+	tracenoop "go.opentelemetry.io/otel/trace/noop"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/tochemey/ego/v3/egopb"
-	"github.com/tochemey/ego/v3/internal/extensions"
-	"github.com/tochemey/ego/v3/internal/pause"
-	"github.com/tochemey/ego/v3/projection"
-	testpb "github.com/tochemey/ego/v3/test/data/testpb"
-	"github.com/tochemey/ego/v3/testkit"
+	"github.com/tochemey/ego/v4/egopb"
+	"github.com/tochemey/ego/v4/encryption"
+	"github.com/tochemey/ego/v4/eventadapter"
+	"github.com/tochemey/ego/v4/internal/extensions"
+	"github.com/tochemey/ego/v4/internal/pause"
+	mocksoffsetstore "github.com/tochemey/ego/v4/mocks/offsetstore"
+	mockseventstore "github.com/tochemey/ego/v4/mocks/persistence"
+	"github.com/tochemey/ego/v4/projection"
+	testpb "github.com/tochemey/ego/v4/test/data/testpb"
+	"github.com/tochemey/ego/v4/testkit"
 )
 
 func TestProjection(t *testing.T) {
@@ -70,7 +78,7 @@ func TestProjection(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(journalStore),
 				extensions.NewOffsetStore(offsetStore),
-				extensions.NewProjectionExtension(handler, 500, ZeroTime, ZeroTime, time.Second, projection.NewRecovery())),
+				extensions.NewProjectionExtension(handler, 500, ZeroTime, ZeroTime, time.Second, projection.NewRecovery(), nil)),
 			goakt.WithActorInitMaxRetries(3))
 
 		require.NoError(t, err)
@@ -92,8 +100,6 @@ func TestProjection(t *testing.T) {
 		pause.For(time.Second)
 
 		// persist some events
-		state, err := anypb.New(new(testpb.Account))
-		assert.NoError(t, err)
 		event, err := anypb.New(&testpb.AccountCredited{})
 		assert.NoError(t, err)
 
@@ -107,7 +113,6 @@ func TestProjection(t *testing.T) {
 				SequenceNumber: uint64(seqNr),
 				IsDeleted:      false,
 				Event:          event,
-				ResultingState: state,
 				Timestamp:      timestamp.AsTime().Unix(),
 				Shard:          shardNumber,
 			}
@@ -159,7 +164,7 @@ func TestProjection(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(journalStore),
 				extensions.NewOffsetStore(offsetStore),
-				extensions.NewProjectionExtension(handler, 500, time.Time{}, time.Time{}, time.Second, projection.NewRecovery())),
+				extensions.NewProjectionExtension(handler, 500, time.Time{}, time.Time{}, time.Second, projection.NewRecovery(), nil)),
 			goakt.WithActorInitMaxRetries(3))
 
 		require.NoError(t, err)
@@ -194,4 +199,333 @@ func TestProjection(t *testing.T) {
 		require.NoError(t, offsetStore.Disconnect(ctx))
 		assert.NoError(t, actorSystem.Stop(ctx))
 	})
+	t.Run("With dead letter handler", func(t *testing.T) {
+		ctx := context.TODO()
+		logger := log.DiscardLogger
+
+		projectionName := "db-writer"
+		persistenceID := uuid.NewString()
+		shardNumber := uint64(9)
+
+		journalStore := testkit.NewEventsStore()
+		assert.NotNil(t, journalStore)
+		require.NoError(t, journalStore.Connect(ctx))
+
+		offsetStore := testkit.NewOffsetStore()
+		assert.NotNil(t, offsetStore)
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		handler := projection.NewDiscardHandler()
+		deadLetterHandler := projection.NewDiscardDeadLetterHandler()
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(logger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(journalStore),
+				extensions.NewOffsetStore(offsetStore),
+				extensions.NewProjectionExtension(handler, 500, ZeroTime, ZeroTime, time.Second, projection.NewRecovery(), deadLetterHandler)),
+			goakt.WithActorInitMaxRetries(3))
+
+		require.NoError(t, err)
+		require.NotNil(t, actorSystem)
+
+		err = actorSystem.Start(ctx)
+		require.NoError(t, err)
+
+		pause.For(time.Second)
+
+		// persist some events
+		event, err := anypb.New(&testpb.AccountCredited{})
+		assert.NoError(t, err)
+
+		count := 10
+		timestamp := timestamppb.Now()
+		journals := make([]*egopb.Event, count)
+		for i := range count {
+			seqNr := i + 1
+			journals[i] = &egopb.Event{
+				PersistenceId:  persistenceID,
+				SequenceNumber: uint64(seqNr),
+				IsDeleted:      false,
+				Event:          event,
+				Timestamp:      timestamp.AsTime().Unix(),
+				Shard:          shardNumber,
+			}
+		}
+
+		require.NoError(t, journalStore.WriteEvents(ctx, journals))
+
+		actor := NewProjectionActor()
+		pid, err := actorSystem.Spawn(ctx, projectionName, actor, goakt.WithLongLived())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		pause.For(2 * time.Second)
+
+		// free resources
+		require.NoError(t, actorSystem.Stop(ctx))
+		require.NoError(t, journalStore.Disconnect(ctx))
+		require.NoError(t, offsetStore.Disconnect(ctx))
+	})
+	t.Run("With event adapters extension", func(t *testing.T) {
+		ctx := context.TODO()
+		logger := log.DiscardLogger
+
+		projectionName := "db-writer"
+		persistenceID := uuid.NewString()
+		shardNumber := uint64(9)
+
+		journalStore := testkit.NewEventsStore()
+		assert.NotNil(t, journalStore)
+		require.NoError(t, journalStore.Connect(ctx))
+
+		offsetStore := testkit.NewOffsetStore()
+		assert.NotNil(t, offsetStore)
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		handler := projection.NewDiscardHandler()
+
+		// create a passthrough event adapter
+		adapter := passthroughEventAdapter{}
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(logger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(journalStore),
+				extensions.NewOffsetStore(offsetStore),
+				extensions.NewProjectionExtension(handler, 500, ZeroTime, ZeroTime, time.Second, projection.NewRecovery(), nil),
+				extensions.NewEventAdapters([]eventadapter.EventAdapter{adapter})),
+			goakt.WithActorInitMaxRetries(3))
+
+		require.NoError(t, err)
+		require.NotNil(t, actorSystem)
+
+		err = actorSystem.Start(ctx)
+		require.NoError(t, err)
+
+		pause.For(time.Second)
+
+		// persist some events
+		event, err := anypb.New(&testpb.AccountCredited{})
+		assert.NoError(t, err)
+
+		count := 10
+		timestamp := timestamppb.Now()
+		journals := make([]*egopb.Event, count)
+		for i := range count {
+			seqNr := i + 1
+			journals[i] = &egopb.Event{
+				PersistenceId:  persistenceID,
+				SequenceNumber: uint64(seqNr),
+				IsDeleted:      false,
+				Event:          event,
+				Timestamp:      timestamp.AsTime().Unix(),
+				Shard:          shardNumber,
+			}
+		}
+
+		require.NoError(t, journalStore.WriteEvents(ctx, journals))
+
+		actor := NewProjectionActor()
+		pid, err := actorSystem.Spawn(ctx, projectionName, actor, goakt.WithLongLived())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		pause.For(2 * time.Second)
+
+		// free resources
+		require.NoError(t, actorSystem.Stop(ctx))
+		require.NoError(t, journalStore.Disconnect(ctx))
+		require.NoError(t, offsetStore.Disconnect(ctx))
+	})
+	t.Run("With encryptor extension", func(t *testing.T) {
+		ctx := context.TODO()
+		logger := log.DiscardLogger
+
+		projectionName := "db-writer"
+		persistenceID := uuid.NewString()
+		shardNumber := uint64(9)
+
+		journalStore := testkit.NewEventsStore()
+		assert.NotNil(t, journalStore)
+		require.NoError(t, journalStore.Connect(ctx))
+
+		offsetStore := testkit.NewOffsetStore()
+		assert.NotNil(t, offsetStore)
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		handler := projection.NewDiscardHandler()
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(logger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(journalStore),
+				extensions.NewOffsetStore(offsetStore),
+				extensions.NewProjectionExtension(handler, 500, ZeroTime, ZeroTime, time.Second, projection.NewRecovery(), nil),
+				extensions.NewEncryptor(encryption.NewAESEncryptor(testkit.NewKeyStore()))),
+			goakt.WithActorInitMaxRetries(3))
+
+		require.NoError(t, err)
+		require.NotNil(t, actorSystem)
+
+		err = actorSystem.Start(ctx)
+		require.NoError(t, err)
+
+		pause.For(time.Second)
+
+		// persist some events
+		event, err := anypb.New(&testpb.AccountCredited{})
+		assert.NoError(t, err)
+
+		count := 10
+		timestamp := timestamppb.Now()
+		journals := make([]*egopb.Event, count)
+		for i := range count {
+			seqNr := i + 1
+			journals[i] = &egopb.Event{
+				PersistenceId:  persistenceID,
+				SequenceNumber: uint64(seqNr),
+				IsDeleted:      false,
+				Event:          event,
+				Timestamp:      timestamp.AsTime().Unix(),
+				Shard:          shardNumber,
+			}
+		}
+
+		require.NoError(t, journalStore.WriteEvents(ctx, journals))
+
+		actor := NewProjectionActor()
+		pid, err := actorSystem.Spawn(ctx, projectionName, actor, goakt.WithLongLived())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		pause.For(2 * time.Second)
+
+		// free resources
+		require.NoError(t, actorSystem.Stop(ctx))
+		require.NoError(t, journalStore.Disconnect(ctx))
+		require.NoError(t, offsetStore.Disconnect(ctx))
+	})
+	t.Run("With telemetry extension", func(t *testing.T) {
+		ctx := context.TODO()
+		logger := log.DiscardLogger
+
+		projectionName := "db-writer"
+		persistenceID := uuid.NewString()
+		shardNumber := uint64(9)
+
+		journalStore := testkit.NewEventsStore()
+		assert.NotNil(t, journalStore)
+		require.NoError(t, journalStore.Connect(ctx))
+
+		offsetStore := testkit.NewOffsetStore()
+		assert.NotNil(t, offsetStore)
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		handler := projection.NewDiscardHandler()
+
+		noopTracer := tracenoop.NewTracerProvider().Tracer("test")
+		noopMeter := noop.NewMeterProvider().Meter("test")
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(logger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(journalStore),
+				extensions.NewOffsetStore(offsetStore),
+				extensions.NewProjectionExtension(handler, 500, ZeroTime, ZeroTime, time.Second, projection.NewRecovery(), nil),
+				extensions.NewTelemetryExtension(noopTracer, noopMeter)),
+			goakt.WithActorInitMaxRetries(3))
+
+		require.NoError(t, err)
+		require.NotNil(t, actorSystem)
+
+		err = actorSystem.Start(ctx)
+		require.NoError(t, err)
+
+		pause.For(time.Second)
+
+		// persist some events
+		event, err := anypb.New(&testpb.AccountCredited{})
+		assert.NoError(t, err)
+
+		count := 10
+		timestamp := timestamppb.Now()
+		journals := make([]*egopb.Event, count)
+		for i := range count {
+			seqNr := i + 1
+			journals[i] = &egopb.Event{
+				PersistenceId:  persistenceID,
+				SequenceNumber: uint64(seqNr),
+				IsDeleted:      false,
+				Event:          event,
+				Timestamp:      timestamp.AsTime().Unix(),
+				Shard:          shardNumber,
+			}
+		}
+
+		require.NoError(t, journalStore.WriteEvents(ctx, journals))
+
+		actor := NewProjectionActor()
+		pid, err := actorSystem.Spawn(ctx, projectionName, actor, goakt.WithLongLived())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		pause.For(2 * time.Second)
+
+		// free resources (stop exercises PostStop metrics path)
+		require.NoError(t, actorSystem.Stop(ctx))
+		require.NoError(t, journalStore.Disconnect(ctx))
+		require.NoError(t, offsetStore.Disconnect(ctx))
+	})
+}
+
+func TestProjectionActorPreStartFailure(t *testing.T) {
+	t.Run("fails when runner Start returns an error", func(t *testing.T) {
+		ctx := context.TODO()
+		logger := log.DiscardLogger
+
+		projectionName := "db-writer"
+		resetAt := time.Now().UTC()
+
+		// Ping succeeds so the store-connectivity retrier passes immediately.
+		eventsStore := mockseventstore.NewEventsStore(t)
+		eventsStore.EXPECT().Ping(mock.Anything).Return(nil).Maybe()
+
+		// Ping succeeds but ResetOffset returns an error, causing preStart – and
+		// therefore runner.Start – to fail.
+		offsetStore := mocksoffsetstore.NewOffsetStore(t)
+		offsetStore.EXPECT().Ping(mock.Anything).Return(nil).Maybe()
+		offsetStore.EXPECT().ResetOffset(mock.Anything, mock.Anything, mock.Anything).
+			Return(errors.New("reset offset failed"))
+
+		handler := projection.NewDiscardHandler()
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(logger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventsStore),
+				extensions.NewOffsetStore(offsetStore),
+				extensions.NewProjectionExtension(handler, 500, ZeroTime, resetAt, time.Second, projection.NewRecovery(), nil)),
+			goakt.WithActorInitMaxRetries(1))
+
+		require.NoError(t, err)
+		require.NotNil(t, actorSystem)
+
+		require.NoError(t, actorSystem.Start(ctx))
+
+		pause.For(time.Second)
+
+		actor := NewProjectionActor()
+		_, err = actorSystem.Spawn(ctx, projectionName, actor, goakt.WithLongLived())
+		require.Error(t, err)
+
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+}
+
+// passthroughEventAdapter is an event adapter that passes events through unchanged
+type passthroughEventAdapter struct{}
+
+func (p passthroughEventAdapter) Adapt(event *anypb.Any, _ uint64) (*anypb.Any, error) {
+	return event, nil
 }

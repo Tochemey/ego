@@ -29,6 +29,24 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestNewRecovery_Defaults(t *testing.T) {
+	r := NewRecovery()
+	assert.EqualValues(t, 5, r.Retries())
+	assert.Equal(t, time.Second, r.RetryDelay())
+	assert.Equal(t, Fail, r.RecoveryPolicy())
+}
+
+func TestNewRecovery_WithAllOptions(t *testing.T) {
+	r := NewRecovery(
+		WithRetries(10),
+		WithRetryDelay(2*time.Second),
+		WithRecoveryPolicy(RetryAndSkip),
+	)
+	assert.EqualValues(t, 10, r.Retries())
+	assert.Equal(t, 2*time.Second, r.RetryDelay())
+	assert.Equal(t, RetryAndSkip, r.RecoveryPolicy())
+}
+
 func TestRecoveryOption(t *testing.T) {
 	ts := time.Second
 	testCases := []struct {

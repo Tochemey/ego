@@ -30,8 +30,8 @@ import (
 	goset "github.com/deckarep/golang-set/v2"
 	"go.uber.org/atomic"
 
-	"github.com/tochemey/ego/v3/egopb"
-	"github.com/tochemey/ego/v3/persistence"
+	"github.com/tochemey/ego/v4/egopb"
+	"github.com/tochemey/ego/v4/persistence"
 )
 
 type EventKey struct {
@@ -104,24 +104,28 @@ func (x *EventStore) DeleteEvents(_ context.Context, persistenceID string, toSeq
 
 func (x *EventStore) ReplayEvents(_ context.Context, persistenceID string, fromSequenceNumber, toSequenceNumber uint64, limit uint64) ([]*egopb.Event, error) {
 	var events []*egopb.Event
-	collect := func(key, value any) bool {
+	x.db.Range(func(key, value any) bool {
 		k, ok := key.(EventKey)
 		if !ok {
-			return true // Skip if the key is not of type EventKey
+			return true
 		}
 
 		if k.PersistenceID == persistenceID &&
 			k.SequenceNumber >= fromSequenceNumber &&
 			k.SequenceNumber <= toSequenceNumber {
 			events = append(events, value.(*egopb.Event))
-			if len(events) >= int(limit) {
-				return false // Stop further iteration
-			}
 		}
 		return true
+	})
+
+	sort.SliceStable(events, func(i, j int) bool {
+		return events[i].GetSequenceNumber() < events[j].GetSequenceNumber()
+	})
+
+	if len(events) > int(limit) {
+		events = events[:int(limit)]
 	}
 
-	x.db.Range(collect)
 	return events, nil
 }
 

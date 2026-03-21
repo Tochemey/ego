@@ -29,16 +29,18 @@ import (
 	"time"
 
 	goakt "github.com/tochemey/goakt/v4/actor"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/tochemey/ego/v3/egopb"
-	"github.com/tochemey/ego/v3/eventstream"
-	"github.com/tochemey/ego/v3/internal/extensions"
-	"github.com/tochemey/ego/v3/internal/runner"
-	"github.com/tochemey/ego/v3/persistence"
+	"github.com/tochemey/ego/v4/egopb"
+	"github.com/tochemey/ego/v4/eventstream"
+	"github.com/tochemey/ego/v4/internal/extensions"
+	"github.com/tochemey/ego/v4/internal/runner"
+	"github.com/tochemey/ego/v4/persistence"
 )
 
 var (
@@ -55,6 +57,8 @@ type DurableStateActor struct {
 	eventsStream    eventstream.Stream
 	actorSystem     goakt.ActorSystem
 	persistenceID   string
+	tracer          trace.Tracer
+	metrics         *metrics
 }
 
 // implements the goakt.Actor interface
@@ -80,7 +84,13 @@ func (entity *DurableStateActor) PreStart(ctx *goakt.Context) error {
 		}
 	}
 
-	return runner.
+	if ext := ctx.Extension(extensions.TelemetryExtensionID); ext != nil {
+		telExt := ext.(*extensions.TelemetryExtension)
+		entity.tracer = telExt.Tracer()
+		entity.metrics = newMetrics(telExt.Meter())
+	}
+
+	if err := runner.
 		New(runner.WithFailFast()).
 		AddRunner(entity.durableStateRequired).
 		AddRunner(func() error {
@@ -91,7 +101,15 @@ func (entity *DurableStateActor) PreStart(ctx *goakt.Context) error {
 		}).
 		AddRunner(func() error { return entity.stateStore.Ping(ctx.Context()) }).
 		AddRunner(func() error { return entity.recoverFromStore(ctx.Context()) }).
-		Run()
+		Run(); err != nil {
+		return err
+	}
+
+	if entity.metrics != nil {
+		entity.metrics.entitiesActive.Add(ctx.Context(), 1)
+	}
+
+	return nil
 }
 
 // Receive processes any message dropped into the actor mailbox.
@@ -109,6 +127,9 @@ func (entity *DurableStateActor) Receive(ctx *goakt.ReceiveContext) {
 
 // PostStop prepares the actor to gracefully shutdown
 func (entity *DurableStateActor) PostStop(ctx *goakt.Context) error {
+	if entity.metrics != nil {
+		entity.metrics.entitiesActive.Add(ctx.Context(), -1)
+	}
 	return runner.
 		New(runner.WithFailFast()).
 		AddRunner(func() error { return entity.stateStore.Ping(ctx.Context()) }).
@@ -144,6 +165,26 @@ func (entity *DurableStateActor) recoverFromStore(ctx context.Context) error {
 // processCommand processes the incoming command
 func (entity *DurableStateActor) processCommand(receiveContext *goakt.ReceiveContext, command Command) {
 	ctx := receiveContext.Context()
+	startTime := time.Now()
+
+	if entity.tracer != nil {
+		var span trace.Span
+		ctx, span = entity.tracer.Start(ctx, "ego.command",
+			trace.WithAttributes(
+				attribute.String("ego.persistence_id", entity.persistenceID),
+				attribute.String("ego.command_type", string(command.ProtoReflect().Descriptor().FullName())),
+			))
+		defer span.End()
+	}
+
+	if entity.metrics != nil {
+		entity.metrics.commandsTotal.Add(ctx, 1)
+		defer func() {
+			duration := float64(time.Since(startTime).Milliseconds())
+			entity.metrics.commandsDuration.Record(ctx, duration)
+		}()
+	}
+
 	newState, newVersion, err := entity.behavior.HandleCommand(ctx, command, entity.currentVersion, entity.currentState)
 	if err != nil {
 		entity.sendErrorReply(receiveContext, err)

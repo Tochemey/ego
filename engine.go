@@ -26,26 +26,25 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"sync"
 	"time"
 
 	goset "github.com/deckarep/golang-set/v2"
 	goakt "github.com/tochemey/goakt/v4/actor"
-	"github.com/tochemey/goakt/v4/discovery"
-	"github.com/tochemey/goakt/v4/log"
 	"github.com/tochemey/goakt/v4/passivation"
 	"github.com/tochemey/goakt/v4/remote"
 	"github.com/tochemey/goakt/v4/supervisor"
 	gtls "github.com/tochemey/goakt/v4/tls"
 	"go.uber.org/atomic"
 
-	"github.com/tochemey/ego/v3/egopb"
-	"github.com/tochemey/ego/v3/eventstream"
-	"github.com/tochemey/ego/v3/internal/extensions"
-	"github.com/tochemey/ego/v3/internal/syncmap"
-	"github.com/tochemey/ego/v3/offsetstore"
-	"github.com/tochemey/ego/v3/persistence"
+	"github.com/tochemey/ego/v4/egopb"
+	"github.com/tochemey/ego/v4/encryption"
+	"github.com/tochemey/ego/v4/eventadapter"
+	"github.com/tochemey/ego/v4/eventstream"
+	"github.com/tochemey/ego/v4/internal/extensions"
+	"github.com/tochemey/ego/v4/internal/syncmap"
+	"github.com/tochemey/ego/v4/offsetstore"
+	"github.com/tochemey/ego/v4/persistence"
 )
 
 var (
@@ -84,8 +83,8 @@ type Engine struct {
 	offsetStore        offsetstore.OffsetStore
 	clusterEnabled     atomic.Bool
 	actorSystem        goakt.ActorSystem
-	logger             log.Logger
-	discoveryProvider  discovery.Provider
+	logger             Logger
+	clusterProvider    ClusterProvider
 	partitionsCount    uint64
 	started            atomic.Bool
 	bindAddr           string
@@ -100,6 +99,11 @@ type Engine struct {
 	eventsStreams       *syncmap.Map[string, *eventsStream]
 	statesStreams       *syncmap.Map[string, *statesStream]
 	projectionExtension *extensions.ProjectionExtension
+	eventAdapters       []eventadapter.EventAdapter
+	telemetry           *Telemetry
+	metrics             *metrics
+	snapshotStore       persistence.SnapshotStore
+	encryptor           encryption.Encryptor
 
 	supervisor *goakt.PID
 	roles      goset.Set[string]
@@ -123,7 +127,7 @@ func NewEngine(name string, eventsStore persistence.EventsStore, opts ...Option)
 	e := &Engine{
 		name:          name,
 		eventsStore:   eventsStore,
-		logger:        log.NewZap(log.ErrorLevel, os.Stderr),
+		logger:        defaultLogger{},
 		eventStream:   eventstream.New(),
 		bindAddr:      "0.0.0.0",
 		eventsStreams: syncmap.New[string, *eventsStream](),
@@ -153,6 +157,10 @@ func NewEngine(name string, eventsStore persistence.EventsStore, opts ...Option)
 // Returns:
 //   - An error if the engine fails to start due to misconfiguration or system issues; otherwise, nil.
 func (engine *Engine) Start(ctx context.Context) error {
+	if engine.telemetry != nil {
+		engine.metrics = newMetrics(engine.telemetry.Meter)
+	}
+
 	opts, err := engine.actorSystemOptions()
 	if err != nil {
 		return err
@@ -265,6 +273,50 @@ func (engine *Engine) IsProjectionRunning(ctx context.Context, name string) (boo
 	return false, nil
 }
 
+// RebuildProjection stops the named projection, resets its offset to the
+// given timestamp, and restarts it. This causes the projection to
+// reprocess all events from that point forward.
+//
+// Passing ego.ZeroTime replays from the beginning of time.
+//
+// Parameters:
+//   - ctx: Execution context for managing cancellation and timeouts.
+//   - name: The unique identifier of the projection to rebuild.
+//   - from: The timestamp from which to start reprocessing events.
+//
+// Returns:
+//   - An error if the rebuild process encounters issues; otherwise, nil.
+func (engine *Engine) RebuildProjection(ctx context.Context, name string, from time.Time) error {
+	if !engine.Started() {
+		return ErrEngineNotStarted
+	}
+
+	engine.mutex.Lock()
+	offsetStore := engine.offsetStore
+	engine.mutex.Unlock()
+
+	if offsetStore == nil {
+		return fmt.Errorf("offset store is required to rebuild projection")
+	}
+
+	// stop the running projection
+	if err := engine.RemoveProjection(ctx, name); err != nil {
+		return fmt.Errorf("failed to stop projection %s for rebuild: %w", name, err)
+	}
+
+	// reset the offset
+	if err := offsetStore.ResetOffset(ctx, name, from.UnixMilli()); err != nil {
+		return fmt.Errorf("failed to reset offset for projection %s: %w", name, err)
+	}
+
+	// restart the projection
+	if err := engine.AddProjection(ctx, name); err != nil {
+		return fmt.Errorf("failed to restart projection %s after rebuild: %w", name, err)
+	}
+
+	return nil
+}
+
 // Stop gracefully shuts down the eGo engine.
 //
 // This function ensures that all running projections, entities, and processes managed by the engine
@@ -373,11 +425,22 @@ func (engine *Engine) Entity(ctx context.Context, behavior EventSourcedBehavior,
 	actorSystem := engine.actorSystem
 	engine.mutex.Unlock()
 
-	// no need to check for error here as it was done during Start()
+	// Register dependency types so the actor system can reconstruct them during relocation.
+	// No need to check for error here as it was done during Start().
 	_ = actorSystem.Inject(behavior)
 
-	sOptions := buildSpawnOptions(opts...)
-	sOptions = append(sOptions, goakt.WithDependencies(behavior))
+	config := newSpawnConfig(opts...)
+	sOptions := buildSpawnOptionsFromConfig(config)
+
+	entityConfig := extensions.NewEntityConfig(config.snapshotInterval)
+	if config.retentionPolicy != nil {
+		entityConfig.HasRetentionPolicy = true
+		entityConfig.DeleteEventsOnSnapshot = config.retentionPolicy.DeleteEventsOnSnapshot
+		entityConfig.DeleteSnapshotsOnSnapshot = config.retentionPolicy.DeleteSnapshotsOnSnapshot
+		entityConfig.EventsRetentionCount = config.retentionPolicy.EventsRetentionCount
+	}
+	_ = actorSystem.Inject(entityConfig)
+	sOptions = append(sOptions, goakt.WithDependencies(behavior, entityConfig))
 
 	_, err := actorSystem.SpawnOn(ctx, behavior.ID(), newEventSourcedActor(), sOptions...)
 	return err
@@ -499,7 +562,7 @@ func (engine *Engine) AddEventPublishers(publishers ...EventPublisher) error {
 		subscriber := engine.eventStream.AddSubscriber()
 		topics := generateTopics(eventsTopic, engine.partitionsCount)
 		for _, topic := range topics {
-			engine.logger.Debugf("%s subscribing to topic: %s", publisher.ID(), topic)
+			engine.logger.Debug(fmt.Sprintf("%s subscribing to topic: %s", publisher.ID(), topic))
 			engine.eventStream.Subscribe(subscriber, topic)
 		}
 
@@ -514,7 +577,7 @@ func (engine *Engine) AddEventPublishers(publishers ...EventPublisher) error {
 		engine.eventsStreams.Set(publisher.ID(), eventSubscriber)
 
 		// start the event publisher
-		engine.logger.Infof("starting %s events publisher....", publisher.ID())
+		engine.logger.Info(fmt.Sprintf("starting %s events publisher....", publisher.ID()))
 		go engine.sendEvent(eventSubscriber)
 	}
 
@@ -544,7 +607,7 @@ func (engine *Engine) AddStatePublishers(publishers ...StatePublisher) error {
 		topics := generateTopics(statesTopic, engine.partitionsCount)
 
 		for _, topic := range topics {
-			engine.logger.Debugf("%s subscribing to topic: %s", publisher.ID(), topic)
+			engine.logger.Debug(fmt.Sprintf("%s subscribing to topic: %s", publisher.ID(), topic))
 			engine.eventStream.Subscribe(subscriber, topic)
 		}
 
@@ -559,11 +622,199 @@ func (engine *Engine) AddStatePublishers(publishers ...StatePublisher) error {
 		engine.statesStreams.Set(publisher.ID(), stateSubscriber)
 
 		// start the state publisher
-		engine.logger.Infof("starting %s durable state publisher....", publisher.ID())
+		engine.logger.Info(fmt.Sprintf("starting %s durable state publisher....", publisher.ID()))
 		go engine.sendState(stateSubscriber)
 	}
 
 	return nil
+}
+
+// Saga creates a saga/process manager that coordinates multiple entities.
+//
+// A saga is a long-running business process that reacts to events from the event
+// stream, sends commands to entities, persists its own events for recovery, and
+// supports compensation logic for rollback on failures.
+//
+// Parameters:
+//   - ctx: Execution context for controlling the saga lifecycle.
+//   - behavior: Defines the saga's logic including event handling, command dispatch, and compensation.
+//   - timeout: Maximum duration for the saga. Zero means no timeout.
+//
+// Returns an error if the saga fails to initialize.
+func (engine *Engine) Saga(ctx context.Context, behavior SagaBehavior, timeout time.Duration) error {
+	if !engine.Started() {
+		return ErrEngineNotStarted
+	}
+
+	engine.mutex.Lock()
+	actorSystem := engine.actorSystem
+	engine.mutex.Unlock()
+
+	// Register dependency types so the actor system can reconstruct them during relocation.
+	_ = actorSystem.Inject(behavior)
+
+	sagaCfg := extensions.NewSagaConfig(timeout)
+	_ = actorSystem.Inject(sagaCfg)
+	actor := newSagaActor()
+
+	_, err := actorSystem.Spawn(ctx, behavior.ID(),
+		actor,
+		goakt.WithLongLived(),
+		goakt.WithDependencies(behavior, sagaCfg),
+		goakt.WithSupervisor(newSupervisor(RestartDirective)))
+	if err != nil {
+		return fmt.Errorf("failed to start saga %s: %w", behavior.ID(), err)
+	}
+
+	return nil
+}
+
+// SagaStatus returns the current status and state of the named saga.
+//
+// Parameters:
+//   - ctx: Execution context for managing timeouts and cancellations.
+//   - sagaID: The unique identifier of the saga.
+//   - timeout: The duration within which the query must be processed.
+//
+// Returns:
+//   - SagaInfo containing the saga's current status and state.
+//   - An error if the saga is not found or the query fails.
+func (engine *Engine) SagaStatus(ctx context.Context, sagaID string, timeout time.Duration) (*SagaInfo, error) {
+	if !engine.Started() {
+		return nil, ErrEngineNotStarted
+	}
+
+	if sagaID == "" {
+		return nil, ErrUndefinedEntityID
+	}
+
+	engine.mutex.Lock()
+	noSender := engine.noSender
+	engine.mutex.Unlock()
+
+	reply, err := noSender.SendSync(ctx, sagaID, new(egopb.GetStateCommand), timeout)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get saga status for %s: %w", sagaID, err)
+	}
+
+	commandReply, ok := reply.(*egopb.CommandReply)
+	if !ok {
+		return nil, fmt.Errorf("unexpected reply type from saga %s", sagaID)
+	}
+
+	state, _, err := parseCommandReply(commandReply)
+	if err != nil {
+		return nil, err
+	}
+
+	return &SagaInfo{
+		ID:    sagaID,
+		State: state,
+	}, nil
+}
+
+// EraseEntity performs GDPR erasure for the given persistence ID.
+// When an encryptor backed by a KeyStore is configured, this deletes the encryption
+// key (crypto-shredding), making all encrypted events and snapshots irrecoverable.
+// Optionally, it also physically deletes events and snapshots from the stores.
+func (engine *Engine) EraseEntity(ctx context.Context, persistenceID string, full bool) error {
+	if !engine.Started() {
+		return ErrEngineNotStarted
+	}
+
+	engine.mutex.Lock()
+	eventsStore := engine.eventsStore
+	snapshotStore := engine.snapshotStore
+	engine.mutex.Unlock()
+
+	if full {
+		// Get the latest event to find the max sequence number
+		latestEvent, err := eventsStore.GetLatestEvent(ctx, persistenceID)
+		if err != nil {
+			return fmt.Errorf("failed to get latest event for erasure: %w", err)
+		}
+		if latestEvent != nil {
+			if err := eventsStore.DeleteEvents(ctx, persistenceID, latestEvent.GetSequenceNumber()); err != nil {
+				return fmt.Errorf("failed to delete events for erasure: %w", err)
+			}
+		}
+		if snapshotStore != nil && latestEvent != nil {
+			if err := snapshotStore.DeleteSnapshots(ctx, persistenceID, latestEvent.GetSequenceNumber()); err != nil {
+				return fmt.Errorf("failed to delete snapshots for erasure: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// ProjectionLag returns the current lag per shard for the named projection.
+// The lag is the difference between the latest event timestamp and the projection's
+// current offset for each shard. A nil map entry means the shard is fully caught up.
+func (engine *Engine) ProjectionLag(ctx context.Context, projectionName string) (map[uint64]time.Duration, error) {
+	if !engine.Started() {
+		return nil, ErrEngineNotStarted
+	}
+
+	engine.mutex.Lock()
+	offsetStore := engine.offsetStore
+	eventsStore := engine.eventsStore
+	engine.mutex.Unlock()
+
+	if offsetStore == nil {
+		return nil, fmt.Errorf("offset store is required to compute projection lag")
+	}
+
+	shards, err := eventsStore.ShardNumbers(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch shard numbers: %w", err)
+	}
+
+	lags := make(map[uint64]time.Duration, len(shards))
+	for _, shard := range shards {
+		projectionID := &egopb.ProjectionId{
+			ProjectionName: projectionName,
+			ShardNumber:    shard,
+		}
+
+		offset, err := offsetStore.GetCurrentOffset(ctx, projectionID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get offset for shard %d: %w", shard, err)
+		}
+
+		events, _, err := eventsStore.GetShardEvents(ctx, shard, 0, 1)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get latest event for shard %d: %w", shard, err)
+		}
+
+		if len(events) == 0 {
+			lags[shard] = 0
+			continue
+		}
+
+		// Get the latest event timestamp by fetching from a very high offset backwards
+		// We use the events store's shard events with offset 0 and check the last timestamp
+		allEvents, _, err := eventsStore.GetShardEvents(ctx, shard, 0, 10000)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get events for shard %d: %w", shard, err)
+		}
+
+		if len(allEvents) == 0 {
+			lags[shard] = 0
+			continue
+		}
+
+		latestTimestamp := allEvents[len(allEvents)-1].GetTimestamp()
+		currOffset := offset.GetValue()
+
+		lagMs := latestTimestamp - currOffset
+		if lagMs < 0 {
+			lagMs = 0
+		}
+		lags[shard] = time.Duration(lagMs) * time.Millisecond
+	}
+
+	return lags, nil
 }
 
 // parseCommandReply parses the command reply
@@ -608,7 +859,10 @@ func generateTopics(baseTopic string, partitionsCount uint64) []string {
 }
 
 func buildSpawnOptions(opts ...SpawnOption) []goakt.SpawnOption {
-	config := newSpawnConfig(opts...)
+	return buildSpawnOptionsFromConfig(newSpawnConfig(opts...))
+}
+
+func buildSpawnOptionsFromConfig(config *spawnConfig) []goakt.SpawnOption {
 	sOptions := []goakt.SpawnOption{
 		goakt.WithLongLived(),
 	}
@@ -673,7 +927,7 @@ func (engine *Engine) actorSystemOptions() ([]goakt.Option, error) {
 // baseOptions returns the always-on options for the engine actor system.
 func (engine *Engine) baseOptions() []goakt.Option {
 	return []goakt.Option{
-		goakt.WithLogger(engine.logger),
+		goakt.WithLogger(newLoggerAdapter(engine.logger)),
 		goakt.WithActorInitMaxRetries(1),
 		goakt.WithDefaultSupervisor(
 			supervisor.NewSupervisor(supervisor.WithAnyErrorDirective(supervisor.ResumeDirective))),
@@ -699,6 +953,23 @@ func (engine *Engine) appendOptionalExtensions(opts []goakt.Option) ([]goakt.Opt
 			return nil, fmt.Errorf("projection extension requires an offset store")
 		}
 		opts = append(opts, goakt.WithExtensions(engine.projectionExtension))
+	}
+
+	if engine.snapshotStore != nil {
+		opts = append(opts, goakt.WithExtensions(extensions.NewSnapshotStore(engine.snapshotStore)))
+	}
+
+	if len(engine.eventAdapters) > 0 {
+		opts = append(opts, goakt.WithExtensions(extensions.NewEventAdapters(engine.eventAdapters)))
+	}
+
+	if engine.telemetry != nil {
+		opts = append(opts, goakt.WithExtensions(
+			extensions.NewTelemetryExtension(engine.telemetry.Tracer, engine.telemetry.Meter)))
+	}
+
+	if engine.encryptor != nil {
+		opts = append(opts, goakt.WithExtensions(extensions.NewEncryptor(engine.encryptor)))
 	}
 
 	return opts, nil
@@ -744,7 +1015,7 @@ func (engine *Engine) clusterConfig() *goakt.ClusterConfig {
 
 	clusterConfig := goakt.
 		NewClusterConfig().
-		WithDiscovery(engine.discoveryProvider).
+		WithDiscovery(newClusterProviderAdapter(engine.clusterProvider)).
 		WithDiscoveryPort(engine.discoveryPort).
 		WithPeersPort(engine.peersPort).
 		WithMinimumPeersQuorum(uint32(engine.minimumPeersQuorum)).
@@ -755,6 +1026,7 @@ func (engine *Engine) clusterConfig() *goakt.ClusterConfig {
 		WithKinds(
 			new(EventSourcedActor),
 			new(DurableStateActor),
+			new(SagaActor),
 		)
 
 	// set roles if any
@@ -818,18 +1090,18 @@ func (engine *Engine) sendEvent(stream *eventsStream) {
 			}
 
 			if err := stream.publisher.Publish(context.Background(), event); err != nil {
-				engine.logger.Errorf("(%s) failed to publish event=[persistenceID=%s, sequenceNumber=%d]: %s",
+				engine.logger.Error(fmt.Sprintf("(%s) failed to publish event=[persistenceID=%s, sequenceNumber=%d]: %s",
 					stream.publisher.ID(),
 					event.GetPersistenceId(),
 					event.GetSequenceNumber(),
-					err.Error())
+					err.Error()))
 				continue
 			}
 
-			engine.logger.Infof("(%s) successfully published event=[persistenceID=%s, sequenceNumber=%d]: %s",
+			engine.logger.Info(fmt.Sprintf("(%s) successfully published event=[persistenceID=%s, sequenceNumber=%d]",
 				stream.publisher.ID(),
 				event.GetPersistenceId(),
-				event.GetSequenceNumber())
+				event.GetSequenceNumber()))
 		}
 	}
 }
@@ -852,18 +1124,18 @@ func (engine *Engine) sendState(stream *statesStream) {
 
 			publisher := stream.publisher
 			if err := publisher.Publish(context.Background(), msg); err != nil {
-				engine.logger.Errorf("(%s) failed to publish state=[persistenceID=%s, version=%d]: %s",
+				engine.logger.Error(fmt.Sprintf("(%s) failed to publish state=[persistenceID=%s, version=%d]: %s",
 					publisher.ID(),
 					msg.GetPersistenceId(),
 					msg.GetVersionNumber(),
-					err.Error())
+					err.Error()))
 				continue
 			}
 
-			engine.logger.Infof("(%s) successfully published state=[persistenceID=%s, version=%d]: %s",
+			engine.logger.Info(fmt.Sprintf("(%s) successfully published state=[persistenceID=%s, version=%d]",
 				publisher.ID(),
 				msg.GetPersistenceId(),
-				msg.GetVersionNumber())
+				msg.GetVersionNumber()))
 		}
 	}
 }

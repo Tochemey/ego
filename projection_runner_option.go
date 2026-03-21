@@ -27,7 +27,9 @@ import (
 
 	"github.com/tochemey/goakt/v4/log"
 
-	"github.com/tochemey/ego/v3/projection"
+	"github.com/tochemey/ego/v4/encryption"
+	"github.com/tochemey/ego/v4/eventadapter"
+	"github.com/tochemey/ego/v4/projection"
 )
 
 // Option is the interface that applies a configuration option.
@@ -87,5 +89,33 @@ func withLogger(logger log.Logger) runnerOption {
 func withRecoveryStrategy(strategy *projection.Recovery) runnerOption {
 	return runnerOptionFunc(func(runner *projectionRunner) {
 		runner.recovery = strategy
+	})
+}
+
+// withDeadLetterHandler sets the dead letter handler for the projection runner
+func withDeadLetterHandler(handler projection.DeadLetterHandler) runnerOption {
+	return runnerOptionFunc(func(runner *projectionRunner) {
+		runner.deadLetterHandler = handler
+	})
+}
+
+// withEventAdapters sets the event adapters for the projection runner
+func withEventAdapters(adapters []eventadapter.EventAdapter) runnerOption {
+	return runnerOptionFunc(func(runner *projectionRunner) {
+		runner.eventAdapters = adapters
+	})
+}
+
+// withMetrics sets the metrics for the projection runner
+func withMetrics(m *metrics) runnerOption {
+	return runnerOptionFunc(func(runner *projectionRunner) {
+		runner.metrics = m
+	})
+}
+
+// withEncryptor sets the encryptor for the projection runner
+func withEncryptor(enc encryption.Encryptor) runnerOption {
+	return runnerOptionFunc(func(runner *projectionRunner) {
+		runner.encryptor = enc
 	})
 }

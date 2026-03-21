@@ -27,9 +27,14 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/tochemey/goakt/v4/log"
+	"google.golang.org/protobuf/types/known/anypb"
 
-	"github.com/tochemey/ego/v3/projection"
+	"github.com/tochemey/ego/v4/encryption"
+	"github.com/tochemey/ego/v4/eventadapter"
+	"github.com/tochemey/ego/v4/projection"
+	"github.com/tochemey/ego/v4/testkit"
 )
 
 func TestOption(t *testing.T) {
@@ -37,47 +42,86 @@ func TestOption(t *testing.T) {
 	from := time.Now()
 	to := time.Now().Add(ts)
 	recovery := projection.NewRecovery()
-	testCases := []struct {
-		name     string
-		option   runnerOption
-		expected projectionRunner
-	}{
-		{
-			name:     "WithRefreshInterval",
-			option:   withPullInterval(ts),
-			expected: projectionRunner{pullInterval: ts},
-		},
-		{
-			name:     "WithMaxBufferSize",
-			option:   withMaxBufferSize(5),
-			expected: projectionRunner{maxBufferSize: 5},
-		},
-		{
-			name:     "WithStartOffset",
-			option:   withStartOffset(from),
-			expected: projectionRunner{startingOffset: from},
-		},
-		{
-			name:     "WithResetOffset",
-			option:   withResetOffset(to),
-			expected: projectionRunner{resetOffsetTo: to},
-		},
-		{
-			name:     "WithLogger",
-			option:   withLogger(log.DefaultLogger),
-			expected: projectionRunner{logger: log.DefaultLogger},
-		},
-		{
-			name:     "WithRecoveryStrategy",
-			option:   withRecoveryStrategy(recovery),
-			expected: projectionRunner{recovery: recovery},
-		},
-	}
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			var e projectionRunner
-			tc.option.Apply(&e)
-			assert.Equal(t, tc.expected, e)
-		})
-	}
+
+	t.Run("WithRefreshInterval", func(t *testing.T) {
+		var r projectionRunner
+		withPullInterval(ts).Apply(&r)
+		assert.Equal(t, ts, r.pullInterval)
+	})
+	t.Run("WithMaxBufferSize", func(t *testing.T) {
+		var r projectionRunner
+		withMaxBufferSize(5).Apply(&r)
+		assert.Equal(t, 5, r.maxBufferSize)
+	})
+	t.Run("WithStartOffset", func(t *testing.T) {
+		var r projectionRunner
+		withStartOffset(from).Apply(&r)
+		assert.Equal(t, from, r.startingOffset)
+	})
+	t.Run("WithResetOffset", func(t *testing.T) {
+		var r projectionRunner
+		withResetOffset(to).Apply(&r)
+		assert.Equal(t, to, r.resetOffsetTo)
+	})
+	t.Run("WithLogger", func(t *testing.T) {
+		var r projectionRunner
+		withLogger(log.DefaultLogger).Apply(&r)
+		assert.Equal(t, log.DefaultLogger, r.logger)
+	})
+	t.Run("WithRecoveryStrategy", func(t *testing.T) {
+		var r projectionRunner
+		withRecoveryStrategy(recovery).Apply(&r)
+		assert.Equal(t, recovery, r.recovery)
+	})
+}
+
+func TestWithDeadLetterHandler(t *testing.T) {
+	dlh := projection.NewDiscardDeadLetterHandler()
+	var r projectionRunner
+	withDeadLetterHandler(dlh).Apply(&r)
+	require.NotNil(t, r.deadLetterHandler)
+	assert.Equal(t, dlh, r.deadLetterHandler)
+}
+
+func TestWithDeadLetterHandlerNil(t *testing.T) {
+	var r projectionRunner
+	withDeadLetterHandler(nil).Apply(&r)
+	assert.Nil(t, r.deadLetterHandler)
+}
+
+func TestWithEventAdapters(t *testing.T) {
+	adapter := &runnerTestAdapter{}
+	adapters := []eventadapter.EventAdapter{adapter}
+	var r projectionRunner
+	withEventAdapters(adapters).Apply(&r)
+	require.Len(t, r.eventAdapters, 1)
+	assert.Equal(t, adapter, r.eventAdapters[0])
+}
+
+func TestWithEventAdaptersEmpty(t *testing.T) {
+	var r projectionRunner
+	withEventAdapters(nil).Apply(&r)
+	assert.Nil(t, r.eventAdapters)
+}
+
+func TestWithMetrics(t *testing.T) {
+	m := &metrics{}
+	var r projectionRunner
+	withMetrics(m).Apply(&r)
+	assert.Equal(t, m, r.metrics)
+}
+
+func TestWithEncryptor(t *testing.T) {
+	enc := encryption.NewAESEncryptor(testkit.NewKeyStore())
+	var r projectionRunner
+	withEncryptor(enc).Apply(&r)
+	require.NotNil(t, r.encryptor)
+	assert.Equal(t, enc, r.encryptor)
+}
+
+// runnerTestAdapter is a no-op EventAdapter for testing
+type runnerTestAdapter struct{}
+
+func (a *runnerTestAdapter) Adapt(event *anypb.Any, _ uint64) (*anypb.Any, error) {
+	return event, nil
 }

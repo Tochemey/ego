@@ -25,13 +25,14 @@ package ego
 import (
 	goakt "github.com/tochemey/goakt/v4/actor"
 
-	"github.com/tochemey/ego/v3/internal/extensions"
+	"github.com/tochemey/ego/v4/internal/extensions"
 )
 
 // ProjectionActor defines the projection actor
 // Only a single instance of this will run throughout the cluster
 type ProjectionActor struct {
-	runner *projectionRunner
+	runner  *projectionRunner
+	metrics *metrics
 }
 
 // implements the Actor contract
@@ -48,16 +49,46 @@ func (x *ProjectionActor) PreStart(ctx *goakt.Context) error {
 	eventsStore := ctx.Extension(extensions.EventsStoreExtensionID).(*extensions.EventsStore).Underlying()
 	projection := ctx.Extension(extensions.ProjectionExtensionID).(*extensions.ProjectionExtension)
 
-	x.runner = newProjectionRunner(ctx.ActorName(), projection.Handler(), eventsStore, offsetStore,
+	opts := []runnerOption{
 		withLogger(ctx.ActorSystem().Logger()),
 		withRecoveryStrategy(projection.Recovery()),
 		withStartOffset(projection.StartOffset()),
 		withResetOffset(projection.ResetOffset()),
 		withMaxBufferSize(projection.BufferSize()),
 		withPullInterval(projection.PullInterval()),
-	)
+	}
 
-	return x.runner.Start(ctx.Context())
+	if dlh := projection.DeadLetterHandler(); dlh != nil {
+		opts = append(opts, withDeadLetterHandler(dlh))
+	}
+
+	if ext := ctx.Extension(extensions.EventAdaptersExtensionID); ext != nil {
+		opts = append(opts, withEventAdapters(ext.(*extensions.EventAdapters).Adapters()))
+	}
+
+	if ext := ctx.Extension(extensions.EncryptorExtensionID); ext != nil {
+		opts = append(opts, withEncryptor(ext.(*extensions.EncryptorExtension).Encryptor()))
+	}
+
+	if ext := ctx.Extension(extensions.TelemetryExtensionID); ext != nil {
+		telExt := ext.(*extensions.TelemetryExtension)
+		x.metrics = newMetrics(telExt.Meter())
+		if x.metrics != nil {
+			opts = append(opts, withMetrics(x.metrics))
+		}
+	}
+
+	x.runner = newProjectionRunner(ctx.ActorName(), projection.Handler(), eventsStore, offsetStore, opts...)
+
+	if err := x.runner.Start(ctx.Context()); err != nil {
+		return err
+	}
+
+	if x.metrics != nil {
+		x.metrics.projectionsActive.Add(ctx.Context(), 1)
+	}
+
+	return nil
 }
 
 // Receive handle the message sent to the projection actor
@@ -71,6 +102,9 @@ func (x *ProjectionActor) Receive(ctx *goakt.ReceiveContext) {
 }
 
 // PostStop prepares the actor to gracefully shutdown
-func (x *ProjectionActor) PostStop(*goakt.Context) error {
+func (x *ProjectionActor) PostStop(ctx *goakt.Context) error {
+	if x.metrics != nil {
+		x.metrics.projectionsActive.Add(ctx.Context(), -1)
+	}
 	return x.runner.Stop()
 }

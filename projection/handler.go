@@ -28,10 +28,10 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
-// Handler is used to handle event and state consumed from the event store
+// Handler is used to handle events consumed from the event store
 type Handler interface {
 	// Handle handles the event that is consumed by the projection
-	Handle(ctx context.Context, persistenceID string, event *anypb.Any, state *anypb.Any, revision uint64) error
+	Handle(ctx context.Context, persistenceID string, event *anypb.Any, revision uint64) error
 }
 
 // DiscardHandler implements the projection Handler interface
@@ -50,6 +50,6 @@ func NewDiscardHandler() *DiscardHandler {
 
 // Handle handles the events consumed
 // nolint
-func (x *DiscardHandler) Handle(_ context.Context, persistenceID string, event *anypb.Any, state *anypb.Any, revision uint64) error {
+func (x *DiscardHandler) Handle(_ context.Context, _ string, _ *anypb.Any, _ uint64) error {
 	return nil
 }

@@ -39,4 +39,7 @@ type Options struct {
 	// Recovery configures how the projection behaves when the handler fails to process an event.
 	// When nil, a default recovery strategy is applied.
 	Recovery *Recovery
+	// DeadLetterHandler receives events that the projection handler failed to process
+	// after exhausting its recovery policy. When nil, failed events are silently discarded.
+	DeadLetterHandler DeadLetterHandler
 }

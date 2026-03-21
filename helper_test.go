@@ -26,10 +26,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
+	goakt "github.com/tochemey/goakt/v4/actor"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	testpb "github.com/tochemey/ego/v3/test/data/testpb"
+	samplepb "github.com/tochemey/ego/v4/example/examplepb"
+	testpb "github.com/tochemey/ego/v4/test/data/testpb"
 )
 
 // AccountEventSourcedBehavior implements EventSourcedBehavior
@@ -194,3 +198,143 @@ func (x *AccountDurableStateBehavior) UnmarshalBinary(data []byte) error {
 	x.id = serializable.ID
 	return nil
 }
+
+// testSagaBehavior implements SagaBehavior for testing
+type testSagaBehavior struct {
+	sagaID   string
+	entityID string
+}
+
+var _ SagaBehavior = (*testSagaBehavior)(nil)
+
+func (s *testSagaBehavior) ID() string {
+	return s.sagaID
+}
+
+func (s *testSagaBehavior) InitialState() State {
+	return new(samplepb.Account)
+}
+
+func (s *testSagaBehavior) HandleEvent(_ context.Context, _ Event, _ State) (*SagaAction, error) {
+	return &SagaAction{}, nil
+}
+
+func (s *testSagaBehavior) HandleResult(_ context.Context, _ string, _ State, _ State) (*SagaAction, error) {
+	return &SagaAction{Complete: true}, nil
+}
+
+func (s *testSagaBehavior) HandleError(_ context.Context, _ string, _ error, _ State) (*SagaAction, error) {
+	return &SagaAction{Compensate: true}, nil
+}
+
+func (s *testSagaBehavior) ApplyEvent(_ context.Context, _ Event, state State) (State, error) {
+	return state, nil
+}
+
+func (s *testSagaBehavior) Compensate(_ context.Context, _ State) ([]SagaCommand, error) {
+	return nil, nil
+}
+
+func (s *testSagaBehavior) MarshalBinary() ([]byte, error) {
+	data := struct {
+		SagaID   string `json:"saga_id"`
+		EntityID string `json:"entity_id"`
+	}{
+		SagaID:   s.sagaID,
+		EntityID: s.entityID,
+	}
+	return json.Marshal(data)
+}
+
+func (s *testSagaBehavior) UnmarshalBinary(data []byte) error {
+	aux := struct {
+		SagaID   string `json:"saga_id"`
+		EntityID string `json:"entity_id"`
+	}{}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	s.sagaID = aux.SagaID
+	s.entityID = aux.EntityID
+	return nil
+}
+
+// callbackSagaBehavior is a configurable SagaBehavior for testing
+// that delegates each method to a user-supplied function field.
+type callbackSagaBehavior struct {
+	id           string
+	initialState func() State
+	handleEvent  func(ctx context.Context, event Event, state State) (*SagaAction, error)
+	handleResult func(ctx context.Context, entityID string, result State, sagaState State) (*SagaAction, error)
+	handleError  func(ctx context.Context, entityID string, err error, sagaState State) (*SagaAction, error)
+	applyEvent   func(ctx context.Context, event Event, state State) (State, error)
+	compensate   func(ctx context.Context, state State) ([]SagaCommand, error)
+}
+
+var _ SagaBehavior = (*callbackSagaBehavior)(nil)
+
+func (c *callbackSagaBehavior) ID() string { return c.id }
+
+func (c *callbackSagaBehavior) InitialState() State {
+	if c.initialState != nil {
+		return c.initialState()
+	}
+	return new(samplepb.Account)
+}
+
+func (c *callbackSagaBehavior) HandleEvent(ctx context.Context, event Event, state State) (*SagaAction, error) {
+	if c.handleEvent != nil {
+		return c.handleEvent(ctx, event, state)
+	}
+	return &SagaAction{}, nil
+}
+
+func (c *callbackSagaBehavior) HandleResult(ctx context.Context, entityID string, result State, sagaState State) (*SagaAction, error) {
+	if c.handleResult != nil {
+		return c.handleResult(ctx, entityID, result, sagaState)
+	}
+	return &SagaAction{Complete: true}, nil
+}
+
+func (c *callbackSagaBehavior) HandleError(ctx context.Context, entityID string, err error, sagaState State) (*SagaAction, error) {
+	if c.handleError != nil {
+		return c.handleError(ctx, entityID, err, sagaState)
+	}
+	return &SagaAction{Compensate: true}, nil
+}
+
+func (c *callbackSagaBehavior) ApplyEvent(ctx context.Context, event Event, state State) (State, error) {
+	if c.applyEvent != nil {
+		return c.applyEvent(ctx, event, state)
+	}
+	return state, nil
+}
+
+func (c *callbackSagaBehavior) Compensate(ctx context.Context, state State) ([]SagaCommand, error) {
+	if c.compensate != nil {
+		return c.compensate(ctx, state)
+	}
+	return nil, nil
+}
+
+func (c *callbackSagaBehavior) MarshalBinary() ([]byte, error) {
+	return json.Marshal(c.id)
+}
+
+func (c *callbackSagaBehavior) UnmarshalBinary(data []byte) error {
+	return json.Unmarshal(data, &c.id)
+}
+
+// simpleReplyActor is a test actor that responds to any message with a fixed reply.
+type simpleReplyActor struct {
+	reply proto.Message
+}
+
+var _ goakt.Actor = (*simpleReplyActor)(nil)
+
+func (a *simpleReplyActor) PreStart(_ *goakt.Context) error   { return nil }
+func (a *simpleReplyActor) PostStop(_ *goakt.Context) error   { return nil }
+func (a *simpleReplyActor) Receive(ctx *goakt.ReceiveContext) { ctx.Response(a.reply) }
+
+// ensure time is used
+var _ = time.Second
