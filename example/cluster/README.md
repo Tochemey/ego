@@ -7,7 +7,7 @@ It demonstrates event sourcing, CQRS with a projection read side, Kubernetes-nat
 
 - **Kubernetes-native peer discovery** — pods find each other via the Kubernetes API
 - **PostgreSQL-backed persistence** — events and projection offsets are stored in PostgreSQL
-- **CQRS with projections** — commands produce events (write side), a projection materializes account balances into a read table (read side)
+- **CQRS with singleton projection** — commands produce events (write side), a projection singleton on the oldest node materializes account balances into a read table (read side); migrates automatically on node failure
 - **3-node cluster** — shows partition distribution and quorum
 - **NGINX Ingress load balancing** — requests to `http://localhost` are round-robin distributed across all 3 pods (no port-forward needed)
 - **Traces and metrics** — OpenTelemetry instrumentation with Jaeger for traces and Prometheus + Grafana for metrics
@@ -17,52 +17,61 @@ It demonstrates event sourcing, CQRS with a projection read side, Kubernetes-nat
 ## Architecture
 
 ```
-                         ┌──────────────────────┐
-                         │     HTTP Client      │
-                         │  (curl / make test)  │
-                         └──────────┬───────────┘
-                                    │
-                         ┌──────────▼───────────┐
-                         │    HTTP API (:8080)  │
-                         │  POST /accounts/{id} │  ← write side (commands)
-                         │  GET  /accounts/{id} │  ← read side  (projection)
-                         └──────────┬───────────┘
-                                    │
-              ┌─────────────────────┼─────────────────────┐
-              │                     │                     │
-     ┌────────▼───────┐   ┌────────▼───────┐   ┌────────▼───────┐
-     │   Pod 1        │   │   Pod 2        │   │   Pod 3        │
-     │   eGo Engine   │   │   eGo Engine   │   │   eGo Engine   │
-     │   + Projection │   │   + Projection │   │   + Projection │
-     └────────┬───────┘   └────────┬───────┘   └────────┬───────┘
-              │                     │                     │
-              │           OTLP/gRPC │                     │
-              └──────────┬──────────┼──────────┬──────────┘
+                          ┌──────────────────────┐
+                          │     HTTP Client      │
+                          │  (curl / make test)  │
+                          └──────────┬───────────┘
+                                     │
+                          ┌──────────▼───────────┐
+                          │  NGINX Ingress       │
+                          │  http://localhost     │
+                          │  round-robin → pods  │
+                          └──────────┬───────────┘
+                                     │
+              ┌──────────────────────┼──────────────────────┐
+              │                      │                      │
+     ┌────────▼────────┐   ┌────────▼────────┐   ┌────────▼────────┐
+     │  ego-cluster-0  │   │  ego-cluster-1  │   │  ego-cluster-2  │
+     │  (oldest node)  │   │                 │   │                 │
+     │                 │   │                 │   │                 │
+     │  eGo Engine     │   │  eGo Engine     │   │  eGo Engine     │
+     │  HTTP API :8080 │   │  HTTP API :8080 │   │  HTTP API :8080 │
+     │  ┌────────────┐ │   │                 │   │                 │
+     │  │ Projection │ │   │  (no projection │   │  (no projection │
+     │  │ (singleton)│ │   │   on this node) │   │   on this node) │
+     │  └─────┬──────┘ │   │                 │   │                 │
+     └────────┼────────┘   └────────┬────────┘   └────────┬────────┘
+              │                     │                      │
+              │        gossip protocol (peer discovery)    │
+              ├─────────────────────┼──────────────────────┤
+              │                     │                      │
+              │               OTLP/gRPC                    │
+              └──────────┬──────────┼──────────┬───────────┘
                          │          │          │
                 ┌────────▼──────────▼──────────▼────────┐
-                │         NGINX Ingress Controller      │
-                │  http://localhost → round-robin pods  │
-                └───────────────────┬───────────────────┘
-                                    │
-                         ┌──────────▼───────────┐
-                         │   OTel Collector     │
-                         └──┬───────────────┬───┘
-                            │               │
-               ┌────────────▼──┐    ┌───────▼────────┐
-               │    Jaeger     │    │   Prometheus   │
-               │   (traces)    │    │   (metrics)    │
-               └───────────────┘    └───────┬────────┘
-                                            │
-                                    ┌───────▼────────┐
-                                    │    Grafana     │
-                                    │  (dashboards)  │
-                                    └────────────────┘
+                │            OTel Collector             │
+                └──────────┬───────────────┬────────────┘
+                           │               │
+              ┌────────────▼──┐    ┌───────▼────────┐
+              │    Jaeger     │    │   Prometheus   │
+              │   (traces)    │    │   (metrics)    │
+              └───────────────┘    └───────┬────────┘
+                                           │
+                                   ┌───────▼────────┐
+                                   │    Grafana     │
+                                   │  (dashboards)  │
+                                   └────────────────┘
 
               ┌─────────────────────────────────────────┐
               │              PostgreSQL                 │
               │  events_store | offsets_store           │
               │  account_balances (projection read tbl) │
               └─────────────────────────────────────────┘
+
+Projection singleton: In cluster mode the projection runs on exactly ONE
+node — the oldest (ego-cluster-0). If that node leaves the cluster, the
+projection automatically migrates to the new oldest node. This prevents
+duplicate event processing across pods.
 ```
 
 ## Prerequisites
