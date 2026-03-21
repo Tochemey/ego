@@ -136,8 +136,10 @@ func (q *Queue) getItem() *item {
 
 // releaseItem returns a node to the pool for reuse
 func (q *Queue) releaseItem(i *item) {
-	// Reset i to prevent memory leaks
+	// Reset i to prevent memory leaks.
+	// Use atomic store for `next` because concurrent Enqueue/Dequeue
+	// goroutines may still read this field via atomic.LoadPointer.
 	i.v = nil
-	i.next = nil
+	atomic.StorePointer(&i.next, nil)
 	q.pool.Put(i)
 }
