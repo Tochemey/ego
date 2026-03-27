@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 160" width="480" height="160">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6C63FF;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#3B82F6;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="iconGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6C63FF;stop-opacity:1" />
+      <stop offset="50%" style="stop-color:#4F46E5;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#3B82F6;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Icon: abstract "e" mark with event-stream motif -->
+  <g transform="translate(30, 20)">
+    <!-- Rounded square background -->
+    <rect x="0" y="0" width="120" height="120" rx="28" ry="28" fill="url(#iconGrad)" />
+
+    <!-- Stylized "e" letterform in white -->
+    <path d="M 35 60 C 35 40, 55 28, 75 28 C 90 28, 95 38, 95 48 L 95 55 L 50 55 C 50 72, 60 82, 78 82 C 88 82, 93 78, 95 74"
+          fill="none" stroke="white" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" />
+
+    <!-- Three small event dots streaming out -->
+    <circle cx="92" cy="38" r="4" fill="white" opacity="0.5" />
+    <circle cx="104" cy="30" r="3" fill="white" opacity="0.35" />
+    <circle cx="113" cy="22" r="2.2" fill="white" opacity="0.2" />
+  </g>
+
+  <!-- Text: "eGo" -->
+  <g transform="translate(170, 98)">
+    <!-- "e" in gradient -->
+    <text font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="80" font-weight="300" fill="url(#grad)" letter-spacing="-2">e</text>
+    <!-- "G" bold -->
+    <text x="46" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="80" font-weight="700" fill="#1E293B" letter-spacing="-2">G</text>
+    <!-- "o" in gradient -->
+    <text x="108" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="80" font-weight="300" fill="url(#grad)" letter-spacing="-2">o</text>
+  </g>
+
+  <!-- Tagline -->
+  <text x="172" y="124" font-family="'Helvetica Neue', Helvetica, Arial, sans-serif" font-size="14" font-weight="400" fill="#64748B" letter-spacing="3">EVENT SOURCING IN GO</text>
+</svg>

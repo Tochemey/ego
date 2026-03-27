@@ -24,7 +24,7 @@ It demonstrates event sourcing, CQRS with a projection read side, Kubernetes-nat
                                      │
                           ┌──────────▼───────────┐
                           │  NGINX Ingress       │
-                          │  http://localhost     │
+                          │  http://localhost    │
                           │  round-robin → pods  │
                           └──────────┬───────────┘
                                      │

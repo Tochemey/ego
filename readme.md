@@ -1,10 +1,14 @@
-# eGo
+<p align="center">
+  <img src="assets/logo.png" alt="eGo Logo" width="480" />
+</p>
 
-[![build](https://img.shields.io/github/actions/workflow/status/Tochemey/ego/build.yml?branch=main)](https://github.com/Tochemey/ego/actions/workflows/build.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/tochemey/ego.svg)](https://pkg.go.dev/github.com/tochemey/ego)
-[![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/tochemey/ego)](https://go.dev/doc/install)
-[![GitHub Release](https://img.shields.io/github/v/release/tochemey/ego?sort=semver&display_name=release)](https://github.com/Tochemey/ego/releases)
-[![codecov](https://codecov.io/gh/Tochemey/ego/branch/main/graph/badge.svg?token=Z5b9gM6Mnt)](https://codecov.io/gh/Tochemey/ego)
+<p align="center">
+  <a href="https://github.com/Tochemey/ego/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/Tochemey/ego/build.yml?branch=main" alt="build"></a>
+  <a href="https://pkg.go.dev/github.com/tochemey/ego"><img src="https://pkg.go.dev/badge/github.com/tochemey/ego.svg" alt="Go Reference"></a>
+  <a href="https://go.dev/doc/install"><img src="https://img.shields.io/github/go-mod/go-version/tochemey/ego" alt="Go version"></a>
+  <a href="https://github.com/Tochemey/ego/releases"><img src="https://img.shields.io/github/v/release/tochemey/ego?sort=semver&display_name=release" alt="GitHub Release"></a>
+  <a href="https://codecov.io/gh/Tochemey/ego"><img src="https://codecov.io/gh/Tochemey/ego/branch/main/graph/badge.svg?token=Z5b9gM6Mnt" alt="codecov"></a>
+</p>
 
 eGo is a minimal library for building event-sourced and durable-state CQRS applications in Go.
 It lets you model your **commands**, **events**, and **state** with Protocol Buffers while relying on
@@ -13,21 +17,21 @@ It lets you model your **commands**, **events**, and **state** with Protocol Buf
 The `main` branch currently targets the `v4` API surface. See the [changelog](./CHANGELOG.md) for the full release
 history and migration details.
 
-## 💻 Installation
+## 📦 Installation
 
 ```bash
 go get github.com/tochemey/ego/v4
 ```
 
-## 🌟 Why eGo
+## ✨ Why eGo
 
-- 🧩 Protobuf-first modeling for commands, events, and state
+- 🔲 Protobuf-first modeling for commands, events, and state
 - ⚡ Event-sourced and durable-state behaviors under one API
-- 📚 Built-in support for CQRS projections and event streaming
-- 📸 Snapshot-based recovery for faster replay
-- 🔄 Event adapters for schema evolution
+- 📡 Built-in support for CQRS projections and event streaming
+- 💾 Snapshot-based recovery for faster replay
+- 🔀 Event adapters for schema evolution
 - 📊 OpenTelemetry-ready tracing and metrics
-- 🔐 Encryption support for events and snapshots
+- 🔒 Encryption support for events and snapshots
 - 🔁 Saga/process manager support for long-running workflows
 - 🧪 Testkit and mocks for fast feedback
 
@@ -35,35 +39,35 @@ go get github.com/tochemey/ego/v4
 
 Version `v4` introduces a major refresh across persistence, observability, operability, and developer experience.
 
-- 📸 **Snapshot Store**: persist snapshots independently from events with `SnapshotStore`, `WithSnapshotStore()`, and
+- 💾 **Snapshot Store**: persist snapshots independently from events with `SnapshotStore`, `WithSnapshotStore()`, and
   `WithSnapshotInterval()`
-- 🔄 **Event Adapters**: evolve persisted event schemas during replay and projection consumption with the
+- 🔀 **Event Adapters**: evolve persisted event schemas during replay and projection consumption with the
   `eventadapter` package
 - 📊 **OpenTelemetry Integration**: instrument command processing, persistence, projections, and active entities with
   traces and metrics via `WithTelemetry()`
-- 💀 **Dead Letter Handler**: capture projection failures after retry exhaustion with `DeadLetterHandler`
-- 🔁 **Projection Rebuild**: replay a projection from a chosen point in time using `Engine.RebuildProjection()`
+- 🪦 **Dead Letter Handler**: capture projection failures after retry exhaustion with `DeadLetterHandler`
+- ⏪ **Projection Rebuild**: replay a projection from a chosen point in time using `Engine.RebuildProjection()`
 - 🧪 **Scenario-based Testkit**: Given/When/Then APIs for event-sourced and durable-state behaviors
-- 🔀 **Migration Utility**: migrate legacy inline state into snapshots with the `migration` package
+- 🔧 **Migration Utility**: migrate legacy inline state into snapshots with the `migration` package
 - 📈 **Projection Lag Monitoring**: inspect lag per shard with `Engine.ProjectionLag()` and dedicated metrics
 - 🗑️ **Retention Policies**: automatically clean up old events and snapshots after successful snapshot writes
-- 🔐 **Encryption / GDPR Support**: encrypt payloads at rest and erase entity data with `Engine.EraseEntity()`
+- 🔒 **Encryption / GDPR Support**: encrypt payloads at rest and erase entity data with `Engine.EraseEntity()`
 - 📝 **Pluggable Logger**: use any logging backend through the `Logger` interface and `WithLogger()`
-- 🔄 **Saga / Process Manager**: coordinate long-running workflows with compensation support
+- 🔁 **Saga / Process Manager**: coordinate long-running workflows with compensation support
 
-## 🧱 Core Building Blocks
+## 🏗️ Core Building Blocks
 
-### 🗂️ Event-Sourced Behavior
+### 📜 Event-Sourced Behavior
 
 `EventSourcedBehavior` is eGo's core abstraction for domain models where state changes are represented as events.
 Commands are processed sequentially, resulting events are persisted, and state is rebuilt by replaying those events.
 
 In `v4`, event-sourced entities also benefit from:
 
-- 📸 snapshot-based recovery to reduce replay time
-- 🔄 event adapters for schema evolution
+- 💾 snapshot-based recovery to reduce replay time
+- 🔀 event adapters for schema evolution
 - 🗑️ retention policies to control storage growth
-- 🔐 transparent encryption of events and snapshots
+- 🔒 transparent encryption of events and snapshots
 
 Typical workflow:
 
@@ -73,7 +77,7 @@ Typical workflow:
 4. Configure runtime options such as snapshots, retention, telemetry, or encryption.
 5. Start the entity with the eGo engine.
 
-### 💾 Durable-State Behavior
+### 🗃️ Durable-State Behavior
 
 `DurableStateBehavior` is a simpler model for cases where you only need the latest state instead of a full event log.
 Each successful command produces a new state version, and only the latest version is persisted.
@@ -81,8 +85,8 @@ Each successful command produces a new state version, and only the latest versio
 This is a good fit for:
 
 - ⚙️ configuration-style entities
-- 🪶 lower-overhead persistence needs
-- 📦 use cases where audit replay is not required
+- 🪽 lower-overhead persistence needs
+- 📋 use cases where audit replay is not required
 
 Typical workflow:
 
@@ -91,7 +95,7 @@ Typical workflow:
 3. Provide a durable state store with `WithStateStore()`.
 4. Start the entity with the engine.
 
-### ⚖️ Event-Sourced vs Durable-State
+### ⚡ Event-Sourced vs Durable-State
 
 | Aspect            | `EventSourcedBehavior`                    | `DurableStateBehavior`       |
 |-------------------|-------------------------------------------|------------------------------|
@@ -101,23 +105,23 @@ Typical workflow:
 | Complexity        | Higher                                    | Lower                        |
 | Best fit          | Traceable, business-critical workflows    | Simpler CRUD-like aggregates |
 
-## 📡 Streaming, Projections, and Publishers
+## 📡 Projections & Publishers
 
 eGo pushes persisted domain changes to a stream so read models and integrations can react without reading directly from
 the primary store.
 
-### 🔭 Projections
+### 🎯 Projections
 
 Projections consume the write-model stream and build read models using an offset store.
 In `v4`, projections gain several operator-friendly improvements:
 
-- 💀 dead letter handling for unrecoverable projection failures
-- 🔁 rebuild support from a chosen timestamp
+- 🪦 dead letter handling for unrecoverable projection failures
+- ⏪ rebuild support from a chosen timestamp
 - 📈 lag, offset, and events-behind metrics per shard
-- 🔄 event adapter support during consumption
-- 🔐 automatic decryption before handlers process encrypted events
+- 🔀 event adapter support during consumption
+- 🔒 automatic decryption before handlers process encrypted events
 
-### 📢 Publishers
+### 🔌 Publishers
 
 eGo provides publisher APIs for both write models:
 
@@ -131,7 +135,7 @@ Available connectors:
 - NATS
 - WebSocket
 
-## 🔍 Observability
+## 📊 Observability
 
 Observability is a first-class concern in `v4`.
 With `WithTelemetry()`, eGo can emit:
@@ -143,17 +147,17 @@ With `WithTelemetry()`, eGo can emit:
 - active entity and projection counts
 - projection lag, latest offset, and approximate events-behind metrics
 
-## 🔐 Reliability and Operations
+## 🛡️ Reliability & Operations
 
 eGo now includes several production-focused capabilities:
 
-- 📸 faster recovery through snapshots
+- 💾 faster recovery through snapshots
 - 🗑️ storage cleanup through retention policies
-- 🔐 at-rest encryption for events and snapshots
+- 🔒 at-rest encryption for events and snapshots
 - 🧹 GDPR-style erasure with `Engine.EraseEntity()`
 - 📝 pluggable structured logging
 
-## 🔄 Sagas and Process Managers
+## 🔁 Sagas & Process Managers
 
 `v4` adds first-class saga support for long-running business processes that coordinate multiple entities.
 
@@ -164,18 +168,18 @@ You can:
 - model compensation logic for timeouts and failures
 - persist saga state using the same event-sourced foundations
 
-## 🌐 Clustering
+## 🌍 Clustering
 
 eGo uses [Go-Akt](https://github.com/Tochemey/goakt#clustering) for clustering and entity distribution.
 In `v4`, `WithCluster()` accepts `ego.ClusterProvider`, keeping your application code on eGo's abstraction instead of
 depending directly on Go-Akt discovery types.
 
-## 🧪 Testkit and Mocks
+## 🧪 Testkit & Mocks
 
 The [`testkit`](./testkit) package helps you validate behavior quickly with in-memory stores and scenario-based testing.
 eGo also ships [`mocks`](./mocks) to simplify isolated unit tests around your stores and integrations.
 
-## 📖 Migration Notes
+## 🔄 Migration Notes
 
 Upgrading from `v3` to `v4` mainly involves:
 
@@ -188,10 +192,10 @@ Upgrading from `v3` to `v4` mainly involves:
 
 See [`CHANGELOG.md`](./CHANGELOG.md) for the full breaking-change list.
 
-## 🎯 Examples
+## 💡 Examples
 
 Browse the [examples](./example) directory for runnable samples and integration ideas.
 
-## 🤝 Contributing
+## 🤝 Contributions
 
 Please follow the [contribution guide](./contributing.md).
