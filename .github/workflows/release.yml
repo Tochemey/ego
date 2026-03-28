@@ -203,7 +203,8 @@ jobs:
 
             gh release create "${LATEST}" \
               --title "${PUB} publisher v${VERSION}" \
-              --notes "Release of \`${PUB}\` publisher v${VERSION}, updated to ego ${EGO_VERSION}."
+              --notes "Release of \`${PUB}\` publisher v${VERSION}, updated to ego ${EGO_VERSION}." \
+              --latest=false
 
             echo "Created release for ${PUB} publisher v${VERSION}"
           done
