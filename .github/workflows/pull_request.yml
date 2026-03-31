@@ -52,7 +52,7 @@ jobs:
         shell: bash
         run: |
           go-acc ./... -o coverage.out --ignore egopb,test,example,mocks -- -mod=vendor -p 1 -timeout 0 -race -v
-      - uses: codecov/codecov-action@v5
+      - uses: codecov/codecov-action@v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.out # optional
