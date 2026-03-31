@@ -79,6 +79,8 @@ github.com/flowchartsman/retry v1.2.0 h1:qDhlw6RNufXz6RGr+IiYimFpMMkt77SUSHY5tgF
 github.com/flowchartsman/retry v1.2.0/go.mod h1:+sfx8OgCCiAr3t5jh2Gk+T0fRTI+k52edaYxURQxY64=
 github.com/fxamacker/cbor/v2 v2.9.0 h1:NpKPmjDBgUfBms6tr6JZkTHtfFGcMKsw3eGcmD/sapM=
 github.com/fxamacker/cbor/v2 v2.9.0/go.mod h1:vM4b+DJCtHn+zz7h3FFp/hDAI9WNWCsZj23V5ytsSxQ=
+github.com/fxamacker/cbor/v2 v2.9.1 h1:2rWm8B193Ll4VdjsJY28jxs70IdDsHRWgQYAI80+rMQ=
+github.com/fxamacker/cbor/v2 v2.9.1/go.mod h1:vM4b+DJCtHn+zz7h3FFp/hDAI9WNWCsZj23V5ytsSxQ=
 github.com/go-kit/kit v0.8.0/go.mod h1:xBxKIO96dXMWWy0MnWVtmwkA9/13aqxPnvrjFYMA2as=
 github.com/go-kit/kit v0.9.0/go.mod h1:xBxKIO96dXMWWy0MnWVtmwkA9/13aqxPnvrjFYMA2as=
 github.com/go-kit/log v0.1.0/go.mod h1:zbhenjAZHb184qTLMA9ZjW7ThYL0H2mk7Q6pNt4vbaY=
@@ -312,6 +314,8 @@ github.com/tklauser/numcpus v0.11.0 h1:nSTwhKH5e1dMNsCdVBukSZrURJRoHbSEQjdEbY+9R
 github.com/tklauser/numcpus v0.11.0/go.mod h1:z+LwcLq54uWZTX0u/bGobaV34u6V7KNlTZejzM6/3MQ=
 github.com/tochemey/goakt/v4 v4.1.1 h1:MO3HmcsDxTANSEZ9Js+dpwb/YD4qELBzV+0gbO9WrFQ=
 github.com/tochemey/goakt/v4 v4.1.1/go.mod h1:fdUODkdd7FRkM4jumOd9jVBoCjB1L4YnAAF6WTYHMo0=
+github.com/tochemey/goakt/v4 v4.2.0 h1:BAZf9TNCb9su7d+vghDyj39XSlJJUVMuXTLMK9eL4XQ=
+github.com/tochemey/goakt/v4 v4.2.0/go.mod h1:dv/CcxsfsW/SSbLFnW/PIBvHo8uMNbPx2SjOkDdjzT4=
 github.com/tochemey/olric v0.3.9 h1:MU3VVQ3TZwdRzyxai0myxNMZj0lMK/RCjhaYh2Xe6aQ=
 github.com/tochemey/olric v0.3.9/go.mod h1:r5OVAIw1zaZJ5WKvKj1c4XnLwFaYpH8EJpm4dAD8Bp0=
 github.com/travisjeffery/go-dynaport v1.0.0 h1:m/qqf5AHgB96CMMSworIPyo1i7NZueRsnwdzdCJ8Ajw=

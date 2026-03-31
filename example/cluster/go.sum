@@ -85,6 +85,8 @@ github.com/flowchartsman/retry v1.2.0 h1:qDhlw6RNufXz6RGr+IiYimFpMMkt77SUSHY5tgF
 github.com/flowchartsman/retry v1.2.0/go.mod h1:+sfx8OgCCiAr3t5jh2Gk+T0fRTI+k52edaYxURQxY64=
 github.com/fxamacker/cbor/v2 v2.9.0 h1:NpKPmjDBgUfBms6tr6JZkTHtfFGcMKsw3eGcmD/sapM=
 github.com/fxamacker/cbor/v2 v2.9.0/go.mod h1:vM4b+DJCtHn+zz7h3FFp/hDAI9WNWCsZj23V5ytsSxQ=
+github.com/fxamacker/cbor/v2 v2.9.1 h1:2rWm8B193Ll4VdjsJY28jxs70IdDsHRWgQYAI80+rMQ=
+github.com/fxamacker/cbor/v2 v2.9.1/go.mod h1:vM4b+DJCtHn+zz7h3FFp/hDAI9WNWCsZj23V5ytsSxQ=
 github.com/go-kit/kit v0.8.0/go.mod h1:xBxKIO96dXMWWy0MnWVtmwkA9/13aqxPnvrjFYMA2as=
 github.com/go-kit/kit v0.9.0/go.mod h1:xBxKIO96dXMWWy0MnWVtmwkA9/13aqxPnvrjFYMA2as=
 github.com/go-kit/log v0.1.0/go.mod h1:zbhenjAZHb184qTLMA9ZjW7ThYL0H2mk7Q6pNt4vbaY=
@@ -384,6 +386,8 @@ github.com/tochemey/goakt/v4 v4.1.0 h1:YDd1PRjBQt00bblLO0GstaLoSnpLFtSy1JHFVV6pU
 github.com/tochemey/goakt/v4 v4.1.0/go.mod h1:y4Ub+hDGq7KeR6cAs/MCRdjCUV3geb+u7+qb9I1Hqsk=
 github.com/tochemey/goakt/v4 v4.1.1 h1:MO3HmcsDxTANSEZ9Js+dpwb/YD4qELBzV+0gbO9WrFQ=
 github.com/tochemey/goakt/v4 v4.1.1/go.mod h1:fdUODkdd7FRkM4jumOd9jVBoCjB1L4YnAAF6WTYHMo0=
+github.com/tochemey/goakt/v4 v4.2.0 h1:BAZf9TNCb9su7d+vghDyj39XSlJJUVMuXTLMK9eL4XQ=
+github.com/tochemey/goakt/v4 v4.2.0/go.mod h1:dv/CcxsfsW/SSbLFnW/PIBvHo8uMNbPx2SjOkDdjzT4=
 github.com/tochemey/olric v0.3.8 h1:t9LMoyAcoeCfn8n9NRY6fCIJlfok06mzoagDHgICM48=
 github.com/tochemey/olric v0.3.8/go.mod h1:bWN6wnNHaVFqz1KGWbvORsC6sfSLtncFEM19dUJHMdQ=
 github.com/tochemey/olric v0.3.9 h1:MU3VVQ3TZwdRzyxai0myxNMZj0lMK/RCjhaYh2Xe6aQ=
@@ -521,10 +525,14 @@ google.golang.org/genproto/googleapis/api v0.0.0-20260226221140-a57be14db171 h1:
 google.golang.org/genproto/googleapis/api v0.0.0-20260226221140-a57be14db171/go.mod h1:M5krXqk4GhBKvB596udGL3UyjL4I1+cTbK0orROM9ng=
 google.golang.org/genproto/googleapis/api v0.0.0-20260319201613-d00831a3d3e7 h1:41r6JMbpzBMen0R/4TZeeAmGXSJC7DftGINUodzTkPI=
 google.golang.org/genproto/googleapis/api v0.0.0-20260319201613-d00831a3d3e7/go.mod h1:EIQZ5bFCfRQDV4MhRle7+OgjNtZ6P1PiZBgAKuxXu/Y=
+google.golang.org/genproto/googleapis/api v0.0.0-20260330182312-d5a96adf58d8 h1:udju5p8o61FW6K2fxHWPIZhChk4FHl2Hjk8+uuLNnpM=
+google.golang.org/genproto/googleapis/api v0.0.0-20260330182312-d5a96adf58d8/go.mod h1:EIQZ5bFCfRQDV4MhRle7+OgjNtZ6P1PiZBgAKuxXu/Y=
 google.golang.org/genproto/googleapis/rpc v0.0.0-20260226221140-a57be14db171 h1:ggcbiqK8WWh6l1dnltU4BgWGIGo+EVYxCaAPih/zQXQ=
 google.golang.org/genproto/googleapis/rpc v0.0.0-20260226221140-a57be14db171/go.mod h1:4Hqkh8ycfw05ld/3BWL7rJOSfebL2Q+DVDeRgYgxUU8=
 google.golang.org/genproto/googleapis/rpc v0.0.0-20260319201613-d00831a3d3e7 h1:ndE4FoJqsIceKP2oYSnUZqhTdYufCYYkqwtFzfrhI7w=
 google.golang.org/genproto/googleapis/rpc v0.0.0-20260319201613-d00831a3d3e7/go.mod h1:4Hqkh8ycfw05ld/3BWL7rJOSfebL2Q+DVDeRgYgxUU8=
+google.golang.org/genproto/googleapis/rpc v0.0.0-20260330182312-d5a96adf58d8 h1:OHkuo1i98/05rzpm9NBbfEtpJH/k3abEgZUKaAuCI7Y=
+google.golang.org/genproto/googleapis/rpc v0.0.0-20260330182312-d5a96adf58d8/go.mod h1:4Hqkh8ycfw05ld/3BWL7rJOSfebL2Q+DVDeRgYgxUU8=
 google.golang.org/grpc v1.79.2 h1:fRMD94s2tITpyJGtBBn7MkMseNpOZU8ZxgC3MMBaXRU=
 google.golang.org/grpc v1.79.2/go.mod h1:KmT0Kjez+0dde/v2j9vzwoAScgEPx/Bw1CYChhHLrHQ=
 google.golang.org/grpc v1.79.3 h1:sybAEdRIEtvcD68Gx7dmnwjZKlyfuc61Dyo9pGXXkKE=
@@ -573,6 +581,8 @@ k8s.io/kube-openapi v0.0.0-20260304202019-5b3e3fdb0acf h1:btPscg4cMql0XdYK2jLsJc
 k8s.io/kube-openapi v0.0.0-20260304202019-5b3e3fdb0acf/go.mod h1:kdmbQkyfwUagLfXIad1y2TdrjPFWp2Q89B3qkRwf/pQ=
 k8s.io/kube-openapi v0.0.0-20260319004828-5883c5ee87b9 h1:Sztf7ESG9tAXRW/ACJZjrj5jhdOUqS2KFRQT+CTvu78=
 k8s.io/kube-openapi v0.0.0-20260319004828-5883c5ee87b9/go.mod h1:uGBT7iTA6c6MvqUvSXIaYZo9ukscABYi2btjhvgKGZ0=
+k8s.io/kube-openapi v0.0.0-20260330154417-16be699c7b31 h1:V+sn9a/1fEYDGwnllCmqXBk8x7obZ+hl869Q3Abumkg=
+k8s.io/kube-openapi v0.0.0-20260330154417-16be699c7b31/go.mod h1:uGBT7iTA6c6MvqUvSXIaYZo9ukscABYi2btjhvgKGZ0=
 k8s.io/utils v0.0.0-20260210185600-b8788abfbbc2 h1:AZYQSJemyQB5eRxqcPky+/7EdBj0xi3g0ZcxxJ7vbWU=
 k8s.io/utils v0.0.0-20260210185600-b8788abfbbc2/go.mod h1:xDxuJ0whA3d0I4mf/C4ppKHxXynQ+fxnkmQH0vTHnuk=
 k8s.io/utils v0.0.0-20260319190234-28399d86e0b5 h1:kBawHLSnx/mYHmRnNUf9d4CpjREbeZuxoSGOX/J+aYM=
