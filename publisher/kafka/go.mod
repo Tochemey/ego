@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/IBM/sarama v1.47.0
 	github.com/tochemey/ego/v4 v4.0.0
-	github.com/tochemey/goakt/v4 v4.1.1
+	github.com/tochemey/goakt/v4 v4.2.0
 	go.uber.org/atomic v1.11.0
 	google.golang.org/protobuf v1.36.11
 )
@@ -20,7 +20,7 @@ require (
 	github.com/deckarep/golang-set/v2 v2.8.0 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/flowchartsman/retry v1.2.0 // indirect
-	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
+	github.com/fxamacker/cbor/v2 v2.9.1 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/google/btree v1.1.3 // indirect
