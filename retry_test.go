@@ -126,7 +126,12 @@ func TestRetryWithBackoff(t *testing.T) {
 		delay1 := timestamps[1].Sub(timestamps[0])
 		delay2 := timestamps[2].Sub(timestamps[1])
 
-		assert.True(t, delay1 >= 50*time.Millisecond, "first delay %v too short", delay1)
-		assert.True(t, delay2 > delay1, "second delay %v should exceed first %v", delay2, delay1)
+		// Attempt 0: base=100ms, jitter ∈ [0.5,1.5) → [50ms, 150ms)
+		// Attempt 1: base=200ms, jitter ∈ [0.5,1.5) → [100ms, 300ms)
+		// Use generous bounds to accommodate scheduler jitter.
+		assert.True(t, delay1 >= 40*time.Millisecond && delay1 <= 200*time.Millisecond,
+			"first delay %v outside expected range [40ms, 200ms]", delay1)
+		assert.True(t, delay2 >= 80*time.Millisecond && delay2 <= 400*time.Millisecond,
+			"second delay %v outside expected range [80ms, 400ms]", delay2)
 	})
 }
