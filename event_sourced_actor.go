@@ -25,6 +25,7 @@ package ego
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	goakt "github.com/tochemey/goakt/v4/actor"
@@ -129,6 +130,7 @@ type EventSourcedActor struct {
 	remainingReplies int
 	shutdownOnDrain  bool
 	flushTimer       *time.Timer
+	batchMu          sync.Mutex
 }
 
 var _ goakt.Actor = (*EventSourcedActor)(nil)
@@ -858,7 +860,9 @@ func (entity *EventSourcedActor) flushBatch(ctx *goakt.ReceiveContext) {
 // If the actor is still in phaseProcessing with a non-empty batch, the
 // batch is flushed immediately.
 func (entity *EventSourcedActor) handleBatchFlushTick(ctx *goakt.ReceiveContext) {
+	entity.batchMu.Lock()
 	entity.flushTimer = nil
+	entity.batchMu.Unlock()
 	if entity.phase != phaseProcessing || len(entity.batchEntries) == 0 {
 		return
 	}
@@ -974,6 +978,8 @@ func (entity *EventSourcedActor) crossedSnapshotBoundary(previousCounter uint64)
 // startFlushTimer arms the batch flush timer if it is not already running.
 // When the timer fires, a batchFlushTick is delivered to the actor mailbox.
 func (entity *EventSourcedActor) startFlushTimer(ctx *goakt.ReceiveContext) {
+	entity.batchMu.Lock()
+	defer entity.batchMu.Unlock()
 	if entity.flushTimer != nil {
 		return
 	}
@@ -984,7 +990,11 @@ func (entity *EventSourcedActor) startFlushTimer(ctx *goakt.ReceiveContext) {
 }
 
 // stopFlushTimer cancels a running flush timer, if any.
+// It is safe to call from both the actor's message-processing goroutine
+// and the shutdown goroutine (PostStop).
 func (entity *EventSourcedActor) stopFlushTimer() {
+	entity.batchMu.Lock()
+	defer entity.batchMu.Unlock()
 	if entity.flushTimer != nil {
 		entity.flushTimer.Stop()
 		entity.flushTimer = nil
@@ -992,8 +1002,12 @@ func (entity *EventSourcedActor) stopFlushTimer() {
 }
 
 // resetBatch clears all batch accumulation state, preparing the actor for
-// a new batch cycle.
+// a new batch cycle. The mutex prevents a data race between the
+// message-processing goroutine (replyFromBatch) and the shutdown
+// goroutine (PostStop).
 func (entity *EventSourcedActor) resetBatch() {
+	entity.batchMu.Lock()
+	defer entity.batchMu.Unlock()
 	entity.batchBuffer = nil
 	entity.batchEntries = nil
 	entity.batchState = nil
