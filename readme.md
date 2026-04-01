@@ -17,76 +17,99 @@ It lets you model your **commands**, **events**, and **state** with Protocol Buf
 The `main` branch currently targets the `v4` API surface. See the [changelog](./CHANGELOG.md) for the full release
 history and migration details.
 
-## 📦 Installation
+## Installation
 
 ```bash
 go get github.com/tochemey/ego/v4
 ```
 
-## ✨ Why eGo
+## Why eGo
 
-- 🔲 Protobuf-first modeling for commands, events, and state
-- ⚡ Event-sourced and durable-state behaviors under one API
-- 📡 Built-in support for CQRS projections and event streaming
-- 💾 Snapshot-based recovery for faster replay
-- 🔀 Event adapters for schema evolution
-- 📊 OpenTelemetry-ready tracing and metrics
-- 🔒 Encryption support for events and snapshots
-- 🔁 Saga/process manager support for long-running workflows
-- 🧪 Testkit and mocks for fast feedback
+- Protobuf-first modeling for commands, events, and state
+- Event-sourced and durable-state behaviors under one API
+- Built-in support for CQRS projections and event streaming
+- Snapshot-based recovery for faster replay
+- Event batching to amortize persistence cost across commands
+- Event adapters for schema evolution
+- OpenTelemetry-ready tracing and metrics
+- Encryption support for events and snapshots
+- Saga/process manager support for long-running workflows
+- Testkit and mocks for fast feedback
 
-## 🚀 What's New in v4
+## What's New in v4
 
 Version `v4` introduces a major refresh across persistence, observability, operability, and developer experience.
 
-- 💾 **Snapshot Store**: persist snapshots independently from events with `SnapshotStore`, `WithSnapshotStore()`, and
+- **Snapshot Store**: persist snapshots independently from events with `SnapshotStore`, `WithSnapshotStore()`, and
   `WithSnapshotInterval()`
-- 🔀 **Event Adapters**: evolve persisted event schemas during replay and projection consumption with the
+- **Event Batching**: amortize store round-trips by accumulating events across multiple commands and flushing them in a
+  single write with `WithBatchThreshold()` and `WithBatchFlushWindow()`
+- **Event Adapters**: evolve persisted event schemas during replay and projection consumption with the
   `eventadapter` package
-- 📊 **OpenTelemetry Integration**: instrument command processing, persistence, projections, and active entities with
+- **OpenTelemetry Integration**: instrument command processing, persistence, projections, and active entities with
   traces and metrics via `WithTelemetry()`
-- 🪦 **Dead Letter Handler**: capture projection failures after retry exhaustion with `DeadLetterHandler`
-- ⏪ **Projection Rebuild**: replay a projection from a chosen point in time using `Engine.RebuildProjection()`
-- 🧪 **Scenario-based Testkit**: Given/When/Then APIs for event-sourced and durable-state behaviors
-- 🔧 **Migration Utility**: migrate legacy inline state into snapshots with the `migration` package
-- 📈 **Projection Lag Monitoring**: inspect lag per shard with `Engine.ProjectionLag()` and dedicated metrics
-- 🗑️ **Retention Policies**: automatically clean up old events and snapshots after successful snapshot writes
-- 🔒 **Encryption / GDPR Support**: encrypt payloads at rest and erase entity data with `Engine.EraseEntity()`
-- 📝 **Pluggable Logger**: use any logging backend through the `Logger` interface and `WithLogger()`
-- 🔁 **Saga / Process Manager**: coordinate long-running workflows with compensation support
+- **Dead Letter Handler**: capture projection failures after retry exhaustion with `DeadLetterHandler`
+- **Projection Rebuild**: replay a projection from a chosen point in time using `Engine.RebuildProjection()`
+- **Scenario-based Testkit**: Given/When/Then APIs for event-sourced and durable-state behaviors
+- **Migration Utility**: migrate legacy inline state into snapshots with the `migration` package
+- **Projection Lag Monitoring**: inspect lag per shard with `Engine.ProjectionLag()` and dedicated metrics
+- **Retention Policies**: automatically clean up old events and snapshots after successful snapshot writes
+- **Encryption / GDPR Support**: encrypt payloads at rest and erase entity data with `Engine.EraseEntity()`
+- **Pluggable Logger**: use any logging backend through the `Logger` interface and `WithLogger()`
+- **Saga / Process Manager**: coordinate long-running workflows with compensation support
 
-## 🏗️ Core Building Blocks
+## Core Building Blocks
 
-### 📜 Event-Sourced Behavior
+### Event-Sourced Behavior
 
 `EventSourcedBehavior` is eGo's core abstraction for domain models where state changes are represented as events.
 Commands are processed sequentially, resulting events are persisted, and state is rebuilt by replaying those events.
 
 In `v4`, event-sourced entities also benefit from:
 
-- 💾 snapshot-based recovery to reduce replay time
-- 🔀 event adapters for schema evolution
-- 🗑️ retention policies to control storage growth
-- 🔒 transparent encryption of events and snapshots
+- Snapshot-based recovery to reduce replay time
+- Event batching for higher throughput under sustained command load
+- Event adapters for schema evolution
+- Retention policies to control storage growth
+- Transparent encryption of events and snapshots
 
 Typical workflow:
 
 1. Define protobuf messages for state, commands, and events.
 2. Implement your `EventSourcedBehavior`.
 3. Provide an `EventsStore` and, ideally, a `SnapshotStore`.
-4. Configure runtime options such as snapshots, retention, telemetry, or encryption.
+4. Configure runtime options such as snapshots, batching, retention, telemetry, or encryption.
 5. Start the entity with the eGo engine.
 
-### 🗃️ Durable-State Behavior
+#### Event Batching
+
+When an entity handles a high volume of commands, each individual store write becomes a throughput bottleneck.
+Event batching addresses this by accumulating events from multiple commands and flushing them in a single write.
+
+Enable batching with two spawn options:
+
+```go
+engine.Entity(ctx, behavior,
+    ego.WithBatchThreshold(10),          // flush after 10 commands
+    ego.WithBatchFlushWindow(5*time.Millisecond), // or after 5ms, whichever comes first
+)
+```
+
+While a batch is being written, the actor stashes incoming commands and replays them once the write completes.
+Commands are processed optimistically against pending state, so callers do not observe any ordering anomalies.
+
+A threshold of `0` (the default) disables batching entirely, preserving the one-command-one-write behavior.
+
+### Durable-State Behavior
 
 `DurableStateBehavior` is a simpler model for cases where you only need the latest state instead of a full event log.
 Each successful command produces a new state version, and only the latest version is persisted.
 
 This is a good fit for:
 
-- ⚙️ configuration-style entities
-- 🪽 lower-overhead persistence needs
-- 📋 use cases where audit replay is not required
+- Configuration-style entities
+- Lower-overhead persistence needs
+- Use cases where audit replay is not required
 
 Typical workflow:
 
@@ -95,7 +118,7 @@ Typical workflow:
 3. Provide a durable state store with `WithStateStore()`.
 4. Start the entity with the engine.
 
-### ⚡ Event-Sourced vs Durable-State
+### Event-Sourced vs Durable-State
 
 | Aspect            | `EventSourcedBehavior`                    | `DurableStateBehavior`       |
 |-------------------|-------------------------------------------|------------------------------|
@@ -105,23 +128,23 @@ Typical workflow:
 | Complexity        | Higher                                    | Lower                        |
 | Best fit          | Traceable, business-critical workflows    | Simpler CRUD-like aggregates |
 
-## 📡 Projections & Publishers
+## Projections & Publishers
 
 eGo pushes persisted domain changes to a stream so read models and integrations can react without reading directly from
 the primary store.
 
-### 🎯 Projections
+### Projections
 
 Projections consume the write-model stream and build read models using an offset store.
 In `v4`, projections gain several operator-friendly improvements:
 
-- 🪦 dead letter handling for unrecoverable projection failures
-- ⏪ rebuild support from a chosen timestamp
-- 📈 lag, offset, and events-behind metrics per shard
-- 🔀 event adapter support during consumption
-- 🔒 automatic decryption before handlers process encrypted events
+- Dead letter handling for unrecoverable projection failures
+- Rebuild support from a chosen timestamp
+- Lag, offset, and events-behind metrics per shard
+- Event adapter support during consumption
+- Automatic decryption before handlers process encrypted events
 
-### 🔌 Publishers
+### Publishers
 
 eGo provides publisher APIs for both write models:
 
@@ -135,51 +158,51 @@ Available connectors:
 - NATS
 - WebSocket
 
-## 📊 Observability
+## Observability
 
 Observability is a first-class concern in `v4`.
 With `WithTelemetry()`, eGo can emit:
 
-- trace spans for command processing
-- command counters and latency histograms
-- persisted-event counters
-- projection processing counters
-- active entity and projection counts
-- projection lag, latest offset, and approximate events-behind metrics
+- Trace spans for command processing
+- Command counters and latency histograms
+- Persisted-event counters
+- Projection processing counters
+- Active entity and projection counts
+- Projection lag, latest offset, and approximate events-behind metrics
 
-## 🛡️ Reliability & Operations
+## Reliability & Operations
 
-eGo now includes several production-focused capabilities:
+eGo includes several production-focused capabilities:
 
-- 💾 faster recovery through snapshots
-- 🗑️ storage cleanup through retention policies
-- 🔒 at-rest encryption for events and snapshots
-- 🧹 GDPR-style erasure with `Engine.EraseEntity()`
-- 📝 pluggable structured logging
+- Faster recovery through snapshots
+- Storage cleanup through retention policies
+- At-rest encryption for events and snapshots
+- GDPR-style erasure with `Engine.EraseEntity()`
+- Pluggable structured logging
 
-## 🔁 Sagas & Process Managers
+## Sagas & Process Managers
 
 `v4` adds first-class saga support for long-running business processes that coordinate multiple entities.
 
 You can:
 
-- start a saga with `Engine.Saga()`
-- inspect it with `Engine.SagaStatus()`
-- model compensation logic for timeouts and failures
-- persist saga state using the same event-sourced foundations
+- Start a saga with `Engine.Saga()`
+- Inspect it with `Engine.SagaStatus()`
+- Model compensation logic for timeouts and failures
+- Persist saga state using the same event-sourced foundations
 
-## 🌍 Clustering
+## Clustering
 
 eGo uses [Go-Akt](https://github.com/Tochemey/goakt#clustering) for clustering and entity distribution.
 In `v4`, `WithCluster()` accepts `ego.ClusterProvider`, keeping your application code on eGo's abstraction instead of
 depending directly on Go-Akt discovery types.
 
-## 🧪 Testkit & Mocks
+## Testkit & Mocks
 
 The [`testkit`](./testkit) package helps you validate behavior quickly with in-memory stores and scenario-based testing.
 eGo also ships [`mocks`](./mocks) to simplify isolated unit tests around your stores and integrations.
 
-## 🔄 Migration Notes
+## Migration Notes
 
 Upgrading from `v3` to `v4` mainly involves:
 
@@ -192,10 +215,10 @@ Upgrading from `v3` to `v4` mainly involves:
 
 See [`CHANGELOG.md`](./CHANGELOG.md) for the full breaking-change list.
 
-## 💡 Examples
+## Examples
 
 Browse the [examples](./example) directory for runnable samples and integration ideas.
 
-## 🤝 Contributions
+## Contributions
 
 Please follow the [contribution guide](./contributing.md).

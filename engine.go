@@ -467,6 +467,9 @@ func (engine *Engine) Entity(ctx context.Context, behavior EventSourcedBehavior,
 		entityConfig.DeleteSnapshotsOnSnapshot = config.retentionPolicy.DeleteSnapshotsOnSnapshot
 		entityConfig.EventsRetentionCount = config.retentionPolicy.EventsRetentionCount
 	}
+
+	entityConfig.BatchThreshold = config.batchThreshold
+	entityConfig.BatchFlushWindow = config.batchFlushWindow
 	_ = actorSystem.Inject(entityConfig)
 	sOptions = append(sOptions, goakt.WithDependencies(behavior, entityConfig))
 
@@ -925,6 +928,10 @@ func buildSpawnOptionsFromConfig(config *spawnConfig) []goakt.SpawnOption {
 		goakt.WithPlacement(toSpawnPlacement(config.entitiesPlacement)),
 		goakt.WithSupervisor(newSupervisor(config.supervisorDirective)),
 	)
+
+	if config.batchThreshold > 0 {
+		sOptions = append(sOptions, goakt.WithStashing())
+	}
 
 	return sOptions
 }
