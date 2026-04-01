@@ -2431,6 +2431,100 @@ func TestEventSourcedActorErrorPaths(t *testing.T) {
 		eventStream.Close()
 		require.NoError(t, actorSystem.Stop(ctx))
 	})
+
+	t.Run("with unhandled non-command message does not crash", func(t *testing.T) {
+		ctx := context.TODO()
+
+		eventStore := testkit.NewEventsStore()
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		require.NoError(t, eventStore.Connect(ctx))
+		pause.For(time.Second)
+
+		eventStream := eventstream.New()
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+			),
+			goakt.WithActorInitMaxRetries(3))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor,
+			goakt.WithDependencies(behavior),
+			goakt.WithLongLived())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		pause.For(time.Second)
+
+		err = goakt.Tell(ctx, pid, new(egopb.NoReply))
+		require.NoError(t, err)
+
+		pause.For(500 * time.Millisecond)
+
+		reply, err := goakt.Ask(ctx, pid, &testpb.CreateAccount{AccountBalance: 500}, 5*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+
+		commandReply := reply.(*egopb.CommandReply)
+		require.IsType(t, new(egopb.CommandReply_StateReply), commandReply.GetReply())
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		eventStream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("with persistEvents write failure shuts down actor", func(t *testing.T) {
+		ctx := context.TODO()
+
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+		eventStream := eventstream.New()
+
+		eventStore := new(mocks.EventsStore)
+		eventStore.EXPECT().Ping(mock.Anything).Return(nil)
+		eventStore.EXPECT().GetLatestEvent(mock.Anything, persistenceID).Return(nil, nil)
+		eventStore.EXPECT().WriteEvents(mock.Anything, mock.Anything).Return(assert.AnError)
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+			),
+			goakt.WithActorInitMaxRetries(1))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor,
+			goakt.WithDependencies(behavior),
+			goakt.WithLongLived())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		pause.For(time.Second)
+
+		reply, err := goakt.Ask(ctx, pid, &testpb.CreateAccount{AccountBalance: 500}, 5*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+
+		commandReply := reply.(*egopb.CommandReply)
+		require.IsType(t, new(egopb.CommandReply_ErrorReply), commandReply.GetReply())
+
+		eventStream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
 }
 
 // noopEventAdapter is a no-op event adapter that passes events through unchanged
@@ -2890,6 +2984,664 @@ func TestEventSourcedActorBatch(t *testing.T) {
 		assert.EqualValues(t, 100+float64(numCommands)*10, resultingState.GetAccountBalance())
 
 		require.NoError(t, eventStore.Disconnect(ctx))
+		eventStream.Close()
+		pause.For(time.Second)
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+	t.Run("batch persist failure returns error replies and shuts down actor", func(t *testing.T) {
+		ctx := context.TODO()
+
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		eventStore := new(mocks.EventsStore)
+		eventStore.EXPECT().Ping(mock.Anything).Return(nil)
+		eventStore.EXPECT().GetLatestEvent(mock.Anything, persistenceID).Return(nil, nil)
+		eventStore.EXPECT().WriteEvents(mock.Anything, mock.Anything).Return(assert.AnError)
+
+		eventStream := eventstream.New()
+
+		entityCfg := &extensions.EntityConfig{
+			BatchThreshold:   1,
+			BatchFlushWindow: time.Second,
+		}
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+			),
+			goakt.WithActorInitMaxRetries(1))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor,
+			goakt.WithDependencies(behavior, entityCfg),
+			goakt.WithLongLived(),
+			goakt.WithStashing())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		pause.For(time.Second)
+
+		reply, err := goakt.Ask(ctx, pid, &testpb.CreateAccount{AccountBalance: 500}, 5*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+
+		commandReply := reply.(*egopb.CommandReply)
+		require.IsType(t, new(egopb.CommandReply_ErrorReply), commandReply.GetReply())
+
+		eventStream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+	t.Run("batch persist failure with telemetry records metrics and ends spans", func(t *testing.T) {
+		ctx := context.TODO()
+
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		eventStore := new(mocks.EventsStore)
+		eventStore.EXPECT().Ping(mock.Anything).Return(nil)
+		eventStore.EXPECT().GetLatestEvent(mock.Anything, persistenceID).Return(nil, nil)
+		eventStore.EXPECT().WriteEvents(mock.Anything, mock.Anything).Return(assert.AnError)
+
+		eventStream := eventstream.New()
+
+		noopTracer := tracenoop.NewTracerProvider().Tracer("test")
+		noopMeter := noop.NewMeterProvider().Meter("test")
+
+		entityCfg := &extensions.EntityConfig{
+			BatchThreshold:   1,
+			BatchFlushWindow: time.Second,
+		}
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+				extensions.NewTelemetryExtension(noopTracer, noopMeter),
+			),
+			goakt.WithActorInitMaxRetries(1))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor,
+			goakt.WithDependencies(behavior, entityCfg),
+			goakt.WithLongLived(),
+			goakt.WithStashing())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		pause.For(time.Second)
+
+		reply, err := goakt.Ask(ctx, pid, &testpb.CreateAccount{AccountBalance: 500}, 5*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+
+		commandReply := reply.(*egopb.CommandReply)
+		require.IsType(t, new(egopb.CommandReply_ErrorReply), commandReply.GetReply())
+
+		eventStream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+	t.Run("batch mode with encryption failure in processAndBatch", func(t *testing.T) {
+		ctx := context.TODO()
+
+		eventStore := testkit.NewEventsStore()
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		require.NoError(t, eventStore.Connect(ctx))
+		pause.For(time.Second)
+
+		eventStream := eventstream.New()
+
+		encryptor := new(mockencryption.Encryptor)
+		encryptor.EXPECT().Encrypt(mock.Anything, persistenceID, mock.Anything).Return(nil, "", assert.AnError)
+
+		entityCfg := &extensions.EntityConfig{
+			BatchThreshold:   100,
+			BatchFlushWindow: 100 * time.Millisecond,
+		}
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+				extensions.NewEncryptor(encryptor),
+			),
+			goakt.WithActorInitMaxRetries(1))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor,
+			goakt.WithDependencies(behavior, entityCfg),
+			goakt.WithLongLived(),
+			goakt.WithStashing())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		pause.For(time.Second)
+
+		reply, err := goakt.Ask(ctx, pid, &testpb.CreateAccount{AccountBalance: 500}, 5*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+
+		commandReply := reply.(*egopb.CommandReply)
+		require.IsType(t, new(egopb.CommandReply_ErrorReply), commandReply.GetReply())
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		eventStream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+	t.Run("batch mode with telemetry traces commands", func(t *testing.T) {
+		ctx := context.TODO()
+
+		eventStore := testkit.NewEventsStore()
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		require.NoError(t, eventStore.Connect(ctx))
+		pause.For(time.Second)
+
+		eventStream := eventstream.New()
+
+		noopTracer := tracenoop.NewTracerProvider().Tracer("test")
+		noopMeter := noop.NewMeterProvider().Meter("test")
+
+		entityCfg := &extensions.EntityConfig{
+			BatchThreshold:   100,
+			BatchFlushWindow: 100 * time.Millisecond,
+		}
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+				extensions.NewTelemetryExtension(noopTracer, noopMeter),
+			),
+			goakt.WithActorInitMaxRetries(3))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor,
+			goakt.WithDependencies(behavior, entityCfg),
+			goakt.WithLongLived(),
+			goakt.WithStashing())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		pause.For(time.Second)
+
+		reply, err := goakt.Ask(ctx, pid, &testpb.CreateAccount{AccountBalance: 500}, 5*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+
+		commandReply := reply.(*egopb.CommandReply)
+		require.IsType(t, new(egopb.CommandReply_StateReply), commandReply.GetReply())
+
+		state := commandReply.GetReply().(*egopb.CommandReply_StateReply)
+		assert.EqualValues(t, 1, state.StateReply.GetSequenceNumber())
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		eventStream.Close()
+		pause.For(time.Second)
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+	t.Run("batch mode with telemetry handles no-event command", func(t *testing.T) {
+		ctx := context.TODO()
+
+		eventStore := testkit.NewEventsStore()
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		require.NoError(t, eventStore.Connect(ctx))
+		pause.For(time.Second)
+
+		eventStream := eventstream.New()
+
+		noopTracer := tracenoop.NewTracerProvider().Tracer("test")
+		noopMeter := noop.NewMeterProvider().Meter("test")
+
+		entityCfg := &extensions.EntityConfig{
+			BatchThreshold:   100,
+			BatchFlushWindow: 100 * time.Millisecond,
+		}
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+				extensions.NewTelemetryExtension(noopTracer, noopMeter),
+			),
+			goakt.WithActorInitMaxRetries(3))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor,
+			goakt.WithDependencies(behavior, entityCfg),
+			goakt.WithLongLived(),
+			goakt.WithStashing())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		pause.For(time.Second)
+
+		reply, err := goakt.Ask(ctx, pid, &testpb.TestNoEvent{}, 5*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+
+		commandReply := reply.(*egopb.CommandReply)
+		require.IsType(t, new(egopb.CommandReply_StateReply), commandReply.GetReply())
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		eventStream.Close()
+		pause.For(time.Second)
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+	t.Run("batch mode with telemetry handles error command", func(t *testing.T) {
+		ctx := context.TODO()
+
+		eventStore := testkit.NewEventsStore()
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		require.NoError(t, eventStore.Connect(ctx))
+		pause.For(time.Second)
+
+		eventStream := eventstream.New()
+
+		noopTracer := tracenoop.NewTracerProvider().Tracer("test")
+		noopMeter := noop.NewMeterProvider().Meter("test")
+
+		entityCfg := &extensions.EntityConfig{
+			BatchThreshold:   100,
+			BatchFlushWindow: 100 * time.Millisecond,
+		}
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+				extensions.NewTelemetryExtension(noopTracer, noopMeter),
+			),
+			goakt.WithActorInitMaxRetries(3))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor,
+			goakt.WithDependencies(behavior, entityCfg),
+			goakt.WithLongLived(),
+			goakt.WithStashing())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		pause.For(time.Second)
+
+		reply, err := goakt.Ask(ctx, pid, &testpb.CreditAccount{AccountId: "wrong-id", Balance: 100}, 5*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+
+		commandReply := reply.(*egopb.CommandReply)
+		require.IsType(t, new(egopb.CommandReply_ErrorReply), commandReply.GetReply())
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		eventStream.Close()
+		pause.For(time.Second)
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+	t.Run("batch mode with default flush window when only threshold is set", func(t *testing.T) {
+		ctx := context.TODO()
+
+		eventStore := testkit.NewEventsStore()
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		require.NoError(t, eventStore.Connect(ctx))
+		pause.For(time.Second)
+
+		eventStream := eventstream.New()
+
+		entityCfg := &extensions.EntityConfig{
+			BatchThreshold: 100,
+		}
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+			),
+			goakt.WithActorInitMaxRetries(3))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor,
+			goakt.WithDependencies(behavior, entityCfg),
+			goakt.WithLongLived(),
+			goakt.WithStashing())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		pause.For(time.Second)
+
+		reply, err := goakt.Ask(ctx, pid, &testpb.CreateAccount{AccountBalance: 500}, 5*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+
+		commandReply := reply.(*egopb.CommandReply)
+		require.IsType(t, new(egopb.CommandReply_StateReply), commandReply.GetReply())
+
+		state := commandReply.GetReply().(*egopb.CommandReply_StateReply)
+		assert.EqualValues(t, 1, state.StateReply.GetSequenceNumber())
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		eventStream.Close()
+		pause.For(time.Second)
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+	t.Run("unhandled non-command message in batch mode", func(t *testing.T) {
+		ctx := context.TODO()
+
+		eventStore := testkit.NewEventsStore()
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		require.NoError(t, eventStore.Connect(ctx))
+		pause.For(time.Second)
+
+		eventStream := eventstream.New()
+
+		entityCfg := &extensions.EntityConfig{
+			BatchThreshold:   100,
+			BatchFlushWindow: 100 * time.Millisecond,
+		}
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+			),
+			goakt.WithActorInitMaxRetries(3))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor,
+			goakt.WithDependencies(behavior, entityCfg),
+			goakt.WithLongLived(),
+			goakt.WithStashing())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		pause.For(time.Second)
+
+		err = goakt.Tell(ctx, pid, new(egopb.NoReply))
+		require.NoError(t, err)
+
+		pause.For(500 * time.Millisecond)
+
+		reply, err := goakt.Ask(ctx, pid, &testpb.CreateAccount{AccountBalance: 500}, 5*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+
+		commandReply := reply.(*egopb.CommandReply)
+		require.IsType(t, new(egopb.CommandReply_StateReply), commandReply.GetReply())
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		eventStream.Close()
+		pause.For(time.Second)
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+	t.Run("batch mode with encryption failure and telemetry ends span", func(t *testing.T) {
+		ctx := context.TODO()
+
+		eventStore := testkit.NewEventsStore()
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		require.NoError(t, eventStore.Connect(ctx))
+		pause.For(time.Second)
+
+		eventStream := eventstream.New()
+
+		noopTracer := tracenoop.NewTracerProvider().Tracer("test")
+		noopMeter := noop.NewMeterProvider().Meter("test")
+
+		encryptor := new(mockencryption.Encryptor)
+		encryptor.EXPECT().Encrypt(mock.Anything, persistenceID, mock.Anything).Return(nil, "", assert.AnError)
+
+		entityCfg := &extensions.EntityConfig{
+			BatchThreshold:   100,
+			BatchFlushWindow: 100 * time.Millisecond,
+		}
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+				extensions.NewEncryptor(encryptor),
+				extensions.NewTelemetryExtension(noopTracer, noopMeter),
+			),
+			goakt.WithActorInitMaxRetries(1))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor,
+			goakt.WithDependencies(behavior, entityCfg),
+			goakt.WithLongLived(),
+			goakt.WithStashing())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		pause.For(time.Second)
+
+		reply, err := goakt.Ask(ctx, pid, &testpb.CreateAccount{AccountBalance: 500}, 5*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+
+		commandReply := reply.(*egopb.CommandReply)
+		require.IsType(t, new(egopb.CommandReply_ErrorReply), commandReply.GetReply())
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		eventStream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+	t.Run("multiple commands batch with telemetry covers reply span and timer dedup", func(t *testing.T) {
+		ctx := context.TODO()
+
+		eventStore := testkit.NewEventsStore()
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		require.NoError(t, eventStore.Connect(ctx))
+		pause.For(time.Second)
+
+		eventStream := eventstream.New()
+
+		noopTracer := tracenoop.NewTracerProvider().Tracer("test")
+		noopMeter := noop.NewMeterProvider().Meter("test")
+
+		entityCfg := &extensions.EntityConfig{
+			BatchThreshold:   3,
+			BatchFlushWindow: 10 * time.Second,
+		}
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+				extensions.NewTelemetryExtension(noopTracer, noopMeter),
+			),
+			goakt.WithActorInitMaxRetries(3))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor,
+			goakt.WithDependencies(behavior, entityCfg),
+			goakt.WithLongLived(),
+			goakt.WithStashing())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		pause.For(time.Second)
+
+		var wg sync.WaitGroup
+		replies := make([]any, 3)
+		errs := make([]error, 3)
+
+		wg.Add(3)
+		go func() {
+			defer wg.Done()
+			replies[0], errs[0] = goakt.Ask(ctx, pid, &testpb.CreateAccount{AccountBalance: 500}, 10*time.Second)
+		}()
+		go func() {
+			defer wg.Done()
+			replies[1], errs[1] = goakt.Ask(ctx, pid, &testpb.CreditAccount{AccountId: persistenceID, Balance: 100}, 10*time.Second)
+		}()
+		go func() {
+			defer wg.Done()
+			replies[2], errs[2] = goakt.Ask(ctx, pid, &testpb.CreditAccount{AccountId: persistenceID, Balance: 50}, 10*time.Second)
+		}()
+
+		wg.Wait()
+
+		for i, e := range errs {
+			require.NoError(t, e, "command %d failed", i)
+			cr := replies[i].(*egopb.CommandReply)
+			require.IsType(t, new(egopb.CommandReply_StateReply), cr.GetReply(), "command %d should be state reply", i)
+		}
+
+		stateReply, err := goakt.Ask(ctx, pid, &egopb.GetStateCommand{}, 5*time.Second)
+		require.NoError(t, err)
+
+		cr := stateReply.(*egopb.CommandReply)
+		sr := cr.GetReply().(*egopb.CommandReply_StateReply)
+		assert.EqualValues(t, 3, sr.StateReply.GetSequenceNumber())
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		eventStream.Close()
+		pause.For(time.Second)
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+	t.Run("batch with snapshot and telemetry", func(t *testing.T) {
+		ctx := context.TODO()
+
+		eventStore := testkit.NewEventsStore()
+		snapshotStore := testkit.NewSnapshotStore()
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		require.NoError(t, eventStore.Connect(ctx))
+		require.NoError(t, snapshotStore.Connect(ctx))
+		pause.For(time.Second)
+
+		eventStream := eventstream.New()
+
+		noopTracer := tracenoop.NewTracerProvider().Tracer("test")
+		noopMeter := noop.NewMeterProvider().Meter("test")
+
+		entityCfg := &extensions.EntityConfig{
+			SnapshotInterval: 2,
+			BatchThreshold:   2,
+			BatchFlushWindow: 10 * time.Second,
+		}
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+				extensions.NewSnapshotStore(snapshotStore),
+				extensions.NewTelemetryExtension(noopTracer, noopMeter),
+			),
+			goakt.WithActorInitMaxRetries(3))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor,
+			goakt.WithDependencies(behavior, entityCfg),
+			goakt.WithLongLived(),
+			goakt.WithStashing())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		pause.For(time.Second)
+
+		var wg sync.WaitGroup
+		replies := make([]any, 2)
+		errs := make([]error, 2)
+
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			replies[0], errs[0] = goakt.Ask(ctx, pid, &testpb.CreateAccount{AccountBalance: 500}, 10*time.Second)
+		}()
+		go func() {
+			defer wg.Done()
+			replies[1], errs[1] = goakt.Ask(ctx, pid, &testpb.CreditAccount{AccountId: persistenceID, Balance: 100}, 10*time.Second)
+		}()
+
+		wg.Wait()
+
+		require.NoError(t, errs[0])
+		require.NoError(t, errs[1])
+
+		for i, r := range replies {
+			cr := r.(*egopb.CommandReply)
+			require.IsType(t, new(egopb.CommandReply_StateReply), cr.GetReply(), "reply %d should be state reply", i)
+		}
+
+		pause.For(time.Second)
+
+		snap, err := snapshotStore.GetLatestSnapshot(ctx, persistenceID)
+		require.NoError(t, err)
+		require.NotNil(t, snap)
+		assert.EqualValues(t, 2, snap.GetSequenceNumber())
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		require.NoError(t, snapshotStore.Disconnect(ctx))
 		eventStream.Close()
 		pause.For(time.Second)
 		require.NoError(t, actorSystem.Stop(ctx))
