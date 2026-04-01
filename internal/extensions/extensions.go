@@ -352,11 +352,13 @@ func (x *EncryptorExtension) Encryptor() encryption.Encryptor {
 // This allows the EventSourcedActor constructor to take no arguments,
 // which is required for correct behavior during cluster relocation.
 type EntityConfig struct {
-	SnapshotInterval          uint64 `json:"snapshot_interval"`
-	DeleteEventsOnSnapshot    bool   `json:"delete_events_on_snapshot"`
-	DeleteSnapshotsOnSnapshot bool   `json:"delete_snapshots_on_snapshot"`
-	EventsRetentionCount      uint64 `json:"events_retention_count"`
-	HasRetentionPolicy        bool   `json:"has_retention_policy"`
+	SnapshotInterval          uint64        `json:"snapshot_interval"`
+	DeleteEventsOnSnapshot    bool          `json:"delete_events_on_snapshot"`
+	DeleteSnapshotsOnSnapshot bool          `json:"delete_snapshots_on_snapshot"`
+	EventsRetentionCount      uint64        `json:"events_retention_count"`
+	HasRetentionPolicy        bool          `json:"has_retention_policy"`
+	BatchThreshold            int           `json:"batch_threshold"`
+	BatchFlushWindow          time.Duration `json:"batch_flush_window"`
 }
 
 // enforce compliance with the extension.Dependency interface

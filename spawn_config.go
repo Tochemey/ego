@@ -75,6 +75,13 @@ type spawnConfig struct {
 	snapshotInterval uint64
 	// retentionPolicy controls cleanup of old events and snapshots after a snapshot write.
 	retentionPolicy *RetentionPolicy
+	// batchThreshold sets the number of commands to accumulate before flushing
+	// events to the store in a single write. A value of 0 disables batching.
+	batchThreshold int
+	// batchFlushWindow sets the maximum time to wait before flushing a partial
+	// batch. When the window expires, pending events are flushed regardless of
+	// how many commands have been accumulated.
+	batchFlushWindow time.Duration
 }
 
 // newSpawnConfig creates an instance of spawnConfig
@@ -151,9 +158,10 @@ func WithSupervisorDirective(directive SupervisorDirective) SpawnOption {
 }
 
 // WithSnapshotInterval sets how often the resulting state is persisted alongside events.
-// A value of 0 or 1 means every event carries a snapshot (default behavior).
-// A value of N > 1 means only every Nth event carries the resulting state.
-// During recovery, the entity replays events since the last snapshot point.
+// A value of 0 disables automatic snapshots. A value of 1 means every event
+// carries a snapshot. A value of N > 1 means only every Nth event carries the
+// resulting state. During recovery, the entity replays events since the last
+// snapshot point.
 //
 // This reduces storage cost for entities with large state and frequent events.
 func WithSnapshotInterval(every uint64) SpawnOption {
@@ -185,5 +193,38 @@ func WithRetentionPolicy(policy RetentionPolicy) SpawnOption {
 func WithPlacement(placement EntitiesPlacement) SpawnOption {
 	return spawnOption(func(config *spawnConfig) {
 		config.entitiesPlacement = placement
+	})
+}
+
+// WithBatchThreshold sets the number of commands to accumulate before flushing
+// their events to the store in a single write. This amortizes the cost of
+// individual store round-trips across multiple commands.
+//
+// When batching is enabled the actor processes commands optimistically against
+// pending (unconfirmed) state. Incoming commands received while a batch write
+// is in flight are stashed and replayed after the write completes.
+//
+// A threshold of 0 (the default) disables batching: each command triggers its
+// own synchronous write.
+//
+// Batching should be combined with [WithBatchFlushWindow] to bound the maximum
+// latency for partially filled batches.
+func WithBatchThreshold(threshold int) SpawnOption {
+	return spawnOption(func(config *spawnConfig) {
+		config.batchThreshold = threshold
+	})
+}
+
+// WithBatchFlushWindow sets the maximum duration the actor will wait before
+// flushing accumulated events when the batch threshold has not been reached.
+// This bounds the worst-case latency added by batching.
+//
+// When the window expires, any pending events are flushed immediately,
+// regardless of how many commands have been accumulated.
+//
+// If not specified and batching is enabled, a default window of 5ms is used.
+func WithBatchFlushWindow(window time.Duration) SpawnOption {
+	return spawnOption(func(config *spawnConfig) {
+		config.batchFlushWindow = window
 	})
 }
