@@ -128,6 +128,110 @@ Typical workflow:
 | Complexity        | Higher                                    | Lower                        |
 | Best fit          | Traceable, business-critical workflows    | Simpler CRUD-like aggregates |
 
+## Persistence Stores
+
+eGo ships with in-memory stores for testing, but production deployments require durable persistence backends.
+The [ego-contrib](https://github.com/Tochemey/ego-contrib) repository provides ready-to-use store implementations:
+
+- **Postgres** event store, snapshot store, offset store, and durable state store
+- **MongoDB** event store, snapshot store, offset store, and durable state store
+
+To use a contrib store, import the relevant module alongside eGo:
+
+```go
+import (
+    "github.com/tochemey/ego-contrib/eventstore/postgres"
+    "github.com/tochemey/ego-contrib/snapshotstore/postgres"
+    "github.com/tochemey/ego-contrib/offsetstore/postgres"
+)
+```
+
+> You can also implement `persistence.EventsStore`, `persistence.SnapshotStore`, or `persistence.StateStore`
+> directly to plug in any storage backend.
+
+## Performance Tuning
+
+eGo can sustain hundreds of thousands of commands per second on a single node with an in-memory store, and
+tens of thousands with durable backends like Postgres. This section outlines the recommended approach to maximize
+throughput and minimize memory cost.
+
+### Enable event batching under concurrent load
+
+Batching amortizes the cost of a single store write across multiple commands. It is most effective when:
+
+- The entity receives commands concurrently (multiple goroutines or upstream services)
+- The persistence store has non-trivial write latency (e.g. database round-trip > 100us)
+
+```go
+engine.Entity(ctx, behavior,
+    ego.WithBatchThreshold(10),                    // flush after 10 accumulated events
+    ego.WithBatchFlushWindow(5*time.Millisecond),  // or after 5ms, whichever comes first
+)
+```
+
+Sequential command streams do not benefit from batching because each command waits for the flush window
+before the batch is written. For purely sequential workloads, leave batching disabled (the default).
+
+### Choose the right batch threshold
+
+| Write latency       | Recommended threshold | Rationale                                        |
+|---------------------|-----------------------|--------------------------------------------------|
+| < 100us (in-memory) | Disabled (0)          | Batching adds overhead with no I/O to amortize   |
+| 100us - 1ms         | 5 - 10                | Small batches reduce flush window wait           |
+| 1ms - 10ms          | 10 - 50               | Larger batches amortize the I/O cost well        |
+| > 10ms              | 50 - 100              | Maximize events per write to offset high latency |
+
+### Configure snapshots to reduce recovery time
+
+Without snapshots, recovery replays the full event history. Configure a snapshot interval to bound replay length:
+
+```go
+engine.Entity(ctx, behavior,
+    ego.WithSnapshotInterval(100),  // snapshot every 100 events
+)
+```
+
+Pair this with a `SnapshotStore` via `ego.WithSnapshotStore()` on the engine.
+
+### Add retention policies to control storage growth
+
+When snapshots are enabled, old events and snapshots can be cleaned up automatically:
+
+```go
+engine.Entity(ctx, behavior,
+    ego.WithSnapshotInterval(100),
+    ego.WithRetentionPolicy(ego.RetentionPolicy{
+        DeleteEventsOnSnapshot:    true,
+        DeleteSnapshotsOnSnapshot: true,
+        EventsRetentionCount:     200,  // keep 200 most recent events
+    }),
+)
+```
+
+### Minimize allocations for high throughput
+
+eGo's hot path is optimized for low allocation overhead (~22 heap allocations per command round-trip).
+The dominant allocation cost comes from Protocol Buffers serialization, which is inherent to the persistence model.
+To keep allocation pressure low:
+
+- **Keep command and event protos small.** Smaller messages reduce marshal/unmarshal cost.
+- **Use snapshots.** They reduce recovery replay length and the number of events held in the store.
+- **Avoid large state protos.** The state is serialized on every reply; smaller states mean fewer bytes and less GC pressure.
+
+### Scale horizontally with clustering
+
+For workloads beyond what a single node can handle, enable clustering to distribute entities across nodes:
+
+```go
+engine := ego.NewEngine("myapp", eventStore,
+    ego.WithCluster(provider, partitions, replicaCount, host, remotingPort, gossipPort, clusterPort),
+)
+```
+
+Each entity is hashed to a partition and placed on a node. Commands are routed transparently. See the
+[clustering documentation](https://github.com/Tochemey/goakt#clustering) for details on discovery providers
+and topology configuration.
+
 ## Projections & Publishers
 
 eGo pushes persisted domain changes to a stream so read models and integrations can react without reading directly from

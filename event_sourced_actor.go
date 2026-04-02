@@ -34,7 +34,6 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/tochemey/ego/v4/egopb"
 	"github.com/tochemey/ego/v4/encryption"
@@ -101,6 +100,7 @@ type EventSourcedActor struct {
 	eventsStore      persistence.EventsStore
 	snapshotStore    persistence.SnapshotStore
 	currentState     State
+	cachedStateAny   *anypb.Any // cached marshal of currentState, invalidated on state change
 	eventsCounter    uint64
 	lastCommandTime  time.Time
 	eventsStream     eventstream.Stream
@@ -116,6 +116,10 @@ type EventSourcedActor struct {
 	snapshotsWriter *goakt.PID
 	eventsJanitor   *goakt.PID
 	persistTimeout  time.Duration
+
+	// Cached values computed once at startup to avoid per-command allocations.
+	shardNumber uint64
+	eventsTopic string
 
 	// Event batching fields. Active only when batchThreshold > 0.
 	batchThreshold   int
@@ -152,7 +156,7 @@ func (entity *EventSourcedActor) PreStart(ctx *goakt.Context) error {
 	entity.persistTimeout = defaultPersistTimeout
 
 	entity.loadOptionalExtensions(ctx)
-	entity.loadDependencies(ctx)
+	entity.setConfig(ctx)
 
 	if err := entity.validateAndRecover(ctx); err != nil {
 		return err
@@ -173,6 +177,8 @@ func (entity *EventSourcedActor) PreStart(ctx *goakt.Context) error {
 func (entity *EventSourcedActor) Receive(ctx *goakt.ReceiveContext) {
 	switch msg := ctx.Message().(type) {
 	case *goakt.PostStart:
+		entity.shardNumber = ctx.ActorSystem().Partition(entity.persistenceID)
+		entity.eventsTopic = fmt.Sprintf(eventsTopic, entity.shardNumber)
 		entity.spawnChildren(ctx)
 	case *egopb.GetStateCommand:
 		entity.getStateAndReply(ctx)
@@ -231,9 +237,9 @@ func (entity *EventSourcedActor) loadOptionalExtensions(ctx *goakt.Context) {
 	}
 }
 
-// loadDependencies reads the behavior and entity configuration from the
+// setConfig reads the behavior and entity configuration from the
 // injected dependencies.
-func (entity *EventSourcedActor) loadDependencies(ctx *goakt.Context) {
+func (entity *EventSourcedActor) setConfig(ctx *goakt.Context) {
 	for _, dependency := range ctx.Dependencies() {
 		if dependency == nil {
 			continue
@@ -450,6 +456,15 @@ func (entity *EventSourcedActor) decryptPayload(ctx context.Context, payload *an
 	return decrypted, nil
 }
 
+// currentStateAny returns the cached anypb.Any of currentState, computing it
+// only when the state has changed since the last call.
+func (entity *EventSourcedActor) currentStateAny() *anypb.Any {
+	if entity.cachedStateAny == nil {
+		entity.cachedStateAny, _ = anypb.New(entity.currentState)
+	}
+	return entity.cachedStateAny
+}
+
 // sendErrorReply sends a [egopb.CommandReply] containing the given error.
 func (entity *EventSourcedActor) sendErrorReply(ctx *goakt.ReceiveContext, err error) {
 	ctx.Response(&egopb.CommandReply{
@@ -463,12 +478,11 @@ func (entity *EventSourcedActor) sendErrorReply(ctx *goakt.ReceiveContext, err e
 
 // sendStateReply sends a [egopb.CommandReply] containing the current state.
 func (entity *EventSourcedActor) sendStateReply(ctx *goakt.ReceiveContext) {
-	state, _ := anypb.New(entity.currentState)
 	ctx.Response(&egopb.CommandReply{
 		Reply: &egopb.CommandReply_StateReply{
 			StateReply: &egopb.StateReply{
 				PersistenceId:  entity.persistenceID,
-				State:          state,
+				State:          entity.currentStateAny(),
 				SequenceNumber: entity.eventsCounter,
 				Timestamp:      entity.lastCommandTime.Unix(),
 			},
@@ -522,14 +536,13 @@ func (entity *EventSourcedActor) processCommandAndReply(ctx *goakt.ReceiveContex
 		return
 	}
 
-	envelopes, pendingState, pendingCounter, commandTime, err := entity.buildEnvelopes(goCtx, ctx, events, entity.currentState, entity.eventsCounter)
+	envelopes, pendingState, pendingCounter, commandTime, err := entity.buildEnvelopes(goCtx, events, entity.currentState, entity.eventsCounter)
 	if err != nil {
 		entity.sendErrorReply(ctx, err)
 		return
 	}
 
-	topic := fmt.Sprintf(eventsTopic, ctx.ActorSystem().Partition(entity.persistenceID))
-	if err := entity.persistEvents(ctx, envelopes, topic); err != nil {
+	if err := entity.persistEvents(ctx, envelopes, entity.eventsTopic); err != nil {
 		entity.sendErrorReply(ctx, err)
 		ctx.Shutdown()
 		return
@@ -545,13 +558,17 @@ func (entity *EventSourcedActor) processCommandAndReply(ctx *goakt.ReceiveContex
 // startState and startCounter specify the base state and sequence number to
 // apply events against, allowing callers to chain calls across batched commands.
 // Returns the envelopes, pending state, pending counter, and command timestamp.
-func (entity *EventSourcedActor) buildEnvelopes(goCtx context.Context, ctx *goakt.ReceiveContext, events []Event, startState State, startCounter uint64) ([]*egopb.Event, State, uint64, time.Time, error) {
-	shardNumber := ctx.ActorSystem().Partition(entity.persistenceID)
+func (entity *EventSourcedActor) buildEnvelopes(goCtx context.Context, events []Event, startState State, startCounter uint64) ([]*egopb.Event, State, uint64, time.Time, error) {
 	pendingState := startState
 	pendingCounter := startCounter
-	commandTime := timestamppb.Now().AsTime()
+	commandTime := time.Now()
 
-	envelopes := make([]*egopb.Event, 0, len(events))
+	// Stack-allocate for the common single-event case to avoid a heap allocation.
+	var buf [1]*egopb.Event
+	envelopes := buf[:0]
+	if len(events) > len(buf) {
+		envelopes = make([]*egopb.Event, 0, len(events))
+	}
 	for _, event := range events {
 		resultingState, err := entity.behavior.HandleEvent(goCtx, event, pendingState)
 		if err != nil {
@@ -561,7 +578,7 @@ func (entity *EventSourcedActor) buildEnvelopes(goCtx context.Context, ctx *goak
 		pendingCounter++
 		pendingState = resultingState
 
-		envelope, err := entity.marshalEvent(goCtx, event, pendingCounter, commandTime, shardNumber)
+		envelope, err := entity.marshalEvent(goCtx, event, pendingCounter, commandTime, entity.shardNumber)
 		if err != nil {
 			return nil, nil, 0, time.Time{}, err
 		}
@@ -636,6 +653,7 @@ func (entity *EventSourcedActor) persistEvents(ctx *goakt.ReceiveContext, envelo
 func (entity *EventSourcedActor) applyConfirmedState(goCtx context.Context, state State, counter uint64, ts time.Time, numEvents int) {
 	entity.eventsCounter = counter
 	entity.currentState = state
+	entity.cachedStateAny, _ = anypb.New(state) // eagerly cache for the reply that follows
 	entity.lastCommandTime = ts
 
 	if entity.metrics != nil {
@@ -661,9 +679,8 @@ func (entity *EventSourcedActor) triggerSnapshotAndRetention(ctx *goakt.ReceiveC
 // retention request is bundled so cleanup occurs only after the snapshot
 // is confirmed persisted.
 func (entity *EventSourcedActor) snapshotAndRetain(ctx *goakt.ReceiveContext) {
-	stateAny, _ := anypb.New(entity.currentState)
 	req := &persistSnapshotRequest{
-		snapshot: entity.newSnapshotEnvelope(stateAny),
+		snapshot: entity.newSnapshotEnvelope(entity.currentStateAny()),
 	}
 
 	if entity.eventsJanitor != nil && entity.retentionPolicy != nil {
@@ -766,7 +783,13 @@ func (entity *EventSourcedActor) processAndBatch(ctx *goakt.ReceiveContext, comm
 		if span != nil {
 			span.End()
 		}
-		stateAny, _ := anypb.New(state)
+		// When no batch entries exist, state == currentState so the cache applies.
+		var stateAny *anypb.Any
+		if len(entity.batchEntries) == 0 {
+			stateAny = entity.currentStateAny()
+		} else {
+			stateAny, _ = anypb.New(state)
+		}
 		ctx.Response(&egopb.CommandReply{
 			Reply: &egopb.CommandReply_StateReply{
 				StateReply: &egopb.StateReply{
@@ -780,7 +803,7 @@ func (entity *EventSourcedActor) processAndBatch(ctx *goakt.ReceiveContext, comm
 		return
 	}
 
-	envelopes, pendingState, pendingCounter, commandTime, err := entity.buildEnvelopes(goCtx, ctx, events, state, counter)
+	envelopes, pendingState, pendingCounter, commandTime, err := entity.buildEnvelopes(goCtx, events, state, counter)
 	if err != nil {
 		if span != nil {
 			span.End()
@@ -828,7 +851,7 @@ func (entity *EventSourcedActor) processAndBatch(ctx *goakt.ReceiveContext, comm
 func (entity *EventSourcedActor) flushBatch(ctx *goakt.ReceiveContext) {
 	entity.stopFlushTimer()
 
-	topic := fmt.Sprintf(eventsTopic, ctx.ActorSystem().Partition(entity.persistenceID))
+	topic := entity.eventsTopic
 	envelopes := entity.batchBuffer
 	writer := entity.eventsWriter
 	timeout := entity.persistTimeout

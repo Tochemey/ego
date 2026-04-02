@@ -31,10 +31,8 @@ import (
 	goakt "github.com/tochemey/goakt/v4/actor"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
-	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
-	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/tochemey/ego/v4/egopb"
 	"github.com/tochemey/ego/v4/eventstream"
@@ -52,6 +50,7 @@ type DurableStateActor struct {
 	behavior        DurableStateBehavior
 	stateStore      persistence.StateStore
 	currentState    State
+	cachedStateAny  *anypb.Any // cached marshal of currentState, invalidated on state change
 	currentVersion  uint64
 	lastCommandTime time.Time
 	eventsStream    eventstream.Stream
@@ -59,6 +58,10 @@ type DurableStateActor struct {
 	persistenceID   string
 	tracer          trace.Tracer
 	metrics         *metrics
+
+	// Cached values computed once at startup to avoid per-command allocations.
+	shardNumber uint64
+	statesTopic string
 }
 
 // implements the goakt.Actor interface
@@ -117,6 +120,8 @@ func (entity *DurableStateActor) Receive(ctx *goakt.ReceiveContext) {
 	switch message := ctx.Message().(type) {
 	case *goakt.PostStart:
 		entity.actorSystem = ctx.ActorSystem()
+		entity.shardNumber = ctx.ActorSystem().Partition(entity.persistenceID)
+		entity.statesTopic = fmt.Sprintf(statesTopic, entity.shardNumber)
 	case *egopb.GetStateCommand:
 		entity.sendStateReply(ctx)
 	default:
@@ -199,7 +204,8 @@ func (entity *DurableStateActor) processCommand(receiveContext *goakt.ReceiveCon
 
 	// set the current state with the newState
 	entity.currentState = newState
-	entity.lastCommandTime = timestamppb.Now().AsTime()
+	entity.cachedStateAny, _ = anypb.New(newState) // eagerly cache for the reply and persist that follow
+	entity.lastCommandTime = time.Now()
 	entity.currentVersion = newVersion
 
 	if err := entity.persistStateAndPublish(ctx); err != nil {
@@ -210,14 +216,22 @@ func (entity *DurableStateActor) processCommand(receiveContext *goakt.ReceiveCon
 	entity.sendStateReply(receiveContext)
 }
 
+// currentStateAny returns the cached anypb.Any of currentState, computing it
+// only when the state has changed since the last call.
+func (entity *DurableStateActor) currentStateAny() *anypb.Any {
+	if entity.cachedStateAny == nil {
+		entity.cachedStateAny, _ = anypb.New(entity.currentState)
+	}
+	return entity.cachedStateAny
+}
+
 // sendStateReply sends a state reply message
 func (entity *DurableStateActor) sendStateReply(ctx *goakt.ReceiveContext) {
-	state, _ := anypb.New(entity.currentState)
 	ctx.Response(&egopb.CommandReply{
 		Reply: &egopb.CommandReply_StateReply{
 			StateReply: &egopb.StateReply{
 				PersistenceId:  entity.persistenceID,
-				State:          state,
+				State:          entity.currentStateAny(),
 				SequenceNumber: entity.currentVersion,
 				Timestamp:      entity.lastCommandTime.Unix(),
 			},
@@ -263,31 +277,20 @@ func (entity *DurableStateActor) durableStateRequired() error {
 	return nil
 }
 
-// persistState persists the actor state
+// persistStateAndPublish persists the actor state and publishes it to the stream.
 func (entity *DurableStateActor) persistStateAndPublish(ctx context.Context) error {
-	resultingState, _ := anypb.New(entity.currentState)
-	shardNumber := entity.actorSystem.Partition(entity.persistenceID)
-	topic := fmt.Sprintf(statesTopic, shardNumber)
-
-	entity.actorSystem.Logger().Debugf("publishing durableState to topic: %s", topic)
-
 	durableState := &egopb.DurableState{
 		PersistenceId:  entity.persistenceID,
 		VersionNumber:  entity.currentVersion,
-		ResultingState: resultingState,
+		ResultingState: entity.currentStateAny(),
 		Timestamp:      entity.lastCommandTime.Unix(),
-		Shard:          uint64(shardNumber),
+		Shard:          entity.shardNumber,
 	}
 
-	eg, ctx := errgroup.WithContext(ctx)
-	eg.Go(func() error {
-		entity.eventsStream.Publish(topic, durableState)
-		return nil
-	})
+	if err := entity.stateStore.WriteState(ctx, durableState); err != nil {
+		return err
+	}
 
-	eg.Go(func() error {
-		return entity.stateStore.WriteState(ctx, durableState)
-	})
-
-	return eg.Wait()
+	entity.eventsStream.Publish(entity.statesTopic, durableState)
+	return nil
 }
