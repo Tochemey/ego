@@ -75,12 +75,12 @@ type spawnConfig struct {
 	snapshotInterval uint64
 	// retentionPolicy controls cleanup of old events and snapshots after a snapshot write.
 	retentionPolicy *RetentionPolicy
-	// batchThreshold sets the number of commands to accumulate before flushing
-	// events to the store in a single write. A value of 0 disables batching.
+	// batchThreshold sets the number of events to accumulate before flushing
+	// them to the store in a single write. A value of 0 disables batching.
 	batchThreshold int
 	// batchFlushWindow sets the maximum time to wait before flushing a partial
 	// batch. When the window expires, pending events are flushed regardless of
-	// how many commands have been accumulated.
+	// how many events have been accumulated.
 	batchFlushWindow time.Duration
 }
 
@@ -196,9 +196,9 @@ func WithPlacement(placement EntitiesPlacement) SpawnOption {
 	})
 }
 
-// WithBatchThreshold sets the number of commands to accumulate before flushing
-// their events to the store in a single write. This amortizes the cost of
-// individual store round-trips across multiple commands.
+// WithBatchThreshold sets the number of events to accumulate before flushing
+// them to the store in a single write. This amortizes the cost of individual
+// store round-trips across multiple commands by batching their resulting events.
 //
 // When batching is enabled the actor processes commands optimistically against
 // pending (unconfirmed) state. Incoming commands received while a batch write

@@ -731,7 +731,8 @@ func (entity *EventSourcedActor) handleCommandBatched(ctx *goakt.ReceiveContext,
 // processAndBatch processes a command optimistically against the latest
 // (possibly unconfirmed) state, appends the resulting event envelopes to
 // the batch buffer, stashes the command so its response channel is
-// preserved, and triggers a flush when the batch threshold is reached.
+// preserved, and triggers a flush when the accumulated event count
+// reaches the batch threshold.
 func (entity *EventSourcedActor) processAndBatch(ctx *goakt.ReceiveContext, command Command) {
 	goCtx := ctx.Context()
 	startTime := time.Now()
@@ -812,7 +813,7 @@ func (entity *EventSourcedActor) processAndBatch(ctx *goakt.ReceiveContext, comm
 
 	ctx.Stash()
 
-	if len(entity.batchEntries) >= entity.batchThreshold {
+	if entity.batchNumEvents >= entity.batchThreshold {
 		entity.flushBatch(ctx)
 		return
 	}
