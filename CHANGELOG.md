@@ -5,7 +5,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [v4.0.0] - Unreleased
+## [v4.1.0] - 2026-04-02
+
+### 🚀 New Features
+
+- **Event Batching** — Accumulate events from multiple commands and flush them in a single store write, amortizing
+  persistence cost under concurrent load. Two new spawn options control batching:
+  - `WithBatchThreshold(n)` — flush after `n` accumulated events (0 disables batching, which is the default)
+  - `WithBatchFlushWindow(d)` — flush after duration `d`, whichever comes first
+  While a batch is being written, the actor stashes incoming commands and replays them after the write completes.
+
+- **Benchmark Suite** — Added a comprehensive benchmark suite (`benchmark/`) measuring throughput, latency percentiles
+  (p50/p90/p95/p99), heap usage, and GC cycles across sequential, parallel, batched, and unbatched workloads with
+  simulated I/O latencies.
+
+### ⚡ Performance Improvements
+
+- **Async Persistence Pipeline** — Restructured event-sourced entity persistence into three specialized child actors:
+  - `EventsWriterActor` — synchronous (Ask) event persistence and publishing; correctness requires write confirmation
+  - `SnapshotsWriterActor` — asynchronous (Tell) snapshot persistence with encryption and exponential-backoff retry
+  - `EventsJanitorActor` — asynchronous (Tell) retention policy enforcement after snapshot writes
+  Snapshots and retention no longer block command processing, eliminating the primary synchronous bottleneck.
+
+- **Batch Event Tracking** — Batch threshold now counts accumulated events rather than commands, correctly handling
+  commands that produce multiple events.
+
+### 🧹 Improvements
+
+- Added retry utility (`retry.go`) with exponential backoff and jitter (up to 3 retries, capped at 2s) for async
+  persistence operations
+- Added Performance Tuning section to README covering batch threshold selection, snapshot configuration, retention
+  policies, allocation optimization, and horizontal scaling guidance
+- Added Persistence Stores section to README documenting ego-contrib store implementations (Postgres, MongoDB)
+- Refreshed README header layout and removed emojis from section headings
+- Comprehensive test coverage for events writer, snapshots writer, and events janitor actors
+- Added batch trace assertion tests
+- Excluded benchmark tests from code coverage metrics
+- Updated publisher modules to ego v4.0.0
+
+### ⬆️ Dependencies
+
+- `github.com/tochemey/goakt/v4` v4.1.0 → v4.2.0
+- `github.com/jackc/pgx/v5` → v5.9.1
+- `github.com/klauspost/compress` v1.18.4 → v1.18.5
+- `github.com/fxamacker/cbor/v2` v2.9.0 → v2.9.1
+- `github.com/andybalholm/brotli` v1.2.0 → v1.2.1
+- `golangci-lint` → v2.11.4
+- `codecov/codecov-action` → v6
+
+## [v4.0.0] - 2026-03-21
 
 ### 🚀 New Features
 
