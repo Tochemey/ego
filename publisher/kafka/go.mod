@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/IBM/sarama v1.47.0
-	github.com/tochemey/ego/v4 v4.0.0
+	github.com/tochemey/ego/v4 v4.1.0
 	github.com/tochemey/goakt/v4 v4.2.0
 	go.uber.org/atomic v1.11.0
 	google.golang.org/protobuf v1.36.11
@@ -13,7 +13,7 @@ require (
 require (
 	github.com/RoaringBitmap/roaring v1.9.4 // indirect
 	github.com/Workiva/go-datastructures v1.1.7 // indirect
-	github.com/andybalholm/brotli v1.2.0 // indirect
+	github.com/andybalholm/brotli v1.2.1 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/bits-and-blooms/bitset v1.24.4 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
