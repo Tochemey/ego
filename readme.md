@@ -58,7 +58,7 @@ Version `v4` introduces a major refresh across persistence, observability, opera
 - **Pluggable Logger**: use any logging backend through the `Logger` interface and `WithLogger()`
 - **Saga / Process Manager**: coordinate long-running workflows with compensation support
 
-## Core Building Blocks
+## Core
 
 ### Event-Sourced Behavior
 
