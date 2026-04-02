@@ -34,7 +34,12 @@ import (
 	"github.com/stretchr/testify/require"
 	goakt "github.com/tochemey/goakt/v4/actor"
 	"github.com/tochemey/goakt/v4/log"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/metric/noop"
+	"go.opentelemetry.io/otel/propagation"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+	"go.opentelemetry.io/otel/trace"
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -3646,4 +3651,554 @@ func TestEventSourcedActorBatch(t *testing.T) {
 		pause.For(time.Second)
 		require.NoError(t, actorSystem.Stop(ctx))
 	})
+	// Test: batch trace spans are properly connected
+	//
+	// Verifies end-to-end trace context propagation through the batch processing
+	// pipeline when multiple commands are processed as a single batch.
+	//
+	// Setup:
+	//   - A real TracerProvider with an InMemoryExporter captures all emitted spans.
+	//   - The global TextMapPropagator is configured with W3C TraceContext + Baggage,
+	//     mirroring what Engine.Start does for the GoAkt context propagator
+	//     (otelContextPropagator) to inject/extract trace context across actor boundaries.
+	//   - Batch threshold is set to 3 with a long flush window so the batch flushes
+	//     only when the threshold is reached (not by timer).
+	//   - A parent span ("test.batch.parent") is created and its context is passed
+	//     through goakt.Ask to the actor, simulating an inbound traced request.
+	//
+	// Assertions:
+	//   - Exactly 3 "ego.command" spans are produced (one per batched command).
+	//   - Every command span shares the same TraceID as the parent span, proving
+	//     trace context flows from the caller through GoAkt into processAndBatch.
+	//   - Every command span's Parent.SpanID equals the parent span's SpanID,
+	//     proving direct parent-child linkage.
+	//   - Every command span has a non-zero EndTime, proving the span lifecycle
+	//     completes after replyFromBatch sends the pre-computed reply.
+	//   - Every command span carries the ego.persistence_id and ego.command_type
+	//     attributes set by processAndBatch.
+	//   - All command spans have distinct SpanIDs (no accidental reuse).
+	t.Run("batch trace spans are properly connected", func(t *testing.T) {
+		ctx := context.TODO()
+
+		// Set up the global text map propagator the same way the Engine does.
+		// This is required for the GoAkt context propagator (otelContextPropagator)
+		// to correctly inject/extract trace context across actor boundaries.
+		otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+			propagation.TraceContext{},
+			propagation.Baggage{},
+		))
+
+		// Create an in-memory span exporter so we can inspect recorded spans.
+		exporter := tracetest.NewInMemoryExporter()
+		tp := sdktrace.NewTracerProvider(
+			sdktrace.WithSyncer(exporter),
+			sdktrace.WithSampler(sdktrace.AlwaysSample()),
+		)
+		defer func() { _ = tp.Shutdown(ctx) }()
+
+		tracer := tp.Tracer("ego-test")
+		meter := noop.NewMeterProvider().Meter("test")
+
+		eventStore := testkit.NewEventsStore()
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		require.NoError(t, eventStore.Connect(ctx))
+		pause.For(time.Second)
+
+		eventStream := eventstream.New()
+
+		entityCfg := &extensions.EntityConfig{
+			BatchThreshold:   3,
+			BatchFlushWindow: 10 * time.Second,
+		}
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+				extensions.NewTelemetryExtension(tracer, meter),
+			),
+			goakt.WithActorInitMaxRetries(3))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor,
+			goakt.WithDependencies(behavior, entityCfg),
+			goakt.WithLongLived(),
+			goakt.WithStashing())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		pause.For(time.Second)
+
+		// Create a parent span to verify that child spans are properly linked.
+		parentCtx, parentSpan := tracer.Start(ctx, "test.batch.parent")
+
+		var wg sync.WaitGroup
+		replies := make([]any, 3)
+		errs := make([]error, 3)
+
+		wg.Add(3)
+		go func() {
+			defer wg.Done()
+			replies[0], errs[0] = goakt.Ask(parentCtx, pid, &testpb.CreateAccount{AccountBalance: 500}, 10*time.Second)
+		}()
+		go func() {
+			defer wg.Done()
+			replies[1], errs[1] = goakt.Ask(parentCtx, pid, &testpb.CreditAccount{AccountId: persistenceID, Balance: 100}, 10*time.Second)
+		}()
+		go func() {
+			defer wg.Done()
+			replies[2], errs[2] = goakt.Ask(parentCtx, pid, &testpb.CreditAccount{AccountId: persistenceID, Balance: 50}, 10*time.Second)
+		}()
+
+		wg.Wait()
+		parentSpan.End()
+
+		for i, e := range errs {
+			require.NoError(t, e, "command %d failed", i)
+			cr := replies[i].(*egopb.CommandReply)
+			require.IsType(t, new(egopb.CommandReply_StateReply), cr.GetReply(), "command %d should be state reply", i)
+		}
+
+		// Force-flush so all ended spans are exported.
+		require.NoError(t, tp.ForceFlush(ctx))
+
+		spans := exporter.GetSpans()
+
+		// Collect "ego.command" spans (one per batched command).
+		var commandSpans []tracetest.SpanStub
+		var parentStub *tracetest.SpanStub
+		for i := range spans {
+			switch spans[i].Name {
+			case "ego.command":
+				commandSpans = append(commandSpans, spans[i])
+			case "test.batch.parent":
+				parentStub = &spans[i]
+			}
+		}
+
+		require.NotNil(t, parentStub, "parent span should be exported")
+		require.Len(t, commandSpans, 3, "each command in the batch should produce an ego.command span")
+
+		parentTraceID := parentStub.SpanContext.TraceID()
+		parentSpanID := parentStub.SpanContext.SpanID()
+
+		for i, cs := range commandSpans {
+			// Assert: all command spans belong to the same trace as the parent.
+			assert.Equal(t, parentTraceID, cs.SpanContext.TraceID(),
+				"command span %d should share the parent trace ID", i)
+
+			// Assert: each command span is a direct child of the parent span.
+			assert.Equal(t, parentSpanID, cs.Parent.SpanID(),
+				"command span %d should be a child of the parent span", i)
+
+			// Assert: the span has been ended (EndTime is set) after replyFromBatch.
+			assert.False(t, cs.EndTime.IsZero(),
+				"command span %d should be ended", i)
+
+			// Assert: required observability attributes are present.
+			attrMap := make(map[string]string)
+			for _, attr := range cs.Attributes {
+				attrMap[string(attr.Key)] = attr.Value.AsString()
+			}
+			assert.Equal(t, persistenceID, attrMap["ego.persistence_id"],
+				"command span %d should have ego.persistence_id attribute", i)
+			assert.NotEmpty(t, attrMap["ego.command_type"],
+				"command span %d should have ego.command_type attribute", i)
+		}
+
+		// Assert: each command span has a unique span ID (no accidental reuse).
+		spanIDs := make(map[trace.SpanID]struct{})
+		for _, cs := range commandSpans {
+			_, exists := spanIDs[cs.SpanContext.SpanID()]
+			assert.False(t, exists, "command spans should have unique span IDs")
+			spanIDs[cs.SpanContext.SpanID()] = struct{}{}
+		}
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		eventStream.Close()
+		pause.For(time.Second)
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+	// Test: batch trace spans are ended on error
+	//
+	// Verifies that when HandleCommand returns an error the "ego.command" span
+	// is still created and properly ended, rather than being leaked.
+	//
+	// Setup:
+	//   - Real TracerProvider + InMemoryExporter + global TextMapPropagator.
+	//   - A single CreditAccount command is sent with a wrong account ID,
+	//     causing HandleCommand to return an error inside processAndBatch.
+	//   - The parent span ("test.error.parent") provides the trace context.
+	//
+	// Assertions:
+	//   - Exactly 1 "ego.command" span is produced despite the error.
+	//   - The span has a non-zero EndTime, proving processAndBatch called
+	//     span.End() on the error path before sendErrorReply.
+	//   - The span shares the parent's TraceID (trace context propagated).
+	//   - The span's Parent.SpanID equals the parent span's SpanID
+	//     (direct parent-child linkage preserved even on failure).
+	t.Run("batch trace spans are ended on error", func(t *testing.T) {
+		ctx := context.TODO()
+
+		otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+			propagation.TraceContext{},
+			propagation.Baggage{},
+		))
+
+		exporter := tracetest.NewInMemoryExporter()
+		tp := sdktrace.NewTracerProvider(
+			sdktrace.WithSyncer(exporter),
+			sdktrace.WithSampler(sdktrace.AlwaysSample()),
+		)
+		defer func() { _ = tp.Shutdown(ctx) }()
+
+		tracer := tp.Tracer("ego-test")
+		meter := noop.NewMeterProvider().Meter("test")
+
+		eventStore := testkit.NewEventsStore()
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		require.NoError(t, eventStore.Connect(ctx))
+		pause.For(time.Second)
+
+		eventStream := eventstream.New()
+
+		entityCfg := &extensions.EntityConfig{
+			BatchThreshold:   100,
+			BatchFlushWindow: 100 * time.Millisecond,
+		}
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+				extensions.NewTelemetryExtension(tracer, meter),
+			),
+			goakt.WithActorInitMaxRetries(3))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor,
+			goakt.WithDependencies(behavior, entityCfg),
+			goakt.WithLongLived(),
+			goakt.WithStashing())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		pause.For(time.Second)
+
+		parentCtx, parentSpan := tracer.Start(ctx, "test.error.parent")
+
+		// Send a command that will fail (CreditAccount on non-existent account).
+		reply, err := goakt.Ask(parentCtx, pid, &testpb.CreditAccount{AccountId: "wrong-id", Balance: 100}, 5*time.Second)
+		parentSpan.End()
+
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+
+		commandReply := reply.(*egopb.CommandReply)
+		require.IsType(t, new(egopb.CommandReply_ErrorReply), commandReply.GetReply())
+
+		require.NoError(t, tp.ForceFlush(ctx))
+
+		spans := exporter.GetSpans()
+
+		var commandSpans []tracetest.SpanStub
+		for i := range spans {
+			if spans[i].Name == "ego.command" {
+				commandSpans = append(commandSpans, spans[i])
+			}
+		}
+
+		// Assert: a span is still produced even though the command failed.
+		require.Len(t, commandSpans, 1, "error command should still produce a span")
+
+		cs := commandSpans[0]
+
+		// Assert: the span was ended on the error path in processAndBatch.
+		assert.False(t, cs.EndTime.IsZero(), "error span should be ended")
+
+		parentStub := findSpan(spans, "test.error.parent")
+		require.NotNil(t, parentStub)
+
+		// Assert: trace context propagated through GoAkt into the actor.
+		assert.Equal(t, parentStub.SpanContext.TraceID(), cs.SpanContext.TraceID(),
+			"error span should share the parent trace ID")
+
+		// Assert: direct parent-child linkage preserved on the error path.
+		assert.Equal(t, parentStub.SpanContext.SpanID(), cs.Parent.SpanID(),
+			"error span should be a child of the parent span")
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		eventStream.Close()
+		pause.For(time.Second)
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+	// Test: batch trace spans with no-event command are ended immediately
+	//
+	// Verifies that when HandleCommand returns zero events the "ego.command"
+	// span is ended immediately inside processAndBatch — it must not be
+	// deferred to the batch flush cycle, because the command is answered
+	// inline without entering the batch buffer.
+	//
+	// Setup:
+	//   - Real TracerProvider + InMemoryExporter + global TextMapPropagator.
+	//   - A TestNoEvent command is sent, which the behavior handles by
+	//     returning an empty event slice.
+	//   - The parent span ("test.noevent.parent") provides the trace context.
+	//
+	// Assertions:
+	//   - Exactly 1 "ego.command" span is produced for the no-event command.
+	//   - The span has a non-zero EndTime, proving processAndBatch called
+	//     span.End() immediately when len(events) == 0.
+	//   - The span shares the parent's TraceID (trace context propagated).
+	//   - The span's Parent.SpanID equals the parent span's SpanID
+	//     (direct parent-child linkage).
+	t.Run("batch trace spans with no-event command are ended immediately", func(t *testing.T) {
+		ctx := context.TODO()
+
+		otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+			propagation.TraceContext{},
+			propagation.Baggage{},
+		))
+
+		exporter := tracetest.NewInMemoryExporter()
+		tp := sdktrace.NewTracerProvider(
+			sdktrace.WithSyncer(exporter),
+			sdktrace.WithSampler(sdktrace.AlwaysSample()),
+		)
+		defer func() { _ = tp.Shutdown(ctx) }()
+
+		tracer := tp.Tracer("ego-test")
+		meter := noop.NewMeterProvider().Meter("test")
+
+		eventStore := testkit.NewEventsStore()
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		require.NoError(t, eventStore.Connect(ctx))
+		pause.For(time.Second)
+
+		eventStream := eventstream.New()
+
+		entityCfg := &extensions.EntityConfig{
+			BatchThreshold:   100,
+			BatchFlushWindow: 100 * time.Millisecond,
+		}
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+				extensions.NewTelemetryExtension(tracer, meter),
+			),
+			goakt.WithActorInitMaxRetries(3))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor,
+			goakt.WithDependencies(behavior, entityCfg),
+			goakt.WithLongLived(),
+			goakt.WithStashing())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		pause.For(time.Second)
+
+		parentCtx, parentSpan := tracer.Start(ctx, "test.noevent.parent")
+
+		reply, err := goakt.Ask(parentCtx, pid, &testpb.TestNoEvent{}, 5*time.Second)
+		parentSpan.End()
+
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+
+		commandReply := reply.(*egopb.CommandReply)
+		require.IsType(t, new(egopb.CommandReply_StateReply), commandReply.GetReply())
+
+		require.NoError(t, tp.ForceFlush(ctx))
+
+		spans := exporter.GetSpans()
+
+		var commandSpans []tracetest.SpanStub
+		for i := range spans {
+			if spans[i].Name == "ego.command" {
+				commandSpans = append(commandSpans, spans[i])
+			}
+		}
+
+		// Assert: a span is produced even for a no-event command.
+		require.Len(t, commandSpans, 1, "no-event command should produce a span")
+
+		cs := commandSpans[0]
+
+		// Assert: the span was ended immediately (not deferred to batch flush).
+		assert.False(t, cs.EndTime.IsZero(), "no-event span should be ended immediately")
+
+		parentStub := findSpan(spans, "test.noevent.parent")
+		require.NotNil(t, parentStub)
+
+		// Assert: trace context propagated through GoAkt into the actor.
+		assert.Equal(t, parentStub.SpanContext.TraceID(), cs.SpanContext.TraceID(),
+			"no-event span should share the parent trace ID")
+
+		// Assert: direct parent-child linkage.
+		assert.Equal(t, parentStub.SpanContext.SpanID(), cs.Parent.SpanID(),
+			"no-event span should be a child of the parent span")
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		eventStream.Close()
+		pause.For(time.Second)
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+	// Test: batch trace spans with encryption failure are ended
+	//
+	// Verifies that when buildEnvelopes fails due to an encryption error the
+	// "ego.command" span is still ended, preventing span leaks on the
+	// encryption-failure path inside processAndBatch.
+	//
+	// Setup:
+	//   - Real TracerProvider + InMemoryExporter + global TextMapPropagator.
+	//   - A mock Encryptor is wired to return an error for any Encrypt call.
+	//   - A CreateAccount command (which produces events) triggers buildEnvelopes,
+	//     which calls the encryptor and fails.
+	//   - The parent span ("test.encrypt.parent") provides the trace context.
+	//
+	// Assertions:
+	//   - Exactly 1 "ego.command" span is produced despite the encryption failure.
+	//   - The span has a non-zero EndTime, proving processAndBatch called
+	//     span.End() on the buildEnvelopes error path before sendErrorReply.
+	//   - The span shares the parent's TraceID (trace context propagated).
+	//   - The span's Parent.SpanID equals the parent span's SpanID
+	//     (direct parent-child linkage preserved on encryption failure).
+	t.Run("batch trace spans with encryption failure are ended", func(t *testing.T) {
+		ctx := context.TODO()
+
+		otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+			propagation.TraceContext{},
+			propagation.Baggage{},
+		))
+
+		exporter := tracetest.NewInMemoryExporter()
+		tp := sdktrace.NewTracerProvider(
+			sdktrace.WithSyncer(exporter),
+			sdktrace.WithSampler(sdktrace.AlwaysSample()),
+		)
+		defer func() { _ = tp.Shutdown(ctx) }()
+
+		tracer := tp.Tracer("ego-test")
+		meter := noop.NewMeterProvider().Meter("test")
+
+		eventStore := testkit.NewEventsStore()
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		require.NoError(t, eventStore.Connect(ctx))
+		pause.For(time.Second)
+
+		eventStream := eventstream.New()
+
+		encryptor := new(mockencryption.Encryptor)
+		encryptor.EXPECT().Encrypt(mock.Anything, persistenceID, mock.Anything).Return(nil, "", assert.AnError)
+
+		entityCfg := &extensions.EntityConfig{
+			BatchThreshold:   100,
+			BatchFlushWindow: 100 * time.Millisecond,
+		}
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+				extensions.NewEncryptor(encryptor),
+				extensions.NewTelemetryExtension(tracer, meter),
+			),
+			goakt.WithActorInitMaxRetries(1))
+		require.NoError(t, err)
+
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		actor := newEventSourcedActor()
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor,
+			goakt.WithDependencies(behavior, entityCfg),
+			goakt.WithLongLived(),
+			goakt.WithStashing())
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		pause.For(time.Second)
+
+		parentCtx, parentSpan := tracer.Start(ctx, "test.encrypt.parent")
+
+		reply, err := goakt.Ask(parentCtx, pid, &testpb.CreateAccount{AccountBalance: 500}, 5*time.Second)
+		parentSpan.End()
+
+		require.NoError(t, err)
+		require.NotNil(t, reply)
+
+		commandReply := reply.(*egopb.CommandReply)
+		require.IsType(t, new(egopb.CommandReply_ErrorReply), commandReply.GetReply())
+
+		require.NoError(t, tp.ForceFlush(ctx))
+
+		spans := exporter.GetSpans()
+
+		var commandSpans []tracetest.SpanStub
+		for i := range spans {
+			if spans[i].Name == "ego.command" {
+				commandSpans = append(commandSpans, spans[i])
+			}
+		}
+
+		// Assert: a span is produced despite the encryption failure.
+		require.Len(t, commandSpans, 1, "encryption-failure command should produce a span")
+
+		cs := commandSpans[0]
+
+		// Assert: the span was ended on the buildEnvelopes error path.
+		assert.False(t, cs.EndTime.IsZero(), "encryption-failure span should be ended")
+
+		parentStub := findSpan(spans, "test.encrypt.parent")
+		require.NotNil(t, parentStub)
+
+		// Assert: trace context propagated through GoAkt into the actor.
+		assert.Equal(t, parentStub.SpanContext.TraceID(), cs.SpanContext.TraceID(),
+			"encryption-failure span should share the parent trace ID")
+
+		// Assert: direct parent-child linkage preserved on encryption failure.
+		assert.Equal(t, parentStub.SpanContext.SpanID(), cs.Parent.SpanID(),
+			"encryption-failure span should be a child of the parent span")
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		eventStream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+}
+
+// findSpan returns the first SpanStub with the given name, or nil.
+func findSpan(spans tracetest.SpanStubs, name string) *tracetest.SpanStub {
+	for i := range spans {
+		if spans[i].Name == name {
+			return &spans[i]
+		}
+	}
+	return nil
 }
