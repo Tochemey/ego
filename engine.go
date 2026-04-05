@@ -797,23 +797,49 @@ func (engine *Engine) EraseEntity(ctx context.Context, persistenceID string, ful
 	return nil
 }
 
-// ProjectionLag returns the current lag per shard for the named projection.
-// The lag is the difference between the latest event timestamp and the projection's
-// current offset for each shard. A nil map entry means the shard is fully caught up.
+// ProjectionLag reports, per shard, how far behind the named projection is
+// relative to the newest event persisted in that shard.
+//
+// The returned map is keyed by shard number. For each shard the value is the
+// time delta between the timestamp of the most recent event in the journal and
+// the offset the projection has committed to the offset store. A value of 0
+// means the projection is fully caught up for that shard (either because the
+// shard is empty or because the committed offset already covers the latest
+// event).
+//
+// Implementation overview:
+//  1. Enumerate every shard known to the events store.
+//  2. For each shard, read the projection's committed offset from the offset
+//     store. In ego, this offset is stored as the timestamp (in milliseconds)
+//     of the last event processed by the projection for that shard.
+//  3. Determine the timestamp of the newest event currently persisted in the
+//     shard.
+//  4. lag = latestEventTimestamp - committedOffset (clamped at 0 so that a
+//     projection running ahead of the probe window is not reported as negative).
+//
+// The engine must be started and an offset store must be configured; otherwise
+// an error is returned.
 func (engine *Engine) ProjectionLag(ctx context.Context, projectionName string) (map[uint64]time.Duration, error) {
 	if !engine.Started() {
 		return nil, ErrEngineNotStarted
 	}
 
+	// Snapshot the store references under the mutex so we do not race with a
+	// concurrent engine shutdown or reconfiguration while iterating shards.
 	engine.mutex.Lock()
 	offsetStore := engine.offsetStore
 	eventsStore := engine.eventsStore
 	engine.mutex.Unlock()
 
+	// Lag is defined relative to the projection's committed offset, so an
+	// offset store is mandatory. Without it there is no meaningful answer.
 	if offsetStore == nil {
 		return nil, fmt.Errorf("offset store is required to compute projection lag")
 	}
 
+	// Projections are sharded: each shard is advanced independently by its own
+	// runner, so lag is always reported per shard rather than as a single
+	// aggregate number.
 	shards, err := eventsStore.ShardNumbers(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch shard numbers: %w", err)
@@ -826,11 +852,20 @@ func (engine *Engine) ProjectionLag(ctx context.Context, projectionName string) 
 			ShardNumber:    shard,
 		}
 
+		// The committed offset is the "watermark" for this projection on this
+		// shard: the timestamp (ms) of the last event the projection handler
+		// successfully processed. A brand-new projection returns a zero-value
+		// offset, which will naturally yield a lag equal to the age of the
+		// oldest-to-newest span of events.
 		offset, err := offsetStore.GetCurrentOffset(ctx, projectionID)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get offset for shard %d: %w", shard, err)
 		}
 
+		// Cheap existence probe: ask for a single event starting at offset 0.
+		// If the shard has never received any events we can short-circuit and
+		// record zero lag without paying for a larger scan below. This keeps
+		// the common "idle shard" case fast.
 		events, _, err := eventsStore.GetShardEvents(ctx, shard, 0, 1)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get latest event for shard %d: %w", shard, err)
@@ -841,8 +876,18 @@ func (engine *Engine) ProjectionLag(ctx context.Context, projectionName string) 
 			continue
 		}
 
-		// Get the latest event timestamp by fetching from a very high offset backwards
-		// We use the events store's shard events with offset 0 and check the last timestamp
+		// The events store API (GetShardEvents) only exposes a forward scan
+		// from a given offset; there is no dedicated "latest event" accessor
+		// for a shard. To find the newest event we scan forward from offset 0
+		// with a large upper bound and take the last element of the returned
+		// slice, which the store guarantees to be in ascending offset order.
+		//
+		// NOTE: the limit below bounds how many events we are willing to walk
+		// in a single lag computation. Shards larger than this bound will have
+		// their lag computed against the newest event *within the window*
+		// rather than the absolute tail of the journal; this is an acceptable
+		// trade-off for a diagnostic/metric endpoint but is something to keep
+		// in mind when interpreting the value for very busy shards.
 		allEvents, _, err := eventsStore.GetShardEvents(ctx, shard, 0, 10000)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get events for shard %d: %w", shard, err)
@@ -853,14 +898,27 @@ func (engine *Engine) ProjectionLag(ctx context.Context, projectionName string) 
 			continue
 		}
 
+		// Both values below are unix **seconds**:
+		//   - Event.Timestamp is written by the entity actors using
+		//     time.Now().Unix() (see event_sourced_actor.go / durable_state_actor.go /
+		//     saga_actor.go).
+		//   - Offset.Value is a copy of a prior event's timestamp, propagated
+		//     from EventsStore.GetShardEvents' nextOffset return value through
+		//     projectionRunner.commitOffset.
+		// Their subtraction therefore yields the lag in seconds.
+		// (Note: Offset.Timestamp is a separate wall-clock audit field written
+		// in milliseconds; it is deliberately not used here.)
 		latestTimestamp := allEvents[len(allEvents)-1].GetTimestamp()
 		currOffset := offset.GetValue()
 
-		lagMs := latestTimestamp - currOffset
-		if lagMs < 0 {
-			lagMs = 0
+		// Clamp negative values: the projection runner may have advanced its
+		// offset between the two store reads above, which would otherwise
+		// surface as a spurious negative lag.
+		lagSeconds := latestTimestamp - currOffset
+		if lagSeconds < 0 {
+			lagSeconds = 0
 		}
-		lags[shard] = time.Duration(lagMs) * time.Millisecond
+		lags[shard] = time.Duration(lagSeconds) * time.Second
 	}
 
 	return lags, nil
