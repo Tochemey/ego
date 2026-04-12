@@ -208,10 +208,6 @@ func (entity *EventSourcedActor) PostStop(ctx *goakt.Context) error {
 	}
 	entity.stopFlushTimer()
 	entity.resetBatch()
-	entity.eventsCounter = 0
-	entity.eventsWriter = nil
-	entity.snapshotsWriter = nil
-	entity.eventsJanitor = nil
 	return nil
 }
 
