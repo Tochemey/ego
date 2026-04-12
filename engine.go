@@ -477,6 +477,48 @@ func (engine *Engine) Entity(ctx context.Context, behavior EventSourcedBehavior,
 	return err
 }
 
+// EntityExists reports whether an entity with the given ID is currently alive in the cluster.
+//
+// The lookup works for both event-sourced and durable state entities, and is purely
+// a liveness probe: it does not spawn the entity, recover its state, or replay its
+// journal. As a result, an entity that has been persisted but is not currently
+// hydrated (for example, one that has been passivated or has not yet received its
+// first command after process restart) will report as non-existent.
+//
+// The method returns:
+//   - (true, nil)  if the entity is registered and its underlying actor is running.
+//   - (false, nil) if no actor for the given ID is found, or if the actor exists
+//     but is no longer running (e.g. stopping or stopped).
+//   - (false, ErrEngineNotStarted) if the engine has not been started.
+//   - (false, error) if the underlying actor system lookup fails for any other reason.
+//
+// EntityExists is safe to call concurrently and is intended for callers that need
+// to branch on entity presence without incurring the cost or side effects of
+// materializing the entity.
+func (engine *Engine) EntityExists(ctx context.Context, entityID string) (bool, error) {
+	if !engine.Started() {
+		return false, ErrEngineNotStarted
+	}
+
+	engine.mutex.Lock()
+	actorSystem := engine.actorSystem
+	engine.mutex.Unlock()
+	pid, err := actorSystem.ActorOf(ctx, entityID)
+	if err != nil {
+		if errors.Is(err, gerrors.ErrActorNotFound) {
+			return false, nil
+		}
+
+		return false, fmt.Errorf("failed to check existence of entity %s: %w", entityID, err)
+	}
+
+	if pid == nil {
+		return false, nil
+	}
+
+	return pid.IsRunning(), nil
+}
+
 // DurableStateEntity creates an entity that persists its full state in a durable store without maintaining historical event records.
 //
 // Unlike an event-sourced entity, a durable state entity does not track past state changes as a sequence of events. Instead, it
