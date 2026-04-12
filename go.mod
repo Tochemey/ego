@@ -63,9 +63,24 @@ require (
 	go.etcd.io/bbolt v1.4.3 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.uber.org/zap v1.27.1 // indirect
-	golang.org/x/mod v0.34.0 // indirect
-	golang.org/x/net v0.52.0 // indirect
-	golang.org/x/sys v0.42.0 // indirect
-	golang.org/x/tools v0.43.0 // indirect
+	golang.org/x/mod v0.35.0 // indirect
+	golang.org/x/net v0.53.0 // indirect
+	golang.org/x/sys v0.43.0 // indirect
+	golang.org/x/tools v0.44.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+)
+
+// HashiCorp renamed github.com/armon/go-metrics to github.com/hashicorp/go-metrics
+// in v0.4.2 and every release since declares the new module path, so they fail
+// to satisfy the legacy import path that hashicorp/go-metrics/compat still
+// pulls in transitively (via memberlist → goakt → ego). v0.4.1 is the last
+// version that resolves under the armon path; exclude the broken ones so
+// `go mod tidy` and `go get -u` stop probing them.
+exclude (
+	github.com/armon/go-metrics v0.4.2
+	github.com/armon/go-metrics v0.5.0
+	github.com/armon/go-metrics v0.5.1
+	github.com/armon/go-metrics v0.5.2
+	github.com/armon/go-metrics v0.5.3
+	github.com/armon/go-metrics v0.5.4
 )

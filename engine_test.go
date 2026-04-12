@@ -3052,3 +3052,66 @@ func TestSendState(t *testing.T) {
 		e.sendState(stream)
 	})
 }
+
+func TestEntityExists(t *testing.T) {
+	t.Run("returns ErrEngineNotStarted when engine not started", func(t *testing.T) {
+		ctx := context.TODO()
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
+
+		exists, err := engine.EntityExists(ctx, uuid.NewString())
+		require.Error(t, err)
+		require.EqualError(t, err, ErrEngineNotStarted.Error())
+		require.False(t, exists)
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+	})
+
+	t.Run("returns false when entity is not found", func(t *testing.T) {
+		ctx := context.TODO()
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
+		require.NoError(t, engine.Start(ctx))
+		pause.For(time.Second)
+
+		exists, err := engine.EntityExists(ctx, uuid.NewString())
+		require.NoError(t, err)
+		require.False(t, exists)
+
+		require.NoError(t, engine.Stop(ctx))
+		require.NoError(t, eventStore.Disconnect(ctx))
+	})
+
+	t.Run("returns true for a running event-sourced entity", func(t *testing.T) {
+		ctx := context.TODO()
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
+		require.NoError(t, engine.Start(ctx))
+		pause.For(time.Second)
+
+		entityID := uuid.NewString()
+		behavior := NewEventSourcedEntity(entityID)
+		require.NoError(t, engine.Entity(ctx, behavior))
+
+		// drive a command so the entity is fully materialized
+		_, _, err := engine.SendCommand(ctx, entityID, &samplepb.CreateAccount{
+			AccountId:      entityID,
+			AccountBalance: 100.00,
+		}, time.Minute)
+		require.NoError(t, err)
+
+		exists, err := engine.EntityExists(ctx, entityID)
+		require.NoError(t, err)
+		require.True(t, exists)
+
+		require.NoError(t, engine.Stop(ctx))
+		require.NoError(t, eventStore.Disconnect(ctx))
+	})
+
+}
