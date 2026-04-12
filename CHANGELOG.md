@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 🚀 New Features
+
+- **Entity Existence Probe** — Added `Engine.EntityExists(ctx, entityID)` to check whether an entity is currently alive
+  in the cluster without spawning it or replaying its journal. Works for both event-sourced and durable state entities,
+  and is intended as a lightweight liveness check for callers that need to branch on entity presence without paying the
+  cost of materialization. See [engine.go](engine.go).
+
+### 🐛 Bug Fixes
+
+- **Projection Lag Computation** — Fixed `Engine.ProjectionLag` to correctly compute the per-shard delta between the
+  newest persisted event and the projection's committed offset. The result is now clamped at zero so a projection
+  running ahead of the probe window is no longer reported as negative, and the implementation documents the
+  unit (seconds) and bounded-scan trade-off used to locate the latest event in a shard. See [engine.go](engine.go).
+
+### 🧹 Improvements
+
+- Added `SECURITY.md` describing the project's security analysis and disclosure process.
+
 ## [v4.1.0] - 2026-04-02
 
 ### 🚀 New Features
