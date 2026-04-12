@@ -503,20 +503,11 @@ func (engine *Engine) EntityExists(ctx context.Context, entityID string) (bool, 
 	engine.mutex.Lock()
 	actorSystem := engine.actorSystem
 	engine.mutex.Unlock()
-	pid, err := actorSystem.ActorOf(ctx, entityID)
+	exists, err := actorSystem.ActorExists(ctx, entityID)
 	if err != nil {
-		if errors.Is(err, gerrors.ErrActorNotFound) {
-			return false, nil
-		}
-
 		return false, fmt.Errorf("failed to check existence of entity %s: %w", entityID, err)
 	}
-
-	if pid == nil {
-		return false, nil
-	}
-
-	return pid.IsRunning(), nil
+	return exists, nil
 }
 
 // DurableStateEntity creates an entity that persists its full state in a durable store without maintaining historical event records.
