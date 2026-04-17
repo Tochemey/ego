@@ -312,6 +312,8 @@ github.com/tklauser/numcpus v0.11.0 h1:nSTwhKH5e1dMNsCdVBukSZrURJRoHbSEQjdEbY+9R
 github.com/tklauser/numcpus v0.11.0/go.mod h1:z+LwcLq54uWZTX0u/bGobaV34u6V7KNlTZejzM6/3MQ=
 github.com/tochemey/goakt/v4 v4.2.0 h1:BAZf9TNCb9su7d+vghDyj39XSlJJUVMuXTLMK9eL4XQ=
 github.com/tochemey/goakt/v4 v4.2.0/go.mod h1:dv/CcxsfsW/SSbLFnW/PIBvHo8uMNbPx2SjOkDdjzT4=
+github.com/tochemey/goakt/v4 v4.2.1 h1:af5xmUrU6sSnuLqom0J4+KZt+oAsdzV3Kai07bVjuoc=
+github.com/tochemey/goakt/v4 v4.2.1/go.mod h1:CpHgvgjU/sTcZaIOr0bDtTQLjiwZVRklUW/ts7P+sF0=
 github.com/tochemey/olric v0.3.9 h1:MU3VVQ3TZwdRzyxai0myxNMZj0lMK/RCjhaYh2Xe6aQ=
 github.com/tochemey/olric v0.3.9/go.mod h1:r5OVAIw1zaZJ5WKvKj1c4XnLwFaYpH8EJpm4dAD8Bp0=
 github.com/travisjeffery/go-dynaport v1.0.0 h1:m/qqf5AHgB96CMMSworIPyo1i7NZueRsnwdzdCJ8Ajw=
