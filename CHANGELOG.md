@@ -7,25 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [v4.1.2] - 2026-04-26
 
-### 🐛 Bug Fixes
+### 🚀 New Features
 
-- **Engine Concurrency** — Fixed a data race on `Engine.ActorSystem()`. The accessor previously returned the
-  `actorSystem` field without synchronization while `Start` was concurrently writing it, which the Go race detector
-  flagged. The accessor now publishes the actor system through an `atomic.Pointer` and returns `nil` when the engine
-  has not been started or has already been stopped. See [engine.go](engine.go).
+- **`Engine.ActorSystem()` Accessor** — Added `Engine.ActorSystem()` to expose the underlying `goakt.ActorSystem`
+  powering the engine. Returns `nil` before `Start` and after `Stop`. Intended for callers that need direct access to
+  actor-system primitives — for example, spawning auxiliary actors alongside ego entities or inspecting cluster
+  topology — without having to wire the actor system separately. The returned reference is a snapshot and should not
+  be retained across engine restarts. See [engine.go](engine.go).
 
 ### 🧹 Improvements
 
-- **Lock-Free Hot Read Paths** — The underlying `goakt.ActorSystem` and its `NoSender` PID are now bundled in a single
-  `atomic.Pointer[actorSystemRef]` and published atomically by `Start`. All hot read paths (`AddProjection`,
-  `RemoveProjection`, `IsProjectionRunning`, `Entity`, `EntityExists`, `DurableStateEntity`, `SendCommand`, `Saga`,
-  `SagaStatus`) load the reference without taking a mutex. `Stop` swaps the reference to `nil` so concurrent callers
-  fail fast with `ErrEngineNotStarted` instead of racing against a system that is being torn down.
-- **RWMutex for Remaining Snapshot Reads** — The engine mutex is now a `sync.RWMutex`, and the remaining field-snapshot
-  reads (`offsetStore`, `eventStream`, `stateStore`, `eventsStore`, `snapshotStore`) acquire it via `RLock`. Writers
-  (`AddEventPublishers`, `AddStatePublishers`) keep the exclusive `Lock`.
-- Added `TestActorSystem` covering the unstarted, started, stopped, and concurrent-reader cases (the latter exercised
-  under `-race`).
+- **Lock-Free Hot Read Paths** — To make the new accessor safe for concurrent use, the underlying `goakt.ActorSystem`
+  and its `NoSender` PID are now bundled in a single `atomic.Pointer[actorSystemRef]` and published atomically by
+  `Start`. All hot read paths (`AddProjection`, `RemoveProjection`, `IsProjectionRunning`, `Entity`, `EntityExists`,
+  `DurableStateEntity`, `SendCommand`, `Saga`, `SagaStatus`) now load the reference with a single atomic load instead
+  of taking a mutex. `Stop` swaps the reference to `nil` so callers racing with shutdown fail fast with
+  `ErrEngineNotStarted` rather than operating on a system in mid-teardown.
+- **`RWMutex` for Remaining Snapshot Reads** — The engine mutex has been promoted from `sync.Mutex` to `sync.RWMutex`.
+  The remaining field-snapshot reads (`offsetStore`, `eventStream`, `stateStore`, `eventsStore`, `snapshotStore`)
+  acquire it via `RLock`, allowing concurrent readers. Writers (`AddEventPublishers`, `AddStatePublishers`) keep the
+  exclusive `Lock`.
+- **Test Coverage** — Added `TestActorSystem` covering the unstarted, started, stopped, and concurrent-reader cases
+  (the latter exercised under `-race`), and `TestActorSystemRefGuard` exercising the defensive `ErrEngineNotStarted`
+  branch on every hot read path.
 
 ## [v4.1.1] - 2026-04-18
 

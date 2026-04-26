@@ -3205,3 +3205,79 @@ func TestActorSystem(t *testing.T) {
 		require.NoError(t, eventStore.Disconnect(ctx))
 	})
 }
+
+// TestActorSystemRefGuard exercises the defensive `if ref == nil` branch in
+// every method that loads the actor system pointer after passing the
+// Started() check. This branch protects against the race window where Stop
+// has cleared the actor system pointer but a concurrent caller has already
+// observed started=true. The test simulates that window by setting started
+// directly while leaving the actor system pointer nil.
+func TestActorSystemRefGuard(t *testing.T) {
+	newGuardedEngine := func(t *testing.T) *Engine {
+		t.Helper()
+		engine := NewEngine("Sample", testkit.NewEventsStore(), WithLogger(DiscardLogger))
+		engine.started.Store(true)
+		return engine
+	}
+
+	ctx := context.TODO()
+
+	t.Run("AddProjection", func(t *testing.T) {
+		engine := newGuardedEngine(t)
+		err := engine.AddProjection(ctx, "projection-"+uuid.NewString())
+		require.ErrorIs(t, err, ErrEngineNotStarted)
+	})
+
+	t.Run("RemoveProjection", func(t *testing.T) {
+		engine := newGuardedEngine(t)
+		err := engine.RemoveProjection(ctx, "projection-"+uuid.NewString())
+		require.ErrorIs(t, err, ErrEngineNotStarted)
+	})
+
+	t.Run("IsProjectionRunning", func(t *testing.T) {
+		engine := newGuardedEngine(t)
+		running, err := engine.IsProjectionRunning(ctx, "projection-"+uuid.NewString())
+		require.ErrorIs(t, err, ErrEngineNotStarted)
+		require.False(t, running)
+	})
+
+	t.Run("Entity", func(t *testing.T) {
+		engine := newGuardedEngine(t)
+		err := engine.Entity(ctx, NewEventSourcedEntity(uuid.NewString()))
+		require.ErrorIs(t, err, ErrEngineNotStarted)
+	})
+
+	t.Run("EntityExists", func(t *testing.T) {
+		engine := newGuardedEngine(t)
+		exists, err := engine.EntityExists(ctx, uuid.NewString())
+		require.ErrorIs(t, err, ErrEngineNotStarted)
+		require.False(t, exists)
+	})
+
+	t.Run("DurableStateEntity", func(t *testing.T) {
+		engine := newGuardedEngine(t)
+		err := engine.DurableStateEntity(ctx, NewAccountDurableStateBehavior(uuid.NewString()))
+		require.ErrorIs(t, err, ErrEngineNotStarted)
+	})
+
+	t.Run("SendCommand", func(t *testing.T) {
+		engine := newGuardedEngine(t)
+		state, revision, err := engine.SendCommand(ctx, uuid.NewString(), &samplepb.CreateAccount{}, time.Second)
+		require.ErrorIs(t, err, ErrEngineNotStarted)
+		require.Nil(t, state)
+		require.Zero(t, revision)
+	})
+
+	t.Run("Saga", func(t *testing.T) {
+		engine := newGuardedEngine(t)
+		err := engine.Saga(ctx, &testSagaBehavior{sagaID: "saga-" + uuid.NewString()}, time.Second)
+		require.ErrorIs(t, err, ErrEngineNotStarted)
+	})
+
+	t.Run("SagaStatus", func(t *testing.T) {
+		engine := newGuardedEngine(t)
+		info, err := engine.SagaStatus(ctx, "saga-"+uuid.NewString(), time.Second)
+		require.ErrorIs(t, err, ErrEngineNotStarted)
+		require.Nil(t, info)
+	})
+}
