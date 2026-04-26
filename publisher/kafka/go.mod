@@ -4,8 +4,8 @@ go 1.26.0
 
 require (
 	github.com/IBM/sarama v1.47.0
-	github.com/tochemey/ego/v4 v4.1.1
-	github.com/tochemey/goakt/v4 v4.2.1
+	github.com/tochemey/ego/v4 v4.1.2
+	github.com/tochemey/goakt/v4 v4.2.2
 	go.uber.org/atomic v1.11.0
 	google.golang.org/protobuf v1.36.11
 )
@@ -17,7 +17,7 @@ require (
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/bits-and-blooms/bitset v1.24.4 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/deckarep/golang-set/v2 v2.8.0 // indirect
+	github.com/deckarep/golang-set/v2 v2.9.0 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/flowchartsman/retry v1.2.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.1 // indirect
@@ -75,6 +75,7 @@ require (
 	github.com/klauspost/compress v1.18.5 // indirect
 	github.com/pierrec/lz4/v4 v4.1.26 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20250401214520-65e299d6c5c9 // indirect
+	go.mongodb.org/mongo-driver v1.17.9 // indirect
 	golang.org/x/crypto v0.50.0 // indirect
 	golang.org/x/net v0.53.0 // indirect
 )
