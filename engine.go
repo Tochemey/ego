@@ -70,6 +70,15 @@ var (
 // Done is a signal that an operation has completed
 type Done struct{}
 
+// actorSystemRef bundles the underlying goakt.ActorSystem with its NoSender PID
+// so they can be published as a single value via atomic.Pointer. Bundling
+// guarantees readers always see a consistent (sys, noSender) pair — they cannot
+// observe a half-initialized engine where one is set and the other is not.
+type actorSystemRef struct {
+	sys      goakt.ActorSystem
+	noSender *goakt.PID
+}
+
 type eventsStream struct {
 	publisher  EventPublisher
 	subscriber eventstream.Subscriber
@@ -89,7 +98,7 @@ type Engine struct {
 	stateStore         persistence.StateStore
 	offsetStore        offsetstore.OffsetStore
 	clusterEnabled     atomic.Bool
-	actorSystem        goakt.ActorSystem
+	actorSystem        atomic.Pointer[actorSystemRef]
 	logger             Logger
 	clusterProvider    ClusterProvider
 	partitionsCount    uint64
@@ -100,7 +109,7 @@ type Engine struct {
 	remotingPort       int
 	minimumPeersQuorum uint16
 	eventStream        eventstream.Stream
-	mutex              sync.Mutex
+	mutex              sync.RWMutex
 	tls                *TLS
 
 	eventsStreams       *syncmap.Map[string, *eventsStream]
@@ -114,7 +123,6 @@ type Engine struct {
 
 	supervisor *goakt.PID
 	roles      goset.Set[string]
-	noSender   *goakt.PID
 }
 
 // NewEngine creates and initializes a new instance of the eGo engine.
@@ -190,6 +198,77 @@ func (engine *Engine) Start(ctx context.Context) error {
 	return nil
 }
 
+// Stop gracefully shuts down the eGo engine.
+//
+// This function ensures that all running projections, entities, and processes managed by the engine
+// are properly stopped before termination. It waits for ongoing operations to complete or time out
+// based on the provided context.
+//
+// Parameters:
+//   - ctx: Execution context for managing cancellation and timeouts.
+//
+// Returns:
+//   - An error if the shutdown process encounters issues; otherwise, nil.
+func (engine *Engine) Stop(ctx context.Context) error {
+	if !engine.Started() {
+		return nil
+	}
+
+	engine.started.Store(false)
+
+	// shutdown all event eventsStreams
+	eventsStreams := engine.eventsStreams.Values()
+	for _, stream := range eventsStreams {
+		// signal the publisher to stop
+		stream.done <- Done{}
+		stream.subscriber.Shutdown()
+		if err := stream.publisher.Close(ctx); err != nil {
+			return err
+		}
+	}
+
+	statesStreams := engine.statesStreams.Values()
+	for _, stream := range statesStreams {
+		stream.done <- Done{}
+		stream.subscriber.Shutdown()
+		if err := stream.publisher.Close(ctx); err != nil {
+			return err
+		}
+	}
+
+	engine.roles.Clear()
+	engine.eventStream.Close()
+	engine.eventsStreams.Reset()
+	engine.statesStreams.Reset()
+
+	// Atomically detach the actor system reference so concurrent callers fail
+	// fast (with ErrEngineNotStarted or a nil ActorSystem) rather than racing
+	// against a system that is being torn down.
+	ref := engine.actorSystem.Swap(nil)
+	if ref == nil {
+		return nil
+	}
+	return ref.sys.Stop(ctx)
+}
+
+// Started returns true when the eGo engine has started
+func (engine *Engine) Started() bool {
+	return engine.started.Load()
+}
+
+// ActorSystem returns the underlying goakt.ActorSystem used by the engine.
+//
+// Returns nil if the engine has not been started or has already been stopped.
+// The returned reference is a snapshot; callers should not retain it across
+// engine restarts.
+func (engine *Engine) ActorSystem() goakt.ActorSystem {
+	ref := engine.actorSystem.Load()
+	if ref == nil {
+		return nil
+	}
+	return ref.sys
+}
+
 // AddProjection registers a new projection with the eGo engine and starts its execution.
 //
 // The projection processes events from the events store applying the specified handler to manage state updates
@@ -214,9 +293,11 @@ func (engine *Engine) AddProjection(ctx context.Context, name string) error {
 
 	actor := NewProjectionActor()
 
-	engine.mutex.Lock()
-	actorSystem := engine.actorSystem
-	engine.mutex.Unlock()
+	ref := engine.actorSystem.Load()
+	if ref == nil {
+		return ErrEngineNotStarted
+	}
+	actorSystem := ref.sys
 
 	if engine.clusterEnabled.Load() {
 		// In cluster mode, run the projection as a singleton to avoid
@@ -261,11 +342,11 @@ func (engine *Engine) RemoveProjection(ctx context.Context, name string) error {
 		return ErrEngineNotStarted
 	}
 
-	engine.mutex.Lock()
-	actorSystem := engine.actorSystem
-	engine.mutex.Unlock()
-
-	return actorSystem.Kill(ctx, name)
+	ref := engine.actorSystem.Load()
+	if ref == nil {
+		return ErrEngineNotStarted
+	}
+	return ref.sys.Kill(ctx, name)
 }
 
 // IsProjectionRunning checks whether the specified projection is currently active and running.
@@ -285,11 +366,13 @@ func (engine *Engine) IsProjectionRunning(ctx context.Context, name string) (boo
 	if !engine.Started() {
 		return false, ErrEngineNotStarted
 	}
-	engine.mutex.Lock()
-	actorSystem := engine.actorSystem
-	engine.mutex.Unlock()
 
-	pid, err := actorSystem.ActorOf(ctx, name)
+	ref := engine.actorSystem.Load()
+	if ref == nil {
+		return false, ErrEngineNotStarted
+	}
+
+	pid, err := ref.sys.ActorOf(ctx, name)
 	if err != nil {
 		return false, fmt.Errorf("failed to get projection %s: %w", name, err)
 	}
@@ -319,9 +402,9 @@ func (engine *Engine) RebuildProjection(ctx context.Context, name string, from t
 		return ErrEngineNotStarted
 	}
 
-	engine.mutex.Lock()
+	engine.mutex.RLock()
 	offsetStore := engine.offsetStore
-	engine.mutex.Unlock()
+	engine.mutex.RUnlock()
 
 	if offsetStore == nil {
 		return fmt.Errorf("offset store is required to rebuild projection")
@@ -345,56 +428,6 @@ func (engine *Engine) RebuildProjection(ctx context.Context, name string, from t
 	return nil
 }
 
-// Stop gracefully shuts down the eGo engine.
-//
-// This function ensures that all running projections, entities, and processes managed by the engine
-// are properly stopped before termination. It waits for ongoing operations to complete or time out
-// based on the provided context.
-//
-// Parameters:
-//   - ctx: Execution context for managing cancellation and timeouts.
-//
-// Returns:
-//   - An error if the shutdown process encounters issues; otherwise, nil.
-func (engine *Engine) Stop(ctx context.Context) error {
-	if !engine.Started() {
-		return nil
-	}
-
-	engine.started.Store(false)
-
-	// shutdown all event eventsStreams
-	eventsStreams := engine.eventsStreams.Values()
-	for _, stream := range eventsStreams {
-		// signal the publisher to stop
-		stream.done <- Done{}
-		stream.subscriber.Shutdown()
-		if err := stream.publisher.Close(ctx); err != nil {
-			return err
-		}
-	}
-
-	statesStreams := engine.statesStreams.Values()
-	for _, stream := range statesStreams {
-		stream.done <- Done{}
-		stream.subscriber.Shutdown()
-		if err := stream.publisher.Close(ctx); err != nil {
-			return err
-		}
-	}
-
-	engine.roles.Clear()
-	engine.eventStream.Close()
-	engine.eventsStreams.Reset()
-	engine.statesStreams.Reset()
-	return engine.actorSystem.Stop(ctx)
-}
-
-// Started returns true when the eGo engine has started
-func (engine *Engine) Started() bool {
-	return engine.started.Load()
-}
-
 // Subscribe creates an events' subscriber.
 //
 // This function initializes a new subscriber for the event stream managed by the eGo engine. The subscriber
@@ -408,9 +441,9 @@ func (engine *Engine) Subscribe() (eventstream.Subscriber, error) {
 		return nil, ErrEngineNotStarted
 	}
 
-	engine.mutex.Lock()
+	engine.mutex.RLock()
 	eventStream := engine.eventStream
-	engine.mutex.Unlock()
+	engine.mutex.RUnlock()
 
 	subscriber := eventStream.AddSubscriber()
 	eventTopics := generateTopics(eventsTopic, engine.partitionsCount)
@@ -449,9 +482,11 @@ func (engine *Engine) Entity(ctx context.Context, behavior EventSourcedBehavior,
 		return ErrEngineNotStarted
 	}
 
-	engine.mutex.Lock()
-	actorSystem := engine.actorSystem
-	engine.mutex.Unlock()
+	ref := engine.actorSystem.Load()
+	if ref == nil {
+		return ErrEngineNotStarted
+	}
+	actorSystem := ref.sys
 
 	// Register dependency types so the actor system can reconstruct them during relocation.
 	// No need to check for error here as it was done during Start().
@@ -500,10 +535,11 @@ func (engine *Engine) EntityExists(ctx context.Context, entityID string) (bool, 
 		return false, ErrEngineNotStarted
 	}
 
-	engine.mutex.Lock()
-	actorSystem := engine.actorSystem
-	engine.mutex.Unlock()
-	exists, err := actorSystem.ActorExists(ctx, entityID)
+	ref := engine.actorSystem.Load()
+	if ref == nil {
+		return false, ErrEngineNotStarted
+	}
+	exists, err := ref.sys.ActorExists(ctx, entityID)
 	if err != nil {
 		return false, fmt.Errorf("failed to check existence of entity %s: %w", entityID, err)
 	}
@@ -536,10 +572,15 @@ func (engine *Engine) DurableStateEntity(ctx context.Context, behavior DurableSt
 		return ErrEngineNotStarted
 	}
 
-	engine.mutex.Lock()
-	actorSystem := engine.actorSystem
+	ref := engine.actorSystem.Load()
+	if ref == nil {
+		return ErrEngineNotStarted
+	}
+	actorSystem := ref.sys
+
+	engine.mutex.RLock()
 	durableStateStore := engine.stateStore
-	engine.mutex.Unlock()
+	engine.mutex.RUnlock()
 
 	if durableStateStore == nil {
 		return ErrDurableStateStoreRequired
@@ -606,11 +647,12 @@ func (engine *Engine) SendCommand(ctx context.Context, entityID string, cmd Comm
 		}()
 	}
 
-	engine.mutex.Lock()
-	noSender := engine.noSender
-	engine.mutex.Unlock()
+	ref := engine.actorSystem.Load()
+	if ref == nil {
+		return nil, 0, ErrEngineNotStarted
+	}
 
-	reply, err := noSender.SendSync(ctx, entityID, cmd, timeout)
+	reply, err := ref.noSender.SendSync(ctx, entityID, cmd, timeout)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -728,9 +770,11 @@ func (engine *Engine) Saga(ctx context.Context, behavior SagaBehavior, timeout t
 		return ErrEngineNotStarted
 	}
 
-	engine.mutex.Lock()
-	actorSystem := engine.actorSystem
-	engine.mutex.Unlock()
+	ref := engine.actorSystem.Load()
+	if ref == nil {
+		return ErrEngineNotStarted
+	}
+	actorSystem := ref.sys
 
 	// Register dependency types so the actor system can reconstruct them during relocation.
 	_ = actorSystem.Inject(behavior)
@@ -770,11 +814,12 @@ func (engine *Engine) SagaStatus(ctx context.Context, sagaID string, timeout tim
 		return nil, ErrUndefinedEntityID
 	}
 
-	engine.mutex.Lock()
-	noSender := engine.noSender
-	engine.mutex.Unlock()
+	ref := engine.actorSystem.Load()
+	if ref == nil {
+		return nil, ErrEngineNotStarted
+	}
 
-	reply, err := noSender.SendSync(ctx, sagaID, new(egopb.GetStateCommand), timeout)
+	reply, err := ref.noSender.SendSync(ctx, sagaID, new(egopb.GetStateCommand), timeout)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get saga status for %s: %w", sagaID, err)
 	}
@@ -804,10 +849,10 @@ func (engine *Engine) EraseEntity(ctx context.Context, persistenceID string, ful
 		return ErrEngineNotStarted
 	}
 
-	engine.mutex.Lock()
+	engine.mutex.RLock()
 	eventsStore := engine.eventsStore
 	snapshotStore := engine.snapshotStore
-	engine.mutex.Unlock()
+	engine.mutex.RUnlock()
 
 	if full {
 		// Get the latest event to find the max sequence number
@@ -859,10 +904,10 @@ func (engine *Engine) ProjectionLag(ctx context.Context, projectionName string) 
 
 	// Snapshot the store references under the mutex so we do not race with a
 	// concurrent engine shutdown or reconfiguration while iterating shards.
-	engine.mutex.Lock()
+	engine.mutex.RLock()
 	offsetStore := engine.offsetStore
 	eventsStore := engine.eventsStore
-	engine.mutex.Unlock()
+	engine.mutex.RUnlock()
 
 	// Lag is defined relative to the projection's committed offset, so an
 	// offset store is mandatory. Without it there is no meaningful answer.
@@ -1232,8 +1277,10 @@ func (engine *Engine) startActorSystem(ctx context.Context, opts []goakt.Option)
 		return err
 	}
 
-	engine.actorSystem = actorSystem
-	engine.noSender = actorSystem.NoSender()
+	engine.actorSystem.Store(&actorSystemRef{
+		sys:      actorSystem,
+		noSender: actorSystem.NoSender(),
+	})
 	return nil
 }
 

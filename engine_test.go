@@ -31,6 +31,7 @@ import (
 	nethttp "net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -3114,4 +3115,93 @@ func TestEntityExists(t *testing.T) {
 		require.NoError(t, eventStore.Disconnect(ctx))
 	})
 
+}
+
+func TestActorSystem(t *testing.T) {
+	t.Run("returns nil before Start", func(t *testing.T) {
+		ctx := context.TODO()
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
+
+		require.Nil(t, engine.ActorSystem())
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+	})
+
+	t.Run("returns the running actor system after Start", func(t *testing.T) {
+		ctx := context.TODO()
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
+		require.NoError(t, engine.Start(ctx))
+
+		actorSystem := engine.ActorSystem()
+		require.NotNil(t, actorSystem)
+		require.True(t, actorSystem.Running())
+		require.Equal(t, "Sample", actorSystem.Name())
+
+		require.NoError(t, engine.Stop(ctx))
+		require.NoError(t, eventStore.Disconnect(ctx))
+	})
+
+	t.Run("returns nil after Stop", func(t *testing.T) {
+		ctx := context.TODO()
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
+		require.NoError(t, engine.Start(ctx))
+		require.NotNil(t, engine.ActorSystem())
+
+		require.NoError(t, engine.Stop(ctx))
+
+		require.Nil(t, engine.ActorSystem())
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+	})
+
+	t.Run("concurrent reads return a consistent snapshot", func(t *testing.T) {
+		// Verifies the atomic publication: many goroutines reading
+		// ActorSystem() while Start/Stop run concurrently must never observe
+		// a torn or partially-initialized value, and must never panic. Run
+		// with `go test -race` to catch any residual data race on the field.
+		ctx := context.TODO()
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+
+		engine := NewEngine("Sample", eventStore, WithLogger(DiscardLogger))
+		require.NoError(t, engine.Start(ctx))
+
+		const readers = 32
+		var wg sync.WaitGroup
+		wg.Add(readers)
+		stop := make(chan struct{})
+		for range readers {
+			go func() {
+				defer wg.Done()
+				for {
+					select {
+					case <-stop:
+						return
+					default:
+						// either nil (post-Stop) or a usable system; never a torn value
+						if as := engine.ActorSystem(); as != nil {
+							_ = as.Name()
+						}
+					}
+				}
+			}()
+		}
+
+		pause.For(50 * time.Millisecond)
+		require.NoError(t, engine.Stop(ctx))
+		close(stop)
+		wg.Wait()
+
+		require.Nil(t, engine.ActorSystem())
+		require.NoError(t, eventStore.Disconnect(ctx))
+	})
 }

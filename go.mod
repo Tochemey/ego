@@ -3,12 +3,12 @@ module github.com/tochemey/ego/v4
 go 1.26.0
 
 require (
-	github.com/deckarep/golang-set/v2 v2.8.0
+	github.com/deckarep/golang-set/v2 v2.9.0
 	github.com/flowchartsman/retry v1.2.0
 	github.com/google/uuid v1.6.0
-	github.com/kapetan-io/tackle v0.13.0
+	github.com/kapetan-io/tackle v0.15.0
 	github.com/stretchr/testify v1.11.1
-	github.com/tochemey/goakt/v4 v4.2.1
+	github.com/tochemey/goakt/v4 v4.2.2
 	github.com/travisjeffery/go-dynaport v1.0.0
 	go.opentelemetry.io/otel v1.43.0
 	go.opentelemetry.io/otel/metric v1.43.0
@@ -61,6 +61,7 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect
 	go.etcd.io/bbolt v1.4.3 // indirect
+	go.mongodb.org/mongo-driver v1.17.9 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.uber.org/zap v1.27.1 // indirect
 	golang.org/x/mod v0.35.0 // indirect
