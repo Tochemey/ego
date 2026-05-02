@@ -1117,9 +1117,11 @@ func (engine *Engine) actorSystemOptions() ([]goakt.Option, error) {
 func (engine *Engine) baseOptions() []goakt.Option {
 	return []goakt.Option{
 		goakt.WithLogger(newLoggerAdapter(engine.logger)),
-		goakt.WithActorInitMaxRetries(1),
+		goakt.WithActorInitMaxRetries(5),
+		goakt.WithPubSub(),
 		goakt.WithDefaultSupervisor(
-			supervisor.NewSupervisor(supervisor.WithAnyErrorDirective(supervisor.ResumeDirective))),
+			supervisor.NewSupervisor(supervisor.WithAnyErrorDirective(supervisor.ResumeDirective)),
+		),
 		goakt.WithExtensions(
 			extensions.NewEventsStore(engine.eventsStore),
 			extensions.NewEventsStream(engine.eventStream),
