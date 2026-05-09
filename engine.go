@@ -123,6 +123,22 @@ type Engine struct {
 
 	supervisor *goakt.PID
 	roles      goset.Set[string]
+
+	// extraActorSystemOptions are user-supplied goakt.Option values appended
+	// before ego's own options when building the actor system. Because goakt
+	// options are applied in order and use last-write-wins semantics, ego's
+	// own options are guaranteed to overwrite any conflicting field set by
+	// the user.
+	extraActorSystemOptions []goakt.Option
+	// extraRemoteOptions are user-supplied remote.Option values forwarded to
+	// remote.NewConfig before ego's own remote options. The bind address and
+	// remoting port remain controlled by the engine (they are positional).
+	extraRemoteOptions []remote.Option
+	// clusterConfigurator is a user-supplied callback invoked on the
+	// ClusterConfig before ego applies its critical cluster settings (kinds,
+	// discovery, ports, quorum, replica, partition count, intervals, roles).
+	// Any conflicting setting is therefore overwritten by ego.
+	clusterConfigurator func(*goakt.ClusterConfig)
 }
 
 // NewEngine creates and initializes a new instance of the eGo engine.
@@ -1114,8 +1130,13 @@ func (engine *Engine) actorSystemOptions() ([]goakt.Option, error) {
 }
 
 // baseOptions returns the always-on options for the engine actor system.
+//
+// User-supplied extras (via WithActorSystemOptions) are placed first so that ego's
+// critical options, which follow, overwrite any conflicting setting.
 func (engine *Engine) baseOptions() []goakt.Option {
-	return []goakt.Option{
+	opts := make([]goakt.Option, 0, len(engine.extraActorSystemOptions)+5)
+	opts = append(opts, engine.extraActorSystemOptions...)
+	opts = append(opts,
 		goakt.WithLogger(newLoggerAdapter(engine.logger)),
 		goakt.WithActorInitMaxRetries(5),
 		goakt.WithPubSub(),
@@ -1126,7 +1147,8 @@ func (engine *Engine) baseOptions() []goakt.Option {
 			extensions.NewEventsStore(engine.eventsStore),
 			extensions.NewEventsStream(engine.eventStream),
 		),
-	}
+	)
+	return opts
 }
 
 // appendOptionalExtensions adds optional extensions and validates dependencies.
@@ -1187,7 +1209,11 @@ func (engine *Engine) appendClusterOptions(opts []goakt.Option) []goakt.Option {
 	engine.ensureBindAddr()
 	clusterConfig := engine.clusterConfig()
 
-	remoteOpts := []remote.Option{}
+	// User-supplied remote options are placed first so ego's own options
+	// (e.g. the OTel context propagator) overwrite any conflicting setting.
+	// The bind address and port are positional and stay engine-controlled.
+	remoteOpts := make([]remote.Option, 0, len(engine.extraRemoteOptions)+1)
+	remoteOpts = append(remoteOpts, engine.extraRemoteOptions...)
 	if engine.telemetry != nil {
 		remoteOpts = append(remoteOpts, remote.WithContextPropagator(otelContextPropagator{}))
 	}
@@ -1219,12 +1245,22 @@ func (engine *Engine) ensureBindAddr() {
 }
 
 // clusterConfig builds the Go-Akt cluster configuration for the engine.
+//
+// A user-supplied configurator (via WithClusterConfigurator) is invoked first
+// so that any ego-critical setting it touches — discovery, ports, quorum,
+// replica count, partition count, intervals, kinds — is overwritten by the
+// chained calls below. Settings the engine does not pin (e.g. read/write
+// timeouts, table size, CRDT options) are preserved.
 func (engine *Engine) clusterConfig() *goakt.ClusterConfig {
 	replicaCount := engine.clusterReplicaCount()
 	stateSyncInterval, balancerInterval := engine.clusterIntervals()
 
-	clusterConfig := goakt.
-		NewClusterConfig().
+	clusterConfig := goakt.NewClusterConfig()
+	if engine.clusterConfigurator != nil {
+		engine.clusterConfigurator(clusterConfig)
+	}
+
+	clusterConfig = clusterConfig.
 		WithDiscovery(newClusterProviderAdapter(engine.clusterProvider)).
 		WithDiscoveryPort(engine.discoveryPort).
 		WithPeersPort(engine.peersPort).

@@ -1,0 +1,59 @@
+# syntax=docker/dockerfile:1.7
+# CI tooling image for ego. Mirrors the toolchain previously declared in the
+# Earthfile so that Makefile targets (docker-lint, docker-test, docker-mock,
+# docker-protogen) can run in a hermetic container.
+
+FROM golang:1.26.3-alpine
+
+# CGO/build dependencies and shell utilities.
+RUN apk --no-cache add \
+        git \
+        ca-certificates \
+        gcc \
+        musl-dev \
+        libc-dev \
+        binutils-gold \
+        curl \
+        bash \
+        make \
+        openssh
+
+# Protobuf code generators.
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest && \
+    go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest && \
+    go install connectrpc.com/connect/cmd/protoc-gen-connect-go@latest && \
+    go install github.com/fullstorydev/grpcurl/cmd/grpcurl@latest
+
+# buf
+RUN GO111MODULE=on GOBIN=/usr/local/bin go install github.com/bufbuild/buf/cmd/buf@v1.69.0
+
+# golangci-lint
+# The upstream install script pulls a release tarball from GitHub; that fetch
+# occasionally 502s. Retry a few times so a transient flake doesn't break the
+# whole image build.
+RUN set -eu; \
+    for attempt in 1 2 3 4 5; do \
+        if curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh \
+                | sh -s -- -b /usr/local/bin v2.12.2; then \
+            break; \
+        fi; \
+        echo "golangci-lint install attempt $attempt failed; retrying..." >&2; \
+        sleep 5; \
+    done; \
+    golangci-lint --version
+
+# vektra/mockery — held on v2.x; the v3 line drops the CLI-flag interface
+# the docker-mock target relies on.
+RUN go install github.com/vektra/mockery/v2@v2.53.6
+
+ENV PATH="/go/bin:/usr/local/bin:${PATH}"
+
+# Pre-create cache and home directories that the Makefile's DOCKER_RUN
+# expects to mount. Docker initializes a named volume from the image's
+# directory contents and permissions on first mount, so making them
+# world-writable here lets the container run as the host UID without
+# permission errors on the volumes.
+RUN mkdir -p /cache/go-build /cache/go-mod /home/build && \
+    chmod -R 0777 /cache /home/build
+
+WORKDIR /workspace

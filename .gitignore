@@ -15,4 +15,5 @@ gen/
 .gocache/
 .cache/
 .claude/
+.config/
 *.out

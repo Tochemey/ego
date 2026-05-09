@@ -113,7 +113,7 @@ func isNilLogger(l Logger) bool {
 		return true
 	}
 	v := reflect.ValueOf(l)
-	return v.Kind() == reflect.Ptr && v.IsNil()
+	return v.Kind() == reflect.Pointer && v.IsNil()
 }
 
 // levelSeverity maps a goaktlog.Level to an integer severity for comparison.
