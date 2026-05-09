@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 🚀 New Features
+
+- **User-Supplied Go-Akt Options** — Added three engine options that let developers extend the underlying Go-Akt
+  configuration without giving up ego's critical defaults:
+  - `WithActorSystemOptions(opts ...goakt.Option)` — appends extra actor-system options. They are applied before
+    ego's own options so ego's settings (logger adapter, actor init max retries, default supervisor, pubsub, ego
+    extensions, TLS, cluster, remote) overwrite any conflicting field.
+  - `WithRemoteOptions(opts ...remote.Option)` — appends extra remote options forwarded to `remote.NewConfig`.
+    Bind address and remoting port stay engine-controlled (positional). Only takes effect when cluster mode is
+    enabled via `WithCluster`.
+  - `WithClusterConfigurator(fn func(*goakt.ClusterConfig))` — invokes a callback on the cluster configuration
+    before ego pins its critical fields (discovery provider, discovery/peers ports, minimum peers quorum, replica
+    count, partition count, state sync and balancer intervals, kinds, roles). Settings ego does not pin (read/write
+    timeouts, bootstrap timeout, table size, data center configuration, CRDT options, grain activation barrier) are
+    preserved. Only takes effect when cluster mode is enabled via `WithCluster`.
+
+  See [option.go](option.go) and [engine.go](engine.go).
+
 ## [v4.1.2] - 2026-04-26
 
 ### 🚀 New Features

@@ -29,6 +29,8 @@ import (
 	goset "github.com/deckarep/golang-set/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	goakt "github.com/tochemey/goakt/v4/actor"
+	"github.com/tochemey/goakt/v4/remote"
 	"go.opentelemetry.io/otel/trace"
 	nooptrace "go.opentelemetry.io/otel/trace/noop"
 	"google.golang.org/protobuf/types/known/anypb"
@@ -219,6 +221,40 @@ func TestOptionWithTLS(t *testing.T) {
 	opt.Apply(engine)
 	require.NotNil(t, engine.tls)
 	assert.Equal(t, tls, engine.tls)
+}
+
+func TestOptionWithGoAktOptions(t *testing.T) {
+	engine := new(Engine)
+	opt := WithActorSystemOptions(goakt.WithShutdownTimeout(time.Second), goakt.WithActorInitTimeout(2*time.Second))
+	opt.Apply(engine)
+	assert.Len(t, engine.extraActorSystemOptions, 2)
+
+	WithActorSystemOptions(goakt.WithShutdownTimeout(3 * time.Second)).Apply(engine)
+	assert.Len(t, engine.extraActorSystemOptions, 3)
+}
+
+func TestOptionWithRemoteOptions(t *testing.T) {
+	engine := new(Engine)
+	opt := WithRemoteOptions(remote.WithWriteTimeout(time.Second), remote.WithMaxFrameSize(1024))
+	opt.Apply(engine)
+	assert.Len(t, engine.extraRemoteOptions, 2)
+
+	WithRemoteOptions(remote.WithWriteTimeout(2 * time.Second)).Apply(engine)
+	assert.Len(t, engine.extraRemoteOptions, 3)
+}
+
+func TestOptionWithClusterConfigurator(t *testing.T) {
+	engine := new(Engine)
+	called := false
+	fn := func(c *goakt.ClusterConfig) { called = true; _ = c }
+	WithClusterConfigurator(fn).Apply(engine)
+	require.NotNil(t, engine.clusterConfigurator)
+
+	engine.clusterConfigurator(goakt.NewClusterConfig())
+	assert.True(t, called)
+
+	WithClusterConfigurator(nil).Apply(engine)
+	assert.Nil(t, engine.clusterConfigurator)
 }
 
 // testEventAdapter is a no-op EventAdapter for testing

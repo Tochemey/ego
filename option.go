@@ -23,6 +23,9 @@
 package ego
 
 import (
+	goakt "github.com/tochemey/goakt/v4/actor"
+	"github.com/tochemey/goakt/v4/remote"
+
 	"github.com/tochemey/ego/v4/encryption"
 	"github.com/tochemey/ego/v4/eventadapter"
 	"github.com/tochemey/ego/v4/internal/extensions"
@@ -278,6 +281,80 @@ func WithEventAdapters(adapters ...eventadapter.EventAdapter) Option {
 func WithEncryptor(encryptor encryption.Encryptor) Option {
 	return OptionFunc(func(e *Engine) {
 		e.encryptor = encryptor
+	})
+}
+
+// WithActorSystemOptions registers additional Go-Akt actor system options that the
+// engine forwards when constructing the underlying actor system.
+//
+// The supplied options are applied before the engine's own options. Because
+// Go-Akt options follow last-write-wins semantics, any field that the engine
+// itself sets — logger adapter, actor init max retries, default supervisor,
+// pubsub, ego extensions, TLS, cluster, remote — overwrites the user-supplied
+// value. Use this option to configure orthogonal behavior the engine does not
+// pin (for example shutdown timeout, eviction strategy, throughput budget,
+// custom partition hasher, additional extensions).
+//
+// Calling this option multiple times appends; previous extras are preserved.
+//
+// Parameters:
+//   - opts: One or more goakt.Option values to forward to the actor system.
+//
+// Returns:
+//   - Option: A functional option that registers the additional Go-Akt options.
+func WithActorSystemOptions(opts ...goakt.Option) Option {
+	return OptionFunc(func(e *Engine) {
+		e.extraActorSystemOptions = append(e.extraActorSystemOptions, opts...)
+	})
+}
+
+// WithRemoteOptions registers additional remote configuration options that
+// the engine forwards when building the cluster's remote configuration.
+//
+// The supplied options are applied before the engine's own remote options
+// (e.g. the OpenTelemetry context propagator wired by WithTelemetry), so the
+// engine retains control over fields it pins. The bind address and remoting
+// port remain controlled by WithCluster — they are positional arguments and
+// cannot be overridden through this option.
+//
+// This option only takes effect when cluster mode is enabled via WithCluster.
+//
+// Calling this option multiple times appends; previous extras are preserved.
+//
+// Parameters:
+//   - opts: One or more remote.Option values to forward to remote.NewConfig.
+//
+// Returns:
+//   - Option: A functional option that registers the additional remote options.
+func WithRemoteOptions(opts ...remote.Option) Option {
+	return OptionFunc(func(e *Engine) {
+		e.extraRemoteOptions = append(e.extraRemoteOptions, opts...)
+	})
+}
+
+// WithClusterConfigurator registers a callback that customizes the underlying
+// Go-Akt ClusterConfig before the engine applies its critical settings.
+//
+// The callback runs first; the engine then chains its own configuration —
+// discovery provider, discovery port, peers port, minimum peers quorum,
+// replica count, partition count, state sync interval, balancer interval,
+// kinds, and roles — overwriting any conflicting field. Settings the engine
+// does not pin (such as read/write timeouts, bootstrap timeout, table size,
+// data center configuration, CRDT options, or grain activation barrier) are
+// preserved.
+//
+// This option only takes effect when cluster mode is enabled via WithCluster.
+// Passing nil clears any previously registered configurator.
+//
+// Parameters:
+//   - fn: A callback invoked with the cluster configuration before ego's
+//     critical settings are applied. May be nil to clear.
+//
+// Returns:
+//   - Option: A functional option that registers the cluster configurator.
+func WithClusterConfigurator(fn func(*goakt.ClusterConfig)) Option {
+	return OptionFunc(func(e *Engine) {
+		e.clusterConfigurator = fn
 	})
 }
 
