@@ -1251,10 +1251,12 @@ func (engine *Engine) ensureBindAddr() {
 // replica count, partition count, intervals, kinds — is overwritten by the
 // chained calls below. Settings the engine does not pin (e.g. read/write
 // timeouts, table size, CRDT options) are preserved.
+//
+// PartitionCount and MinimumPeersQuorum are only forwarded when explicitly
+// set on the engine; a zero value lets Go-Akt's own defaults (271 partitions,
+// quorum of 1) stand. The state-sync and balancer intervals — derived from
+// quorum size — are likewise only pinned when quorum is explicit.
 func (engine *Engine) clusterConfig() *goakt.ClusterConfig {
-	replicaCount := engine.clusterReplicaCount()
-	stateSyncInterval, balancerInterval := engine.clusterIntervals()
-
 	clusterConfig := goakt.NewClusterConfig()
 	if engine.clusterConfigurator != nil {
 		engine.clusterConfigurator(clusterConfig)
@@ -1264,17 +1266,25 @@ func (engine *Engine) clusterConfig() *goakt.ClusterConfig {
 		WithDiscovery(newClusterProviderAdapter(engine.clusterProvider)).
 		WithDiscoveryPort(engine.discoveryPort).
 		WithPeersPort(engine.peersPort).
-		WithMinimumPeersQuorum(uint32(engine.minimumPeersQuorum)).
-		WithReplicaCount(replicaCount).
-		WithPartitionCount(engine.partitionsCount).
-		WithClusterStateSyncInterval(stateSyncInterval).
-		WithClusterBalancerInterval(balancerInterval).
 		WithKinds(
 			new(EventSourcedActor),
 			new(DurableStateActor),
 			new(SagaActor),
 			new(ProjectionActor),
 		)
+
+	if engine.partitionsCount > 0 {
+		clusterConfig = clusterConfig.WithPartitionCount(engine.partitionsCount)
+	}
+
+	if engine.minimumPeersQuorum > 0 {
+		stateSyncInterval, balancerInterval := engine.clusterIntervals()
+		clusterConfig = clusterConfig.
+			WithMinimumPeersQuorum(uint32(engine.minimumPeersQuorum)).
+			WithReplicaCount(engine.clusterReplicaCount()).
+			WithClusterStateSyncInterval(stateSyncInterval).
+			WithClusterBalancerInterval(balancerInterval)
+	}
 
 	// set roles if any
 	if !engine.roles.IsEmpty() {

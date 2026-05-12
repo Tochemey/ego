@@ -56,6 +56,52 @@ func (f OptionFunc) Apply(e *Engine) {
 	f(e)
 }
 
+// ClusterOption bundles the parameters used to enable cluster mode.
+//
+// Required fields: Provider, RemotingPort, DiscoveryPort, PeersPort.
+// Optional fields: Host, PartitionCount, MinimumPeersQuorum.
+//
+// A zero PartitionCount or MinimumPeersQuorum falls back to Go-Akt's own
+// defaults (271 partitions, quorum of 1). Override more advanced settings
+// via WithClusterConfigurator.
+type ClusterOption struct {
+	// Provider is the ClusterProvider responsible for peer discovery.
+	Provider ClusterProvider
+	// Host is the hostname or IP address advertised by this node.
+	// Empty falls back to "0.0.0.0".
+	Host string
+	// RemotingPort is the port used for remote actor communication.
+	RemotingPort int
+	// DiscoveryPort is the port used for service discovery.
+	DiscoveryPort int
+	// PeersPort is the port used for peer-to-peer communication.
+	PeersPort int
+	// PartitionCount is the number of partitions used for distributing data.
+	// Zero uses Go-Akt's default (271).
+	PartitionCount uint64
+	// MinimumPeersQuorum is the minimum number of peers required to form a quorum.
+	// Zero uses Go-Akt's default (1).
+	MinimumPeersQuorum uint16
+}
+
+// WithClusterOption enables cluster mode using the supplied option.
+//
+// Fields left at their zero value fall back to Go-Akt defaults. For settings
+// not exposed here (e.g. read/write quorums, table size, CRDT options), use
+// WithClusterConfigurator.
+func WithClusterOption(option ClusterOption) Option {
+	return OptionFunc(func(e *Engine) {
+		e.clusterEnabled.Store(true)
+		e.clusterProvider = option.Provider
+		e.partitionsCount = option.PartitionCount
+		e.minimumPeersQuorum = option.MinimumPeersQuorum
+		e.bindAddr = option.Host
+		e.remotingPort = option.RemotingPort
+		e.discoveryPort = option.DiscoveryPort
+		e.peersPort = option.PeersPort
+	})
+}
+
 // WithCluster enables cluster mode by configuring the necessary parameters
 // for distributed communication and peer discovery.
 //
@@ -70,16 +116,18 @@ func (f OptionFunc) Apply(e *Engine) {
 //
 // Returns:
 //   - Option: A functional option that configures the cluster settings.
+//
+// Deprecated: use WithClusterOption instead. WithCluster will be removed in a
+// future release.
 func WithCluster(provider ClusterProvider, partitionCount uint64, minimumPeersQuorum uint16, host string, remotingPort, discoveryPort, peersPort int) Option {
-	return OptionFunc(func(e *Engine) {
-		e.clusterEnabled.Store(true)
-		e.clusterProvider = provider
-		e.partitionsCount = partitionCount
-		e.peersPort = peersPort
-		e.minimumPeersQuorum = minimumPeersQuorum
-		e.discoveryPort = discoveryPort
-		e.bindAddr = host
-		e.remotingPort = remotingPort
+	return WithClusterOption(ClusterOption{
+		Provider:           provider,
+		Host:               host,
+		RemotingPort:       remotingPort,
+		DiscoveryPort:      discoveryPort,
+		PeersPort:          peersPort,
+		PartitionCount:     partitionCount,
+		MinimumPeersQuorum: minimumPeersQuorum,
 	})
 }
 
@@ -314,10 +362,10 @@ func WithActorSystemOptions(opts ...goakt.Option) Option {
 // The supplied options are applied before the engine's own remote options
 // (e.g. the OpenTelemetry context propagator wired by WithTelemetry), so the
 // engine retains control over fields it pins. The bind address and remoting
-// port remain controlled by WithCluster — they are positional arguments and
+// port remain controlled by WithClusterOption — they are positional fields and
 // cannot be overridden through this option.
 //
-// This option only takes effect when cluster mode is enabled via WithCluster.
+// This option only takes effect when cluster mode is enabled via WithClusterOption.
 //
 // Calling this option multiple times appends; previous extras are preserved.
 //
@@ -343,7 +391,7 @@ func WithRemoteOptions(opts ...remote.Option) Option {
 // data center configuration, CRDT options, or grain activation barrier) are
 // preserved.
 //
-// This option only takes effect when cluster mode is enabled via WithCluster.
+// This option only takes effect when cluster mode is enabled via WithClusterOption.
 // Passing nil clears any previously registered configurator.
 //
 // Parameters:

@@ -68,6 +68,50 @@ func TestOptions(t *testing.T) {
 			},
 		},
 		{
+			name: "WithClusterOption",
+			option: WithClusterOption(ClusterOption{
+				Provider:           clusterProvider,
+				Host:               "localhost",
+				RemotingPort:       1334,
+				DiscoveryPort:      1335,
+				PeersPort:          1336,
+				PartitionCount:     30,
+				MinimumPeersQuorum: 3,
+			}),
+			expected: func() *Engine {
+				expected := &Engine{
+					clusterProvider:    clusterProvider,
+					minimumPeersQuorum: 3,
+					bindAddr:           "localhost",
+					discoveryPort:      1335,
+					peersPort:          1336,
+					remotingPort:       1334,
+					partitionsCount:    30,
+				}
+				expected.clusterEnabled.Store(true)
+				return expected
+			},
+		},
+		{
+			name: "WithClusterOption_Defaults",
+			option: WithClusterOption(ClusterOption{
+				Provider:      clusterProvider,
+				RemotingPort:  1334,
+				DiscoveryPort: 1335,
+				PeersPort:     1336,
+			}),
+			expected: func() *Engine {
+				expected := &Engine{
+					clusterProvider: clusterProvider,
+					discoveryPort:   1335,
+					peersPort:       1336,
+					remotingPort:    1334,
+				}
+				expected.clusterEnabled.Store(true)
+				return expected
+			},
+		},
+		{
 			name:   "WithLogger",
 			option: WithLogger(logger),
 			expected: func() *Engine {
