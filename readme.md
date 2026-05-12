@@ -224,9 +224,23 @@ For workloads beyond what a single node can handle, enable clustering to distrib
 
 ```go
 engine := ego.NewEngine("myapp", eventStore,
-    ego.WithCluster(provider, partitions, replicaCount, host, remotingPort, gossipPort, clusterPort),
+    ego.WithClusterOption(ego.ClusterOption{
+        Provider:      provider,
+        Host:          host,
+        RemotingPort:  remotingPort,
+        DiscoveryPort: gossipPort,
+        PeersPort:     clusterPort,
+        // Optional. Leave at zero to use Go-Akt defaults
+        // (271 partitions, quorum of 1).
+        PartitionCount:     partitions,
+        MinimumPeersQuorum: replicaCount,
+    }),
 )
 ```
+
+`WithClusterOption` supersedes the older positional `WithCluster(...)`, which is now deprecated.
+Unset numeric fields fall back to Go-Akt's own defaults; for settings not exposed here
+(read/write quorum, table size, CRDT options, …) use `WithClusterConfigurator`.
 
 Each entity is hashed to a partition and placed on a node. Commands are routed transparently. See the
 [clustering documentation](https://github.com/Tochemey/goakt#clustering) for details on discovery providers
@@ -298,8 +312,8 @@ You can:
 ## Clustering
 
 eGo uses [Go-Akt](https://github.com/Tochemey/goakt#clustering) for clustering and entity distribution.
-In `v4`, `WithCluster()` accepts `ego.ClusterProvider`, keeping your application code on eGo's abstraction instead of
-depending directly on Go-Akt discovery types.
+In `v4`, the cluster options accept `ego.ClusterProvider`, keeping your application code on eGo's abstraction instead of
+depending directly on Go-Akt discovery types. Prefer `WithClusterOption` over the deprecated `WithCluster`.
 
 ## Testkit & Mocks
 

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 🚀 New Features
 
+- **Struct-Based Cluster Option** — Added `WithClusterOption(ClusterOption)` for enabling cluster mode with named
+  fields instead of seven positional arguments. `PartitionCount` and `MinimumPeersQuorum` are optional: a zero
+  value falls back to Go-Akt's own defaults (271 partitions, quorum of 1). The engine now skips its chained
+  `WithPartitionCount` / `WithMinimumPeersQuorum` / state-sync / balancer calls when those fields are unset, so
+  Go-Akt's defaults stand. See [option.go](option.go) and [engine.go](engine.go).
+
 - **User-Supplied Go-Akt Options** — Added three engine options that let developers extend the underlying Go-Akt
   configuration without giving up ego's critical defaults:
   - `WithActorSystemOptions(opts ...goakt.Option)` — appends extra actor-system options. They are applied before
@@ -16,14 +22,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     extensions, TLS, cluster, remote) overwrite any conflicting field.
   - `WithRemoteOptions(opts ...remote.Option)` — appends extra remote options forwarded to `remote.NewConfig`.
     Bind address and remoting port stay engine-controlled (positional). Only takes effect when cluster mode is
-    enabled via `WithCluster`.
+    enabled via `WithClusterOption`.
   - `WithClusterConfigurator(fn func(*goakt.ClusterConfig))` — invokes a callback on the cluster configuration
     before ego pins its critical fields (discovery provider, discovery/peers ports, minimum peers quorum, replica
     count, partition count, state sync and balancer intervals, kinds, roles). Settings ego does not pin (read/write
     timeouts, bootstrap timeout, table size, data center configuration, CRDT options, grain activation barrier) are
-    preserved. Only takes effect when cluster mode is enabled via `WithCluster`.
+    preserved. Only takes effect when cluster mode is enabled via `WithClusterOption`.
 
   See [option.go](option.go) and [engine.go](engine.go).
+
+### ⚠️ Deprecations
+
+- **`WithCluster`** — Deprecated in favor of `WithClusterOption(ClusterOption{...})`. The old function continues to
+  work and now delegates to the new option internally, so existing callers are unaffected. It will be removed in a
+  future release.
 
 ## [v4.1.2] - 2026-04-26
 
