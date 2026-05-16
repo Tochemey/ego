@@ -41,9 +41,12 @@ import (
 	"github.com/tochemey/ego/v4/persistence"
 )
 
-var (
-	statesTopic = "topic.states.%d"
-)
+// statesTopic is the single in-process pub/sub topic eGo's durable-state
+// entities publish to and the engine's state publishers/subscribers consume
+// from. The shard each state version belongs to is carried in
+// egopb.DurableState.Shard, so downstream consumers can filter by shard
+// without the topic name having to encode it.
+const statesTopic = "topic.states"
 
 // DurableStateActor is a durable state based actor
 type DurableStateActor struct {
@@ -61,7 +64,6 @@ type DurableStateActor struct {
 
 	// Cached values computed once at startup to avoid per-command allocations.
 	shardNumber uint64
-	statesTopic string
 }
 
 // implements the goakt.Actor interface
@@ -121,7 +123,6 @@ func (entity *DurableStateActor) Receive(ctx *goakt.ReceiveContext) {
 	case *goakt.PostStart:
 		entity.actorSystem = ctx.ActorSystem()
 		entity.shardNumber = ctx.ActorSystem().Partition(entity.persistenceID)
-		entity.statesTopic = fmt.Sprintf(statesTopic, entity.shardNumber)
 	case *egopb.GetStateCommand:
 		entity.sendStateReply(ctx)
 	default:
@@ -233,7 +234,7 @@ func (entity *DurableStateActor) sendStateReply(ctx *goakt.ReceiveContext) {
 				PersistenceId:  entity.persistenceID,
 				State:          entity.currentStateAny(),
 				SequenceNumber: entity.currentVersion,
-				Timestamp:      entity.lastCommandTime.Unix(),
+				Timestamp:      entity.lastCommandTime.UnixNano(),
 			},
 		},
 	})
@@ -283,7 +284,7 @@ func (entity *DurableStateActor) persistStateAndPublish(ctx context.Context) err
 		PersistenceId:  entity.persistenceID,
 		VersionNumber:  entity.currentVersion,
 		ResultingState: entity.currentStateAny(),
-		Timestamp:      entity.lastCommandTime.Unix(),
+		Timestamp:      entity.lastCommandTime.UnixNano(),
 		Shard:          entity.shardNumber,
 	}
 
@@ -291,6 +292,6 @@ func (entity *DurableStateActor) persistStateAndPublish(ctx context.Context) err
 		return err
 	}
 
-	entity.eventsStream.Publish(entity.statesTopic, durableState)
+	entity.eventsStream.Publish(statesTopic, durableState)
 	return nil
 }

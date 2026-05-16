@@ -26,17 +26,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	nethttp "net/http"
+	"strings"
 	"sync"
 	"time"
 
-	goset "github.com/deckarep/golang-set/v2"
 	goakt "github.com/tochemey/goakt/v4/actor"
 	gerrors "github.com/tochemey/goakt/v4/errors"
 	"github.com/tochemey/goakt/v4/passivation"
-	"github.com/tochemey/goakt/v4/remote"
 	"github.com/tochemey/goakt/v4/supervisor"
-	gtls "github.com/tochemey/goakt/v4/tls"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -63,6 +60,20 @@ var (
 	ErrCommandReplyUnmarshalling = errors.New("failed to parse command reply")
 	// ErrDurableStateStoreRequired is returned when the eGo engine durable store is not set
 	ErrDurableStateStoreRequired = errors.New("durable state store is required")
+	// ErrActorSystemRequired is returned when NewEngine is called with a nil
+	// actor system. The caller must construct and start the actor system
+	// themselves before plugging eGo in.
+	ErrActorSystemRequired = errors.New("actor system is required")
+	// ErrActorSystemNotStarted is returned when NewEngine is given an actor
+	// system whose Start has not yet been called or has not yet succeeded.
+	ErrActorSystemNotStarted = errors.New("actor system must be started before NewEngine")
+	// ErrMissingRequiredExtensions is returned when NewEngine validates the
+	// actor system and finds that one or more extensions eGo needs are
+	// absent. The error message lists the missing extension IDs. Callers
+	// typically hit this when the actor system was built from a different
+	// Config than the one passed to NewEngine, or when cfg.GoaktOptions()
+	// was not applied at construction time.
+	ErrMissingRequiredExtensions = errors.New("actor system is missing required ego extensions")
 	// ZeroTime is the zero time
 	ZeroTime = time.Time{}
 )
@@ -93,104 +104,144 @@ type statesStream struct {
 
 // Engine represents the engine that empowers the various entities
 type Engine struct {
-	name               string
-	eventsStore        persistence.EventsStore
-	stateStore         persistence.StateStore
-	offsetStore        offsetstore.OffsetStore
-	clusterEnabled     atomic.Bool
-	actorSystem        atomic.Pointer[actorSystemRef]
-	logger             Logger
-	clusterProvider    ClusterProvider
-	partitionsCount    uint64
-	started            atomic.Bool
-	bindAddr           string
-	peersPort          int
-	discoveryPort      int
-	remotingPort       int
-	minimumPeersQuorum uint16
-	eventStream        eventstream.Stream
-	mutex              sync.RWMutex
-	tls                *TLS
+	name          string
+	eventsStore   persistence.EventsStore
+	stateStore    persistence.StateStore
+	offsetStore   offsetstore.OffsetStore
+	snapshotStore persistence.SnapshotStore
+	actorSystem   atomic.Pointer[actorSystemRef]
+	logger        Logger
+	started       atomic.Bool
+	eventStream   eventstream.Stream
+	mutex         sync.RWMutex
 
-	eventsStreams       *syncmap.Map[string, *eventsStream]
-	statesStreams       *syncmap.Map[string, *statesStream]
-	projectionExtension *extensions.ProjectionExtension
-	eventAdapters       []eventadapter.EventAdapter
-	telemetry           *Telemetry
-	metrics             *metrics
-	snapshotStore       persistence.SnapshotStore
-	encryptor           encryption.Encryptor
-
-	supervisor *goakt.PID
-	roles      goset.Set[string]
-
-	// extraActorSystemOptions are user-supplied goakt.Option values appended
-	// before ego's own options when building the actor system. Because goakt
-	// options are applied in order and use last-write-wins semantics, ego's
-	// own options are guaranteed to overwrite any conflicting field set by
-	// the user.
-	extraActorSystemOptions []goakt.Option
-	// extraRemoteOptions are user-supplied remote.Option values forwarded to
-	// remote.NewConfig before ego's own remote options. The bind address and
-	// remoting port remain controlled by the engine (they are positional).
-	extraRemoteOptions []remote.Option
-	// clusterConfigurator is a user-supplied callback invoked on the
-	// ClusterConfig before ego applies its critical cluster settings (kinds,
-	// discovery, ports, quorum, replica, partition count, intervals, roles).
-	// Any conflicting setting is therefore overwritten by ego.
-	clusterConfigurator func(*goakt.ClusterConfig)
+	eventsStreams *syncmap.Map[string, *eventsStream]
+	statesStreams *syncmap.Map[string, *statesStream]
+	eventAdapters []eventadapter.EventAdapter
+	telemetry     *Telemetry
+	metrics       *metrics
+	encryptor     encryption.Encryptor
 }
 
-// NewEngine creates and initializes a new instance of the eGo engine.
+// NewEngine plugs eGo into an already-constructed and started goakt.ActorSystem.
 //
-// This function constructs an engine with the specified name and event store, applying any additional
-// configuration options. The engine serves as the core for managing event-sourced entities, durable
-// state entities, and projections.
+// The caller builds a single Config with NewConfig, passes cfg.GoaktOptions()
+// to goakt.NewActorSystem, starts the actor system, and then hands the same
+// Config to NewEngine. This guarantees the actor system's extensions and the
+// engine's view of stores, projections, telemetry, and the in-process event
+// stream stay in lockstep.
+//
+// NewEngine validates the actor system on entry:
+//
+//   - sys must be non-nil (otherwise returns ErrActorSystemRequired);
+//   - sys.Running() must be true (otherwise returns ErrActorSystemNotStarted);
+//   - every extension eGo needs based on cfg must be registered on sys
+//     (otherwise returns ErrMissingRequiredExtensions with the missing IDs).
+//
+// The engine does NOT take ownership of the actor system. Engine.Stop will
+// not call sys.Stop; the caller stops the actor system on their own
+// schedule (typically after Engine.Stop).
 //
 // Parameters:
-//   - name: A unique identifier for the engine instance.
-//   - eventsStore: The event store responsible for persisting and retrieving events.
-//   - opts: Optional configurations to customize engine behavior.
+//   - actorSys: A running goakt.ActorSystem with eGo's required extensions registered.
+//   - config: The Config used to build the actor system's eGo extensions.
 //
 // Returns:
-//   - A pointer to the newly created Engine instance.
-func NewEngine(name string, eventsStore persistence.EventsStore, opts ...Option) *Engine {
+//   - A pointer to the newly created Engine instance, or an error.
+func NewEngine(actorSys goakt.ActorSystem, config *Config) (*Engine, error) {
+	if actorSys == nil {
+		return nil, ErrActorSystemRequired
+	}
+
+	if config == nil {
+		return nil, fmt.Errorf("%w: nil Config", ErrMissingRequiredExtensions)
+	}
+
+	if !actorSys.Running() {
+		return nil, ErrActorSystemNotStarted
+	}
+
+	if err := validateActorSystemExtensions(actorSys, config); err != nil {
+		return nil, err
+	}
+
 	e := &Engine{
-		name:          name,
-		eventsStore:   eventsStore,
-		logger:        defaultLogger{},
-		eventStream:   eventstream.New(),
-		bindAddr:      "0.0.0.0",
+		name:          actorSys.Name(),
+		eventsStore:   config.eventsStore,
+		stateStore:    config.stateStore,
+		offsetStore:   config.offsetStore,
+		snapshotStore: config.snapshotStore,
+		logger:        config.logger,
+		eventStream:   config.eventStream,
+		eventAdapters: config.eventAdapters,
+		telemetry:     config.telemetry,
+		encryptor:     config.encryptor,
 		eventsStreams: syncmap.New[string, *eventsStream](),
 		statesStreams: syncmap.New[string, *statesStream](),
-		roles:         goset.NewSet[string](),
 	}
+	e.actorSystem.Store(&actorSystemRef{
+		sys:      actorSys,
+		noSender: actorSys.NoSender(),
+	})
 
-	e.clusterEnabled.Store(false)
-
-	for _, opt := range opts {
-		opt.Apply(e)
-	}
-
-	e.started.Store(false)
-	return e
+	return e, nil
 }
 
-// Start initializes and starts eGo engine.
+// validateActorSystemExtensions asserts that every extension eGo needs given
+// the engine's configuration is registered on the actor system. Missing
+// extensions are collected and reported together so the caller learns about
+// the full set of problems at once.
+func validateActorSystemExtensions(sys goakt.ActorSystem, cfg *Config) error {
+	type check struct {
+		id       string
+		required bool
+	}
+	checks := []check{
+		{extensions.EventsStoreExtensionID, true},
+		{extensions.EventsStreamExtensionID, true},
+		{extensions.DurableStateStoreExtensionID, cfg.stateStore != nil},
+		{extensions.OffsetStoreExtensionID, cfg.offsetStore != nil},
+		{extensions.ProjectionExtensionID, cfg.projection != nil},
+		{extensions.SnapshotStoreExtensionID, cfg.snapshotStore != nil},
+		{extensions.EventAdaptersExtensionID, len(cfg.eventAdapters) > 0},
+		{extensions.TelemetryExtensionID, cfg.telemetry != nil},
+		{extensions.EncryptorExtensionID, cfg.encryptor != nil},
+	}
+
+	var missing []string
+	for _, c := range checks {
+		if c.required && sys.Extension(c.id) == nil {
+			missing = append(missing, c.id)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("%w: %s (hint: build the actor system with cfg.GoaktOptions() and pass the same cfg to NewEngine)",
+			ErrMissingRequiredExtensions, strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+// Start initializes the eGo engine on top of an actor system that is already
+// running.
 //
-// This function launches the engine, enabling it to manage event-sourced entities, durable state entities,
-// and projections. It ensures that all necessary components are initialized and ready to process commands
-// and events.
+// In the meta-framework design, Start does no actor-system construction —
+// the caller has already built and started goakt.NewActorSystem. Start only
+// wires the OpenTelemetry propagator (when WithTelemetry is configured) and
+// flips the engine into a "ready to receive entity work" state.
 //
 // Parameters:
-//   - ctx: Execution context for managing startup behavior and handling cancellations.
+//   - ctx: Execution context. Currently unused but retained for API symmetry
+//     with Stop and to leave room for future async initialization.
 //
 // Returns:
-//   - An error if the engine fails to start due to misconfiguration or system issues; otherwise, nil.
-func (engine *Engine) Start(ctx context.Context) error {
+//   - An error if the engine is in an inconsistent state; otherwise, nil.
+func (engine *Engine) Start(_ context.Context) error {
+	if engine.actorSystem.Load() == nil {
+		return ErrActorSystemRequired
+	}
+
 	if engine.telemetry != nil {
 		engine.metrics = newMetrics(engine.telemetry.Meter)
-
 		// Set the global OTel text map propagator so that trace context is
 		// propagated across process boundaries (HTTP headers, gRPC metadata,
 		// goakt remote calls). This is required for end-to-end distributed
@@ -200,31 +251,25 @@ func (engine *Engine) Start(ctx context.Context) error {
 			propagation.Baggage{},
 		))
 	}
-
-	opts, err := engine.actorSystemOptions()
-	if err != nil {
-		return err
-	}
-
-	if err := engine.startActorSystem(ctx, opts); err != nil {
-		return err
-	}
-
 	engine.started.Store(true)
 	return nil
 }
 
 // Stop gracefully shuts down the eGo engine.
 //
-// This function ensures that all running projections, entities, and processes managed by the engine
-// are properly stopped before termination. It waits for ongoing operations to complete or time out
-// based on the provided context.
+// Stop terminates all running publishers, closes the local event stream
+// adapter, and detaches the engine's reference to the actor system so
+// concurrent callers fail fast with ErrEngineNotStarted. The actor system
+// itself is NOT stopped — its lifecycle belongs to the caller, who built it
+// and is expected to call sys.Stop(ctx) on their own schedule (typically
+// after Engine.Stop returns).
 //
 // Parameters:
-//   - ctx: Execution context for managing cancellation and timeouts.
+//   - ctx: Execution context for managing cancellation and timeouts during
+//     publisher shutdown.
 //
 // Returns:
-//   - An error if the shutdown process encounters issues; otherwise, nil.
+//   - An error if a publisher fails to close; otherwise, nil.
 func (engine *Engine) Stop(ctx context.Context) error {
 	if !engine.Started() {
 		return nil
@@ -232,10 +277,8 @@ func (engine *Engine) Stop(ctx context.Context) error {
 
 	engine.started.Store(false)
 
-	// shutdown all event eventsStreams
-	eventsStreams := engine.eventsStreams.Values()
-	for _, stream := range eventsStreams {
-		// signal the publisher to stop
+	// Shutdown all event publishers
+	for _, stream := range engine.eventsStreams.Values() {
 		stream.done <- Done{}
 		stream.subscriber.Shutdown()
 		if err := stream.publisher.Close(ctx); err != nil {
@@ -243,8 +286,7 @@ func (engine *Engine) Stop(ctx context.Context) error {
 		}
 	}
 
-	statesStreams := engine.statesStreams.Values()
-	for _, stream := range statesStreams {
+	for _, stream := range engine.statesStreams.Values() {
 		stream.done <- Done{}
 		stream.subscriber.Shutdown()
 		if err := stream.publisher.Close(ctx); err != nil {
@@ -252,19 +294,17 @@ func (engine *Engine) Stop(ctx context.Context) error {
 		}
 	}
 
-	engine.roles.Clear()
-	engine.eventStream.Close()
+	if engine.eventStream != nil {
+		engine.eventStream.Close()
+	}
 	engine.eventsStreams.Reset()
 	engine.statesStreams.Reset()
 
-	// Atomically detach the actor system reference so concurrent callers fail
-	// fast (with ErrEngineNotStarted or a nil ActorSystem) rather than racing
-	// against a system that is being torn down.
-	ref := engine.actorSystem.Swap(nil)
-	if ref == nil {
-		return nil
-	}
-	return ref.sys.Stop(ctx)
+	// Detach our reference atomically so callers racing with shutdown fail
+	// fast. We deliberately do NOT call sys.Stop — the actor system belongs
+	// to the caller.
+	engine.actorSystem.Store(nil)
+	return nil
 }
 
 // Started returns true when the eGo engine has started
@@ -315,7 +355,7 @@ func (engine *Engine) AddProjection(ctx context.Context, name string) error {
 	}
 	actorSystem := ref.sys
 
-	if engine.clusterEnabled.Load() {
+	if actorSystem.InCluster() {
 		// In cluster mode, run the projection as a singleton to avoid
 		// duplicate event processing across nodes. The singleton is placed
 		// on the oldest node; other nodes that call SpawnSingleton receive
@@ -462,11 +502,8 @@ func (engine *Engine) Subscribe() (eventstream.Subscriber, error) {
 	engine.mutex.RUnlock()
 
 	subscriber := eventStream.AddSubscriber()
-	eventTopics := generateTopics(eventsTopic, engine.partitionsCount)
-	stateTopics := generateTopics(statesTopic, engine.partitionsCount)
-	for _, topic := range append(eventTopics, stateTopics...) {
-		eventStream.Subscribe(subscriber, topic)
-	}
+	eventStream.Subscribe(subscriber, eventsTopic)
+	eventStream.Subscribe(subscriber, statesTopic)
 
 	return subscriber, nil
 }
@@ -700,11 +737,8 @@ func (engine *Engine) AddEventPublishers(publishers ...EventPublisher) error {
 
 	for _, publisher := range publishers {
 		subscriber := engine.eventStream.AddSubscriber()
-		topics := generateTopics(eventsTopic, engine.partitionsCount)
-		for _, topic := range topics {
-			engine.logger.Debug(fmt.Sprintf("%s subscribing to topic: %s", publisher.ID(), topic))
-			engine.eventStream.Subscribe(subscriber, topic)
-		}
+		engine.logger.Debug(fmt.Sprintf("%s subscribing to topic: %s", publisher.ID(), eventsTopic))
+		engine.eventStream.Subscribe(subscriber, eventsTopic)
 
 		// create an instance of the event subscriber
 		eventSubscriber := &eventsStream{
@@ -744,12 +778,8 @@ func (engine *Engine) AddStatePublishers(publishers ...StatePublisher) error {
 
 	for _, publisher := range publishers {
 		subscriber := engine.eventStream.AddSubscriber()
-		topics := generateTopics(statesTopic, engine.partitionsCount)
-
-		for _, topic := range topics {
-			engine.logger.Debug(fmt.Sprintf("%s subscribing to topic: %s", publisher.ID(), topic))
-			engine.eventStream.Subscribe(subscriber, topic)
-		}
+		engine.logger.Debug(fmt.Sprintf("%s subscribing to topic: %s", publisher.ID(), statesTopic))
+		engine.eventStream.Subscribe(subscriber, statesTopic)
 
 		// create an instance of the state subscriber
 		stateSubscriber := &statesStream{
@@ -992,14 +1022,18 @@ func (engine *Engine) ProjectionLag(ctx context.Context, projectionName string) 
 			continue
 		}
 
-		// Both values below are unix **seconds**:
+		// Both values below are unix **nanoseconds**:
 		//   - Event.Timestamp is written by the entity actors using
-		//     time.Now().Unix() (see event_sourced_actor.go / durable_state_actor.go /
-		//     saga_actor.go).
+		//     time.Now().UnixNano() (see event_sourced_actor.go /
+		//     durable_state_actor.go / saga_actor.go). Nanosecond resolution
+		//     gives projection offsets a tiebreaker fine enough to make
+		//     co-timestamp collisions across two polls astronomically
+		//     improbable.
 		//   - Offset.Value is a copy of a prior event's timestamp, propagated
 		//     from EventsStore.GetShardEvents' nextOffset return value through
 		//     projectionRunner.commitOffset.
-		// Their subtraction therefore yields the lag in seconds.
+		// Their subtraction therefore yields the lag in nanoseconds, which is
+		// the native representation of time.Duration.
 		// (Note: Offset.Timestamp is a separate wall-clock audit field written
 		// in milliseconds; it is deliberately not used here.)
 		latestTimestamp := allEvents[len(allEvents)-1].GetTimestamp()
@@ -1008,11 +1042,11 @@ func (engine *Engine) ProjectionLag(ctx context.Context, projectionName string) 
 		// Clamp negative values: the projection runner may have advanced its
 		// offset between the two store reads above, which would otherwise
 		// surface as a spurious negative lag.
-		lagSeconds := latestTimestamp - currOffset
-		if lagSeconds < 0 {
-			lagSeconds = 0
+		lagNanos := latestTimestamp - currOffset
+		if lagNanos < 0 {
+			lagNanos = 0
 		}
-		lags[shard] = time.Duration(lagSeconds) * time.Second
+		lags[shard] = time.Duration(lagNanos)
 	}
 
 	return lags, nil
@@ -1043,20 +1077,6 @@ func parseCommandReply(reply *egopb.CommandReply) (State, uint64, error) {
 		return state, 0, err
 	}
 	return state, 0, errors.New("no state received")
-}
-
-// generateTopics generates a list of topics based on the base topic name and partitions count.
-func generateTopics(baseTopic string, partitionsCount uint64) []string {
-	var topics []string
-	switch partitionsCount {
-	case 0:
-		topics = append(topics, fmt.Sprintf(baseTopic, 0))
-	default:
-		for i := range int(partitionsCount) {
-			topics = append(topics, fmt.Sprintf(baseTopic, i))
-		}
-	}
-	return topics
 }
 
 func buildSpawnOptions(opts ...SpawnOption) []goakt.SpawnOption {
@@ -1112,224 +1132,6 @@ func toSupervisorDirective(directive SupervisorDirective) supervisor.Directive {
 	default:
 		return supervisor.RestartDirective
 	}
-}
-
-// actorSystemOptions builds the Go-Akt options needed to start the engine.
-func (engine *Engine) actorSystemOptions() ([]goakt.Option, error) {
-	opts := engine.baseOptions()
-
-	var err error
-	opts, err = engine.appendOptionalExtensions(opts)
-	if err != nil {
-		return nil, err
-	}
-
-	opts = engine.appendTLSOption(opts)
-	opts = engine.appendClusterOptions(opts)
-	return opts, nil
-}
-
-// baseOptions returns the always-on options for the engine actor system.
-//
-// User-supplied extras (via WithActorSystemOptions) are placed first so that ego's
-// critical options, which follow, overwrite any conflicting setting.
-func (engine *Engine) baseOptions() []goakt.Option {
-	opts := make([]goakt.Option, 0, len(engine.extraActorSystemOptions)+5)
-	opts = append(opts, engine.extraActorSystemOptions...)
-	opts = append(opts,
-		goakt.WithLogger(newLoggerAdapter(engine.logger)),
-		goakt.WithActorInitMaxRetries(5),
-		goakt.WithPubSub(),
-		goakt.WithDefaultSupervisor(
-			supervisor.NewSupervisor(supervisor.WithAnyErrorDirective(supervisor.ResumeDirective)),
-		),
-		goakt.WithExtensions(
-			extensions.NewEventsStore(engine.eventsStore),
-			extensions.NewEventsStream(engine.eventStream),
-		),
-	)
-	return opts
-}
-
-// appendOptionalExtensions adds optional extensions and validates dependencies.
-func (engine *Engine) appendOptionalExtensions(opts []goakt.Option) ([]goakt.Option, error) {
-	if engine.stateStore != nil {
-		opts = append(opts, goakt.WithExtensions(extensions.NewDurableStateStore(engine.stateStore)))
-	}
-
-	if engine.offsetStore != nil {
-		opts = append(opts, goakt.WithExtensions(extensions.NewOffsetStore(engine.offsetStore)))
-	}
-
-	if engine.projectionExtension != nil {
-		if engine.offsetStore == nil {
-			return nil, fmt.Errorf("projection extension requires an offset store")
-		}
-		opts = append(opts, goakt.WithExtensions(engine.projectionExtension))
-	}
-
-	if engine.snapshotStore != nil {
-		opts = append(opts, goakt.WithExtensions(extensions.NewSnapshotStore(engine.snapshotStore)))
-	}
-
-	if len(engine.eventAdapters) > 0 {
-		opts = append(opts, goakt.WithExtensions(extensions.NewEventAdapters(engine.eventAdapters)))
-	}
-
-	if engine.telemetry != nil {
-		opts = append(opts, goakt.WithExtensions(
-			extensions.NewTelemetryExtension(engine.telemetry.Tracer, engine.telemetry.Meter)))
-	}
-
-	if engine.encryptor != nil {
-		opts = append(opts, goakt.WithExtensions(extensions.NewEncryptor(engine.encryptor)))
-	}
-
-	return opts, nil
-}
-
-// appendTLSOption adds TLS configuration when enabled.
-func (engine *Engine) appendTLSOption(opts []goakt.Option) []goakt.Option {
-	if engine.tls == nil {
-		return opts
-	}
-
-	return append(opts, goakt.WithTLS(&gtls.Info{
-		ClientConfig: engine.tls.ClientTLS,
-		ServerConfig: engine.tls.ServerTLS,
-	}))
-}
-
-// appendClusterOptions adds cluster-related options when clustering is enabled.
-func (engine *Engine) appendClusterOptions(opts []goakt.Option) []goakt.Option {
-	if !engine.clusterEnabled.Load() {
-		return opts
-	}
-
-	engine.ensureBindAddr()
-	clusterConfig := engine.clusterConfig()
-
-	// User-supplied remote options are placed first so ego's own options
-	// (e.g. the OTel context propagator) overwrite any conflicting setting.
-	// The bind address and port are positional and stay engine-controlled.
-	remoteOpts := make([]remote.Option, 0, len(engine.extraRemoteOptions)+1)
-	remoteOpts = append(remoteOpts, engine.extraRemoteOptions...)
-	if engine.telemetry != nil {
-		remoteOpts = append(remoteOpts, remote.WithContextPropagator(otelContextPropagator{}))
-	}
-
-	return append(opts,
-		goakt.WithCluster(clusterConfig),
-		goakt.WithRemote(remote.NewConfig(engine.bindAddr, engine.remotingPort, remoteOpts...)),
-	)
-}
-
-// otelContextPropagator propagates OpenTelemetry trace context across remote
-// actor boundaries using the globally registered TextMapPropagator (W3C TraceContext + Baggage).
-type otelContextPropagator struct{}
-
-func (otelContextPropagator) Inject(ctx context.Context, headers nethttp.Header) error {
-	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(headers))
-	return nil
-}
-
-func (otelContextPropagator) Extract(ctx context.Context, headers nethttp.Header) (context.Context, error) {
-	return otel.GetTextMapPropagator().Extract(ctx, propagation.HeaderCarrier(headers)), nil
-}
-
-// ensureBindAddr sets a default bind address when none is configured.
-func (engine *Engine) ensureBindAddr() {
-	if engine.bindAddr == "" {
-		engine.bindAddr = "0.0.0.0"
-	}
-}
-
-// clusterConfig builds the Go-Akt cluster configuration for the engine.
-//
-// A user-supplied configurator (via WithClusterConfigurator) is invoked first
-// so that any ego-critical setting it touches — discovery, ports, quorum,
-// replica count, partition count, intervals, kinds — is overwritten by the
-// chained calls below. Settings the engine does not pin (e.g. read/write
-// timeouts, table size, CRDT options) are preserved.
-//
-// PartitionCount and MinimumPeersQuorum are only forwarded when explicitly
-// set on the engine; a zero value lets Go-Akt's own defaults (271 partitions,
-// quorum of 1) stand. The state-sync and balancer intervals — derived from
-// quorum size — are likewise only pinned when quorum is explicit.
-func (engine *Engine) clusterConfig() *goakt.ClusterConfig {
-	clusterConfig := goakt.NewClusterConfig()
-	if engine.clusterConfigurator != nil {
-		engine.clusterConfigurator(clusterConfig)
-	}
-
-	clusterConfig = clusterConfig.
-		WithDiscovery(newClusterProviderAdapter(engine.clusterProvider)).
-		WithDiscoveryPort(engine.discoveryPort).
-		WithPeersPort(engine.peersPort).
-		WithKinds(
-			new(EventSourcedActor),
-			new(DurableStateActor),
-			new(SagaActor),
-			new(ProjectionActor),
-		)
-
-	if engine.partitionsCount > 0 {
-		clusterConfig = clusterConfig.WithPartitionCount(engine.partitionsCount)
-	}
-
-	if engine.minimumPeersQuorum > 0 {
-		stateSyncInterval, balancerInterval := engine.clusterIntervals()
-		clusterConfig = clusterConfig.
-			WithMinimumPeersQuorum(uint32(engine.minimumPeersQuorum)).
-			WithReplicaCount(engine.clusterReplicaCount()).
-			WithClusterStateSyncInterval(stateSyncInterval).
-			WithClusterBalancerInterval(balancerInterval)
-	}
-
-	// set roles if any
-	if !engine.roles.IsEmpty() {
-		clusterConfig = clusterConfig.WithRoles(engine.roles.ToSlice()...)
-	}
-
-	return clusterConfig
-}
-
-// clusterReplicaCount returns the replica count derived from the minimum peers quorum.
-func (engine *Engine) clusterReplicaCount() uint32 {
-	if engine.minimumPeersQuorum > 1 {
-		return 2
-	}
-	return 1
-}
-
-// clusterIntervals returns state sync and balancer intervals derived from quorum size.
-func (engine *Engine) clusterIntervals() (time.Duration, time.Duration) {
-	switch {
-	case engine.minimumPeersQuorum >= 4:
-		return 30 * time.Second, 2 * time.Second
-	case engine.minimumPeersQuorum > 1:
-		return 20 * time.Second, time.Second
-	default:
-		return 10 * time.Second, 500 * time.Millisecond
-	}
-}
-
-// startActorSystem initializes and starts the underlying Go-Akt actor system.
-func (engine *Engine) startActorSystem(ctx context.Context, opts []goakt.Option) error {
-	actorSystem, err := goakt.NewActorSystem(engine.name, opts...)
-	if err != nil {
-		return fmt.Errorf("failed to create the ego actor system: %w", err)
-	}
-
-	if err := actorSystem.Start(ctx); err != nil {
-		return err
-	}
-
-	engine.actorSystem.Store(&actorSystemRef{
-		sys:      actorSystem,
-		noSender: actorSystem.NoSender(),
-	})
-	return nil
 }
 
 // sendEvent sends events to the event publisher

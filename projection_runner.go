@@ -380,9 +380,9 @@ func (x *projectionRunner) doProcess(ctx context.Context, shard uint64) error {
 			attribute.Int64("shard", int64(shard)),
 		)
 		// Use wall-clock lag: how far behind real time the projection is.
-		// Event timestamps use time.Unix() (seconds), so compute lag in
-		// seconds and convert to milliseconds for the gauge.
-		lagMs := (time.Now().Unix() - currOffset) * 1000
+		// Event timestamps use time.UnixNano(), so compute lag in nanoseconds
+		// and convert to milliseconds for the gauge.
+		lagMs := (time.Now().UnixNano() - currOffset) / int64(time.Millisecond)
 		if lagMs < 0 || currOffset == 0 {
 			lagMs = 0
 		}
