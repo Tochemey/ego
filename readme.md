@@ -23,17 +23,45 @@ developer using Go-Akt's APIs.
 > - configure clustering with `goakt.NewClusterConfig(...).WithKinds(...)`,
 > - spawn your own actors when needed.
 >
-If those are new, skim the Go-Akt [readme](https://github.com/Tochemey/goakt#readme) first — the rest of
-> this document assumes them.
+If those are new, skim the Go-Akt [readme](https://github.com/Tochemey/goakt#readme) first.
+the rest of this document assumes them.
 > 
-The `main` branch targets the `v4` API surface. See the [changelog](./CHANGELOG.md) for the full release
-history and migration details.
-
 ## Installation
 
 ```bash
 go get github.com/tochemey/ego/v4
 ```
+
+## Table of Contents
+
+- [Installation](#installation)
+- [Why eGo](#why-ego)
+- [Quick Start](#quick-start)
+    - [Bootstrap](#bootstrap)
+    - [Cluster mode](#cluster-mode)
+- [Features](#features)
+    - [Event-Sourced Behavior](#event-sourced-behavior)
+        - [Event Batching](#event-batching)
+    - [Durable-State Behavior](#durable-state-behavior)
+    - [Event-Sourced vs Durable-State](#event-sourced-vs-durable-state)
+- [Persistence Stores](#persistence-stores)
+- [Performance Tuning](#performance-tuning)
+    - [Enable event batching under concurrent load](#enable-event-batching-under-concurrent-load)
+    - [Choose the right batch threshold](#choose-the-right-batch-threshold)
+    - [Configure snapshots to reduce recovery time](#configure-snapshots-to-reduce-recovery-time)
+    - [Add retention policies to control storage growth](#add-retention-policies-to-control-storage-growth)
+    - [Minimize allocations for high throughput](#minimize-allocations-for-high-throughput)
+    - [Scale horizontally with clustering](#scale-horizontally-with-clustering)
+- [Projections & Publishers](#projections--publishers)
+    - [Projections](#projections)
+    - [Publishers](#publishers)
+- [Observability](#observability)
+- [Reliability & Operations](#reliability--operations)
+- [Sagas & Process Managers](#sagas--process-managers)
+- [Testkit & Mocks](#testkit--mocks)
+- [Migrating From Earlier v4 Releases](#migrating-from-earlier-v4-releases)
+- [Examples](#examples)
+- [Contributions](#contributions)
 
 ## Why eGo
 
@@ -49,7 +77,9 @@ go get github.com/tochemey/ego/v4
 - Testkit and mocks for fast feedback
 - **Composes cleanly with non-eGo actors on the same Go-Akt actor system**
 
-## Bootstrap
+## Quick Start
+
+### Bootstrap
 
 eGo plugs into a Go-Akt actor system that you construct and own. The shape is the same whether you're running
 locally or in a cluster:
@@ -102,7 +132,7 @@ Two things to note:
 - **`engine.Stop(ctx)` does not stop the actor system.** The actor system is your resource; you stop it.
 - **The engine name comes from `sys.Name()`.** There is no separate name parameter on `NewEngine`.
 
-## Cluster mode
+### Cluster mode
 
 Cluster mode is configured the Go-Akt way. eGo only contributes the four actor kinds it needs registered for
 relocation:
@@ -147,7 +177,7 @@ You retain full control over discovery, partitioning, quorum, replicas, TLS, rem
 cluster knobs Go-Akt exposes. eGo derives cluster behavior (e.g. running projections as singletons) directly
 from `sys.InCluster()` at runtime — no separate cluster flag to keep in sync.
 
-## Core
+## Features
 
 ### Event-Sourced Behavior
 
@@ -239,9 +269,9 @@ import (
 ```
 
 You can also implement `persistence.EventsStore`, `persistence.SnapshotStore`, or `persistence.StateStore`
-> directly to plug in any storage backend.
+directly to plug in any storage backend.
+> ## Performance Tuning
 > 
-## Performance Tuning
 
 eGo can sustain hundreds of thousands of commands per second on a single node with an in-memory store, and
 tens of thousands with durable backends like Postgres. This section outlines the recommended approach to
