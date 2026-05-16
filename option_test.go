@@ -23,20 +23,36 @@
 package ego
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	goakt "github.com/tochemey/goakt/v4/actor"
+	noopmetric "go.opentelemetry.io/otel/metric/noop"
 	"go.opentelemetry.io/otel/trace"
 	nooptrace "go.opentelemetry.io/otel/trace/noop"
 	"google.golang.org/protobuf/types/known/anypb"
 
 	"github.com/tochemey/ego/v4/encryption"
 	"github.com/tochemey/ego/v4/eventadapter"
+	"github.com/tochemey/ego/v4/internal/extensions"
 	"github.com/tochemey/ego/v4/projection"
 	"github.com/tochemey/ego/v4/testkit"
 )
+
+// buildActorSystem constructs and starts a goakt actor system from a Config so
+// the optional extension branches in Config.GoaktOptions can be inspected.
+func buildActorSystem(t *testing.T, cfg *Config) goakt.ActorSystem {
+	t.Helper()
+	ctx := context.Background()
+	sys, err := goakt.NewActorSystem("OptionTest", cfg.GoaktOptions()...)
+	require.NoError(t, err)
+	require.NoError(t, sys.Start(ctx))
+	t.Cleanup(func() { _ = sys.Stop(ctx) })
+	return sys
+}
 
 func TestOptionWithLogger(t *testing.T) {
 	c := NewConfig(nil, WithLogger(DiscardLogger))
@@ -112,6 +128,57 @@ func TestOptionWithEventAdaptersMultiple(t *testing.T) {
 		WithEventAdapters(&testEventAdapter{}),
 	)
 	assert.Len(t, c.eventAdapters, 2)
+}
+
+func TestOptionWithLoggerNilFallback(t *testing.T) {
+	// Passing a nil Logger via WithLogger should round-trip through
+	// NewConfig and land on the default logger (isNilLogger fallback).
+	c := NewConfig(nil, WithLogger(nil))
+	require.NotNil(t, c.logger)
+	_, ok := c.logger.(defaultLogger)
+	assert.True(t, ok, "expected defaultLogger fallback, got %T", c.logger)
+}
+
+func TestConfigGoaktOptionsEncryptor(t *testing.T) {
+	// WithEncryptor must register the Encryptor extension via GoaktOptions.
+	enc := encryption.NewAESEncryptor(testkit.NewKeyStore())
+	cfg := NewConfig(testkit.NewEventsStore(), WithEncryptor(enc))
+
+	sys := buildActorSystem(t, cfg)
+	require.NotNil(t, sys.Extension(extensions.EncryptorExtensionID))
+}
+
+func TestConfigGoaktOptionsTelemetry(t *testing.T) {
+	// WithTelemetry must register the Telemetry extension via GoaktOptions.
+	tel := &Telemetry{
+		Tracer: nooptrace.NewTracerProvider().Tracer("test"),
+		Meter:  noopmetric.NewMeterProvider().Meter("test"),
+	}
+	cfg := NewConfig(testkit.NewEventsStore(), WithTelemetry(tel))
+
+	sys := buildActorSystem(t, cfg)
+	require.NotNil(t, sys.Extension(extensions.TelemetryExtensionID))
+}
+
+func TestConfigGoaktOptionsProjectionDefaultsRecovery(t *testing.T) {
+	// When a projection is configured without a Recovery, GoaktOptions
+	// should still register the extension by falling back to a default
+	// recovery strategy.
+	cfg := NewConfig(testkit.NewEventsStore(),
+		WithProjection(&projection.Options{
+			Handler:      projection.NewDiscardHandler(),
+			BufferSize:   10,
+			PullInterval: time.Second,
+		}),
+	)
+
+	sys := buildActorSystem(t, cfg)
+	require.NotNil(t, sys.Extension(extensions.ProjectionExtensionID))
+}
+
+func TestClusterKindsExposesEgoActors(t *testing.T) {
+	kinds := ClusterKinds()
+	require.Len(t, kinds, 4)
 }
 
 // testEventAdapter is a no-op EventAdapter for testing.

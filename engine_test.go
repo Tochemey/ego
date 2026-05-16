@@ -35,6 +35,8 @@ import (
 	goakt "github.com/tochemey/goakt/v4/actor"
 	"github.com/tochemey/goakt/v4/remote"
 	"github.com/travisjeffery/go-dynaport"
+	noopmetric "go.opentelemetry.io/otel/metric/noop"
+	nooptrace "go.opentelemetry.io/otel/trace/noop"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
@@ -668,6 +670,173 @@ func TestEngineConfigRegistersAllExtensions(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, engine.Start(ctx))
 	t.Cleanup(func() { _ = engine.Stop(ctx) })
+}
+
+// TestEngineStartWithTelemetry exercises the telemetry-enabled branch of
+// Engine.Start: when WithTelemetry is configured, Start materializes the
+// metrics struct and installs the OTel propagator. Both noop tracer and noop
+// meter are used to keep the test side-effect free.
+func TestEngineStartWithTelemetry(t *testing.T) {
+	ctx := context.Background()
+	store := testkit.NewEventsStore()
+	require.NoError(t, store.Connect(ctx))
+	t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+	tel := &Telemetry{
+		Tracer: nooptrace.NewTracerProvider().Tracer("test"),
+		Meter:  noopmetric.NewMeterProvider().Meter("test"),
+	}
+	engine := newTestEngine(t, "Sample", store,
+		WithLogger(DiscardLogger),
+		WithTelemetry(tel),
+	)
+	require.NoError(t, engine.Start(ctx))
+	require.NotNil(t, engine.metrics, "metrics should be initialized when telemetry is configured")
+	require.True(t, engine.Started())
+}
+
+// TestEngineEraseEntity covers EraseEntity's happy paths: a no-op when
+// `full` is false, the events-only path, and the events+snapshots path.
+func TestEngineEraseEntity(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("full=false is a no-op", func(t *testing.T) {
+		store := testkit.NewEventsStore()
+		require.NoError(t, store.Connect(ctx))
+		t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+		engine := newTestEngine(t, "Sample", store, WithLogger(DiscardLogger))
+		require.NoError(t, engine.Start(ctx))
+
+		require.NoError(t, engine.EraseEntity(ctx, uuid.NewString(), false))
+	})
+
+	t.Run("full=true with persisted events", func(t *testing.T) {
+		store := testkit.NewEventsStore()
+		require.NoError(t, store.Connect(ctx))
+		t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+		snapStore := testkit.NewSnapshotStore()
+		require.NoError(t, snapStore.Connect(ctx))
+		t.Cleanup(func() { _ = snapStore.Disconnect(ctx) })
+
+		engine := newTestEngine(t, "Sample", store,
+			WithLogger(DiscardLogger),
+			WithSnapshotStore(snapStore),
+		)
+		require.NoError(t, engine.Start(ctx))
+
+		entityID := uuid.NewString()
+		require.NoError(t, engine.Entity(ctx, NewEventSourcedEntity(entityID)))
+		_, _, err := engine.SendCommand(ctx, entityID, &testpb.CreateAccount{
+			AccountBalance: 100,
+		}, time.Minute)
+		require.NoError(t, err)
+
+		require.NoError(t, engine.EraseEntity(ctx, entityID, true))
+
+		// Subsequent erase against the same id should be a clean no-op (no
+		// events left).
+		require.NoError(t, engine.EraseEntity(ctx, entityID, true))
+	})
+
+	t.Run("full=true with no events is safe", func(t *testing.T) {
+		store := testkit.NewEventsStore()
+		require.NoError(t, store.Connect(ctx))
+		t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+		engine := newTestEngine(t, "Sample", store, WithLogger(DiscardLogger))
+		require.NoError(t, engine.Start(ctx))
+
+		// Entity that was never used: GetLatestEvent returns nil and
+		// EraseEntity should short-circuit without error.
+		require.NoError(t, engine.EraseEntity(ctx, uuid.NewString(), true))
+	})
+}
+
+// TestEngineProjectionLagHappyPath drives ProjectionLag through its full body
+// so the per-shard iteration, the empty-shard short-circuit, and the lag
+// computation are all exercised.
+func TestEngineProjectionLagHappyPath(t *testing.T) {
+	ctx := context.Background()
+	store := testkit.NewEventsStore()
+	require.NoError(t, store.Connect(ctx))
+	t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+	offsetStore := testkit.NewOffsetStore()
+	require.NoError(t, offsetStore.Connect(ctx))
+	t.Cleanup(func() { _ = offsetStore.Disconnect(ctx) })
+
+	engine := newTestEngine(t, "Sample", store,
+		WithLogger(DiscardLogger),
+		WithOffsetStore(offsetStore),
+	)
+	require.NoError(t, engine.Start(ctx))
+
+	// Fresh stores: every known shard is empty, so the loop should run the
+	// empty-shard branch and return a zero-lag map.
+	lags, err := engine.ProjectionLag(ctx, "any")
+	require.NoError(t, err)
+	for shard, lag := range lags {
+		assert.Zerof(t, lag, "expected zero lag on empty shard %d", shard)
+	}
+}
+
+// TestEngineRebuildProjectionSuccess exercises the success branch of
+// RebuildProjection: it stops the running projection, resets its offset, and
+// restarts it.
+func TestEngineRebuildProjectionSuccess(t *testing.T) {
+	ctx := context.Background()
+	store := testkit.NewEventsStore()
+	require.NoError(t, store.Connect(ctx))
+	t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+	offsetStore := testkit.NewOffsetStore()
+	require.NoError(t, offsetStore.Connect(ctx))
+	t.Cleanup(func() { _ = offsetStore.Disconnect(ctx) })
+
+	engine := newTestEngine(t, "Sample", store,
+		WithLogger(DiscardLogger),
+		WithOffsetStore(offsetStore),
+		WithProjection(&projection.Options{
+			Handler:      projection.NewDiscardHandler(),
+			BufferSize:   100,
+			PullInterval: time.Second,
+		}),
+	)
+	require.NoError(t, engine.Start(ctx))
+
+	const name = "rebuild-target"
+	require.NoError(t, engine.AddProjection(ctx, name))
+	pause.For(300 * time.Millisecond)
+
+	require.NoError(t, engine.RebuildProjection(ctx, name, ZeroTime))
+	pause.For(300 * time.Millisecond)
+
+	running, err := engine.IsProjectionRunning(ctx, name)
+	require.NoError(t, err)
+	require.True(t, running, "projection should be running again after rebuild")
+}
+
+// TestEngineSagaHappyPath registers a saga via Engine.Saga and then queries
+// its status via Engine.SagaStatus, covering the success branches of both.
+func TestEngineSagaHappyPath(t *testing.T) {
+	ctx := context.Background()
+	store := testkit.NewEventsStore()
+	require.NoError(t, store.Connect(ctx))
+	t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+	engine := newTestEngine(t, "Sample", store, WithLogger(DiscardLogger))
+	require.NoError(t, engine.Start(ctx))
+
+	sagaID := "saga-" + uuid.NewString()
+	require.NoError(t, engine.Saga(ctx, &testSagaBehavior{sagaID: sagaID}, 0))
+	pause.For(300 * time.Millisecond)
+
+	info, err := engine.SagaStatus(ctx, sagaID, time.Minute)
+	require.NoError(t, err)
+	require.NotNil(t, info)
+	assert.Equal(t, sagaID, info.ID)
 }
 
 // ensure proto and context imports are not flagged when subtests vary.

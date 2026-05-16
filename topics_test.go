@@ -150,7 +150,7 @@ func waitForCond(timeout time.Duration, cond func() bool) bool {
 		if cond() {
 			return true
 		}
-		time.Sleep(20 * time.Millisecond)
+		pause.For(20 * time.Millisecond)
 	}
 	return false
 }
