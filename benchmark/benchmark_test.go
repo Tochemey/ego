@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	goakt "github.com/tochemey/goakt/v4/actor"
 
 	"github.com/tochemey/ego/v4"
 	"github.com/tochemey/ego/v4/egopb"
@@ -162,7 +163,20 @@ func setupEngine(b *testing.B, store persistence.EventsStore) *benchEnv {
 	b.Helper()
 	ctx := context.Background()
 
-	engine := ego.NewEngine("BenchEngine", store, ego.WithLogger(ego.DiscardLogger))
+	cfg := ego.NewConfig(store, ego.WithLogger(ego.DiscardLogger))
+	sys, err := goakt.NewActorSystem("BenchEngine", cfg.GoaktOptions()...)
+	if err != nil {
+		b.Fatalf("build actor system: %v", err)
+	}
+
+	if err := sys.Start(ctx); err != nil {
+		b.Fatalf("start actor system: %v", err)
+	}
+
+	engine, err := ego.NewEngine(sys, cfg)
+	if err != nil {
+		b.Fatalf("create engine: %v", err)
+	}
 	if err := engine.Start(ctx); err != nil {
 		b.Fatalf("start engine: %v", err)
 	}
@@ -171,6 +185,7 @@ func setupEngine(b *testing.B, store persistence.EventsStore) *benchEnv {
 
 	b.Cleanup(func() {
 		_ = engine.Stop(ctx)
+		_ = sys.Stop(ctx)
 	})
 
 	return &benchEnv{ctx: ctx, engine: engine}
@@ -921,10 +936,24 @@ func setupDurableEngine(b *testing.B, store persistence.StateStore) *durableBenc
 	b.Helper()
 	ctx := context.Background()
 
-	engine := ego.NewEngine("BenchDurableEngine", nil,
+	cfg := ego.NewConfig(nil,
 		ego.WithStateStore(store),
 		ego.WithLogger(ego.DiscardLogger),
 	)
+
+	sys, err := goakt.NewActorSystem("BenchDurableEngine", cfg.GoaktOptions()...)
+	if err != nil {
+		b.Fatalf("build actor system: %v", err)
+	}
+
+	if err := sys.Start(ctx); err != nil {
+		b.Fatalf("start actor system: %v", err)
+	}
+
+	engine, err := ego.NewEngine(sys, cfg)
+	if err != nil {
+		b.Fatalf("create engine: %v", err)
+	}
 	if err := engine.Start(ctx); err != nil {
 		b.Fatalf("start engine: %v", err)
 	}
@@ -933,6 +962,7 @@ func setupDurableEngine(b *testing.B, store persistence.StateStore) *durableBenc
 
 	b.Cleanup(func() {
 		_ = engine.Stop(ctx)
+		_ = sys.Stop(ctx)
 	})
 
 	return &durableBenchEnv{ctx: ctx, engine: engine}

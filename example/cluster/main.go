@@ -46,7 +46,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	goakt "github.com/tochemey/goakt/v4/actor"
 	gerrors "github.com/tochemey/goakt/v4/errors"
+	"github.com/tochemey/goakt/v4/remote"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 
@@ -107,8 +109,9 @@ func main() {
 
 	projectionHandler := NewAccountBalanceHandler(pool)
 
-	engine := ego.NewEngine("ego-cluster", eventStore,
-		ego.WithCluster(provider, 4, 1, nodeIP, remotingPort, discoveryPort, peersPort),
+	// Build the eGo Config once; the same instance is passed to both the
+	// actor system (for extension wiring) and the engine.
+	cfg := ego.NewConfig(eventStore,
 		ego.WithOffsetStore(offsetStore),
 		ego.WithTelemetry(tel),
 		ego.WithProjection(&projection.Options{
@@ -125,6 +128,36 @@ func main() {
 		}),
 	)
 
+	clusterCfg := goakt.
+		NewClusterConfig().
+		WithDiscovery(provider).
+		WithPartitionCount(4).
+		WithReplicaCount(1).
+		WithMinimumPeersQuorum(1).
+		WithDiscoveryPort(discoveryPort).
+		WithPeersPort(peersPort).
+		WithKinds(ego.ClusterKinds()...)
+
+	goaktOpts := append(cfg.GoaktOptions(),
+		goakt.WithCluster(clusterCfg),
+		goakt.WithRemote(remote.NewConfig(nodeIP, remotingPort)),
+	)
+
+	sys, err := goakt.NewActorSystem("ego-cluster", goaktOpts...)
+	if err != nil {
+		slog.Error("failed to build actor system", "err", err)
+		os.Exit(1)
+	}
+	if err := sys.Start(ctx); err != nil {
+		slog.Error("failed to start actor system", "err", err)
+		os.Exit(1)
+	}
+
+	engine, err := ego.NewEngine(sys, cfg)
+	if err != nil {
+		slog.Error("failed to create engine", "err", err)
+		os.Exit(1)
+	}
 	if err := engine.Start(ctx); err != nil {
 		slog.Error("failed to start engine", "err", err)
 		os.Exit(1)
@@ -310,6 +343,7 @@ func main() {
 
 	_ = server.Shutdown(shutdownCtx)
 	_ = engine.Stop(shutdownCtx)
+	_ = sys.Stop(shutdownCtx)
 	slog.Info("shutdown complete")
 }
 

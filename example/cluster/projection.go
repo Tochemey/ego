@@ -79,13 +79,19 @@ func (h *AccountBalanceHandler) Handle(ctx context.Context, persistenceID string
 			evt.GetAccountId(), evt.GetAccountBalance(), now)
 
 	case *samplepb.AccountDebited:
+		// Pass the delta as a single typed parameter so EXCLUDED.balance can
+		// be used in both the INSERT and the ON CONFLICT branch. Using `-$2`
+		// inline trips Postgres' "operator is not unique" check (SQLSTATE
+		// 42725) because the prefix `-` can't pick an overload against an
+		// untyped placeholder.
+		delta := -evt.GetAccountBalance()
 		_, err = h.pool.Exec(ctx, `
 			INSERT INTO account_balances (account_id, balance, updated_at)
-			VALUES ($1, -$2, $3)
+			VALUES ($1, $2, $3)
 			ON CONFLICT (account_id) DO UPDATE SET
-				balance = account_balances.balance - $2,
+				balance = account_balances.balance + EXCLUDED.balance,
 				updated_at = EXCLUDED.updated_at`,
-			evt.GetAccountId(), evt.GetAccountBalance(), now)
+			evt.GetAccountId(), delta, now)
 
 	default:
 		// Ignore events we don't care about (e.g., saga events).

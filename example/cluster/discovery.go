@@ -23,24 +23,14 @@
 package main
 
 import (
-	"context"
-
+	"github.com/tochemey/goakt/v4/discovery"
 	"github.com/tochemey/goakt/v4/discovery/kubernetes"
-
-	"github.com/tochemey/ego/v4"
 )
 
-// KubernetesProvider implements ego.ClusterProvider by wrapping goakt's
-// Kubernetes discovery. It uses the Kubernetes API to list pods with
-// matching labels and extract their discovery port addresses.
-type KubernetesProvider struct {
-	inner *kubernetes.Discovery
-}
-
-var _ ego.ClusterProvider = (*KubernetesProvider)(nil)
-
-// NewKubernetesProvider creates a provider that discovers cluster peers
-// via the Kubernetes API.
+// NewKubernetesProvider returns a goakt discovery.Provider that discovers
+// cluster peers via the Kubernetes API. It delegates to goakt's built-in
+// Kubernetes provider; the example keeps this thin wrapper purely as a
+// documentation seam.
 //
 // Parameters:
 //   - namespace: the Kubernetes namespace to search for pods.
@@ -48,40 +38,12 @@ var _ ego.ClusterProvider = (*KubernetesProvider)(nil)
 //   - discoveryPortName: the named container port used for gossip/discovery.
 //   - remotingPortName: the named container port used for remote actor communication.
 //   - peersPortName: the named container port used for peer-to-peer communication.
-func NewKubernetesProvider(namespace string, podLabels map[string]string, discoveryPortName, remotingPortName, peersPortName string) *KubernetesProvider {
-	config := &kubernetes.Config{
+func NewKubernetesProvider(namespace string, podLabels map[string]string, discoveryPortName, remotingPortName, peersPortName string) discovery.Provider {
+	return kubernetes.NewDiscovery(&kubernetes.Config{
 		Namespace:         namespace,
 		PodLabels:         podLabels,
 		DiscoveryPortName: discoveryPortName,
 		RemotingPortName:  remotingPortName,
 		PeersPortName:     peersPortName,
-	}
-	return &KubernetesProvider{
-		inner: kubernetes.NewDiscovery(config),
-	}
-}
-
-func (p *KubernetesProvider) ID() string {
-	return p.inner.ID()
-}
-
-// Start initializes the discovery provider and registers the current node.
-func (p *KubernetesProvider) Start(_ context.Context) error {
-	if err := p.inner.Initialize(); err != nil {
-		return err
-	}
-	return p.inner.Register()
-}
-
-// DiscoverPeers returns the list of peer "host:port" addresses.
-func (p *KubernetesProvider) DiscoverPeers(_ context.Context) ([]string, error) {
-	return p.inner.DiscoverPeers()
-}
-
-// Stop deregisters the current node and releases resources.
-func (p *KubernetesProvider) Stop(_ context.Context) error {
-	if err := p.inner.Deregister(); err != nil {
-		return err
-	}
-	return p.inner.Close()
+	})
 }

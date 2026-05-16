@@ -10,11 +10,23 @@
   <a href="https://codecov.io/gh/Tochemey/ego"><img src="https://codecov.io/gh/Tochemey/ego/branch/main/graph/badge.svg?token=Z5b9gM6Mnt" alt="codecov"></a>
 </p>
 
-eGo is a minimal library for building event-sourced and durable-state CQRS applications in Go.
-It lets you model your **commands**, **events**, and **state** with Protocol Buffers while relying on
-[Go-Akt](https://github.com/Tochemey/goakt) for actor-based execution, clustering, and scalable persistence.
+eGo is a **meta-framework** for building event-sourced and durable-state CQRS applications in Go using **protocol buffers** for _commands_, _events_ and _states_.
+It rides on top of [Go-Akt](https://github.com/Tochemey/goakt) and contributes its event-sourcing, durable-state,
+projection, and saga primitives as Go-Akt extensions. The actor system itself — including clustering, TLS,
+remoting, discovery, supervision strategies, and any non-eGo actors — is built and operated directly by the
+developer using Go-Akt's APIs.
 
-The `main` branch currently targets the `v4` API surface. See the [changelog](./CHANGELOG.md) for the full release
+> **Prerequisite.** You should be comfortable with the basics of [Go-Akt](https://github.com/Tochemey/goakt)
+> before adopting eGo. At a minimum, you should know how to:
+> - construct a `goakt.ActorSystem` with `goakt.NewActorSystem(name, opts...)`,
+> - start and stop it with `sys.Start(ctx)` / `sys.Stop(ctx)`,
+> - configure clustering with `goakt.NewClusterConfig(...).WithKinds(...)`,
+> - spawn your own actors when needed.
+>
+If those are new, skim the Go-Akt [readme](https://github.com/Tochemey/goakt#readme) first — the rest of
+> this document assumes them.
+> 
+The `main` branch targets the `v4` API surface. See the [changelog](./CHANGELOG.md) for the full release
 history and migration details.
 
 ## Installation
@@ -33,39 +45,117 @@ go get github.com/tochemey/ego/v4
 - Event adapters for schema evolution
 - OpenTelemetry-ready tracing and metrics
 - Encryption support for events and snapshots
-- Saga/process manager support for long-running workflows
+- Saga / process manager support for long-running workflows
 - Testkit and mocks for fast feedback
+- **Composes cleanly with non-eGo actors on the same Go-Akt actor system**
 
-## What's New in v4
+## Bootstrap
 
-Version `v4` introduces a major refresh across persistence, observability, operability, and developer experience.
+eGo plugs into a Go-Akt actor system that you construct and own. The shape is the same whether you're running
+locally or in a cluster:
 
-- **Snapshot Store**: persist snapshots independently from events with `SnapshotStore`, `WithSnapshotStore()`, and
-  `WithSnapshotInterval()`
-- **Event Batching**: amortize store round-trips by accumulating events across multiple commands and flushing them in a
-  single write with `WithBatchThreshold()` and `WithBatchFlushWindow()`
-- **Event Adapters**: evolve persisted event schemas during replay and projection consumption with the
-  `eventadapter` package
-- **OpenTelemetry Integration**: instrument command processing, persistence, projections, and active entities with
-  traces and metrics via `WithTelemetry()`
-- **Dead Letter Handler**: capture projection failures after retry exhaustion with `DeadLetterHandler`
-- **Projection Rebuild**: replay a projection from a chosen point in time using `Engine.RebuildProjection()`
-- **Scenario-based Testkit**: Given/When/Then APIs for event-sourced and durable-state behaviors
-- **Migration Utility**: migrate legacy inline state into snapshots with the `migration` package
-- **Projection Lag Monitoring**: inspect lag per shard with `Engine.ProjectionLag()` and dedicated metrics
-- **Retention Policies**: automatically clean up old events and snapshots after successful snapshot writes
-- **Encryption / GDPR Support**: encrypt payloads at rest and erase entity data with `Engine.EraseEntity()`
-- **Pluggable Logger**: use any logging backend through the `Logger` interface and `WithLogger()`
-- **Saga / Process Manager**: coordinate long-running workflows with compensation support
+```go
+import (
+    "context"
+
+    goakt "github.com/tochemey/goakt/v4/actor"
+    "github.com/tochemey/ego/v4"
+    "github.com/tochemey/ego/v4/testkit"
+)
+
+ctx := context.Background()
+
+// 1. Build the eGo Config once. It captures every eGo-specific concern —
+//    stores, projections, telemetry, encryption, ... — in a single object
+//    that is then used both to build the actor system and to plug in the
+//    engine.
+eventsStore := testkit.NewEventsStore()
+config := ego.NewConfig(eventsStore,
+    ego.WithLogger(ego.DefaultLogger),
+    // ego.WithStateStore(...), ego.WithOffsetStore(...), ego.WithProjection(...), etc.
+)
+
+// 2. Build the actor system. config.GoaktOptions() returns the goakt.Options
+//    eGo needs (extensions for the events store / event stream / other
+//    configured stores, pubsub, the logger adapter, the default supervisor).
+sys, err := goakt.NewActorSystem("MyApp", config.GoaktOptions()...)
+if err != nil { /* ... */ }
+
+if err := sys.Start(ctx); err != nil { /* ... */ }
+defer sys.Stop(ctx)
+
+// 3. (Optional) spawn your own actors on the same system.
+//    They live next to eGo's entities and share the same runtime.
+// _, _ = sys.Spawn(ctx, "user-service", NewUserActor())
+
+// 4. Plug eGo in. NewEngine validates that every required extension is registered
+//    on `sys`, returning an error if anything is missing.
+engine, err := ego.NewEngine(sys, config)
+if err != nil { /* ... */ }
+
+if err := engine.Start(ctx); err != nil { /* ... */ }
+defer engine.Stop(ctx)
+```
+
+Two things to note:
+
+- **`engine.Stop(ctx)` does not stop the actor system.** The actor system is your resource; you stop it.
+- **The engine name comes from `sys.Name()`.** There is no separate name parameter on `NewEngine`.
+
+## Cluster mode
+
+Cluster mode is configured the Go-Akt way. eGo only contributes the four actor kinds it needs registered for
+relocation:
+
+```go
+import (
+    "github.com/tochemey/goakt/v4/discovery"  // or your discovery provider package
+    goakt "github.com/tochemey/goakt/v4/actor"
+    "github.com/tochemey/goakt/v4/remote"
+    "github.com/tochemey/ego/v4"
+)
+
+clusterCfg := goakt.NewClusterConfig().
+    WithDiscovery(provider).
+    WithDiscoveryPort(gossipPort).
+    WithPeersPort(peersPort).
+    WithPartitionCount(partitions).
+    WithMinimumPeersQuorum(quorum).
+    WithReplicaCount(replicas).
+    WithKinds(ego.ClusterKinds()...). // ← eGo's actor kinds, required for relocation
+    // ... your own kinds here, alongside eGo's
+
+config := ego.NewConfig(eventsStore, opts...)
+
+sys, _ := goakt.NewActorSystem("MyApp",
+    append(
+        config.GoaktOptions(),
+        goakt.WithCluster(clusterCfg),
+        goakt.WithRemote(remote.NewConfig(host, remotingPort)),
+        goakt.WithTLS(&tlsInfo),
+    )...,
+)
+sys.Start(ctx)
+defer sys.Stop(ctx)
+
+engine, _ := ego.NewEngine(sys, config)
+engine.Start(ctx)
+defer engine.Stop(ctx)
+```
+
+You retain full control over discovery, partitioning, quorum, replicas, TLS, remoting, and any additional
+cluster knobs Go-Akt exposes. eGo derives cluster behavior (e.g. running projections as singletons) directly
+from `sys.InCluster()` at runtime — no separate cluster flag to keep in sync.
 
 ## Core
 
 ### Event-Sourced Behavior
 
-`EventSourcedBehavior` is eGo's core abstraction for domain models where state changes are represented as events.
-Commands are processed sequentially, resulting events are persisted, and state is rebuilt by replaying those events.
+`EventSourcedBehavior` is eGo's core abstraction for domain models where state changes are represented as
+events. Commands are processed sequentially, resulting events are persisted, and state is rebuilt by replaying
+those events.
 
-In `v4`, event-sourced entities also benefit from:
+Event-sourced entities also benefit from:
 
 - Snapshot-based recovery to reduce replay time
 - Event batching for higher throughput under sustained command load
@@ -79,7 +169,8 @@ Typical workflow:
 2. Implement your `EventSourcedBehavior`.
 3. Provide an `EventsStore` and, ideally, a `SnapshotStore`.
 4. Configure runtime options such as snapshots, batching, retention, telemetry, or encryption.
-5. Start the entity with the eGo engine.
+5. Bootstrap the actor system and the engine as shown above.
+6. Start the entity with `engine.Entity(ctx, behavior, ...)`.
 
 #### Event Batching
 
@@ -90,8 +181,8 @@ Enable batching with two spawn options:
 
 ```go
 engine.Entity(ctx, behavior,
-    ego.WithBatchThreshold(10),          // flush after 10 commands
-    ego.WithBatchFlushWindow(5*time.Millisecond), // or after 5ms, whichever comes first
+    ego.WithBatchThreshold(10),                    // flush after 10 commands
+    ego.WithBatchFlushWindow(5*time.Millisecond),  // or after 5ms, whichever comes first
 )
 ```
 
@@ -102,8 +193,8 @@ A threshold of `0` (the default) disables batching entirely, preserving the one-
 
 ### Durable-State Behavior
 
-`DurableStateBehavior` is a simpler model for cases where you only need the latest state instead of a full event log.
-Each successful command produces a new state version, and only the latest version is persisted.
+`DurableStateBehavior` is a simpler model for cases where you only need the latest state instead of a full
+event log. Each successful command produces a new state version, and only the latest version is persisted.
 
 This is a good fit for:
 
@@ -115,8 +206,8 @@ Typical workflow:
 
 1. Define protobuf messages for state and commands.
 2. Implement your `DurableStateBehavior`.
-3. Provide a durable state store with `WithStateStore()`.
-4. Start the entity with the engine.
+3. Provide a durable state store with `ego.WithStateStore(...)`.
+4. Start the entity with `engine.DurableStateEntity(ctx, behavior, ...)`.
 
 ### Event-Sourced vs Durable-State
 
@@ -131,7 +222,8 @@ Typical workflow:
 ## Persistence Stores
 
 eGo ships with in-memory stores for testing, but production deployments require durable persistence backends.
-The [ego-contrib](https://github.com/Tochemey/ego-contrib) repository provides ready-to-use store implementations:
+The [ego-contrib](https://github.com/Tochemey/ego-contrib) repository provides ready-to-use store
+implementations:
 
 - **Postgres** event store, snapshot store, offset store, and durable state store
 - **MongoDB** event store, snapshot store, offset store, and durable state store
@@ -146,14 +238,14 @@ import (
 )
 ```
 
-> You can also implement `persistence.EventsStore`, `persistence.SnapshotStore`, or `persistence.StateStore`
+You can also implement `persistence.EventsStore`, `persistence.SnapshotStore`, or `persistence.StateStore`
 > directly to plug in any storage backend.
-
+> 
 ## Performance Tuning
 
 eGo can sustain hundreds of thousands of commands per second on a single node with an in-memory store, and
-tens of thousands with durable backends like Postgres. This section outlines the recommended approach to maximize
-throughput and minimize memory cost.
+tens of thousands with durable backends like Postgres. This section outlines the recommended approach to
+maximize throughput and minimize memory cost.
 
 ### Enable event batching under concurrent load
 
@@ -183,7 +275,8 @@ before the batch is written. For purely sequential workloads, leave batching dis
 
 ### Configure snapshots to reduce recovery time
 
-Without snapshots, recovery replays the full event history. Configure a snapshot interval to bound replay length:
+Without snapshots, recovery replays the full event history. Configure a snapshot interval to bound replay
+length:
 
 ```go
 engine.Entity(ctx, behavior,
@@ -191,7 +284,7 @@ engine.Entity(ctx, behavior,
 )
 ```
 
-Pair this with a `SnapshotStore` via `ego.WithSnapshotStore()` on the engine.
+Pair this with a `SnapshotStore` via `ego.WithSnapshotStore(...)` on the engine options.
 
 ### Add retention policies to control storage growth
 
@@ -203,7 +296,7 @@ engine.Entity(ctx, behavior,
     ego.WithRetentionPolicy(ego.RetentionPolicy{
         DeleteEventsOnSnapshot:    true,
         DeleteSnapshotsOnSnapshot: true,
-        EventsRetentionCount:     200,  // keep 200 most recent events
+        EventsRetentionCount:      200, // keep 200 most recent events
     }),
 )
 ```
@@ -211,56 +304,36 @@ engine.Entity(ctx, behavior,
 ### Minimize allocations for high throughput
 
 eGo's hot path is optimized for low allocation overhead (~22 heap allocations per command round-trip).
-The dominant allocation cost comes from Protocol Buffers serialization, which is inherent to the persistence model.
-To keep allocation pressure low:
+The dominant allocation cost comes from Protocol Buffers serialization, which is inherent to the persistence
+model. To keep allocation pressure low:
 
 - **Keep command and event protos small.** Smaller messages reduce marshal/unmarshal cost.
 - **Use snapshots.** They reduce recovery replay length and the number of events held in the store.
-- **Avoid large state protos.** The state is serialized on every reply; smaller states mean fewer bytes and less GC pressure.
+- **Avoid large state protos.** The state is serialized on every reply; smaller states mean fewer bytes and
+  less GC pressure.
 
 ### Scale horizontally with clustering
 
-For workloads beyond what a single node can handle, enable clustering to distribute entities across nodes:
-
-```go
-engine := ego.NewEngine("myapp", eventStore,
-    ego.WithClusterOption(ego.ClusterOption{
-        Provider:      provider,
-        Host:          host,
-        RemotingPort:  remotingPort,
-        DiscoveryPort: gossipPort,
-        PeersPort:     clusterPort,
-        // Optional. Leave at zero to use Go-Akt defaults
-        // (271 partitions, quorum of 1).
-        PartitionCount:     partitions,
-        MinimumPeersQuorum: replicaCount,
-    }),
-)
-```
-
-`WithClusterOption` supersedes the older positional `WithCluster(...)`, which is now deprecated.
-Unset numeric fields fall back to Go-Akt's own defaults; for settings not exposed here
-(read/write quorum, table size, CRDT options, …) use `WithClusterConfigurator`.
-
-Each entity is hashed to a partition and placed on a node. Commands are routed transparently. See the
-[clustering documentation](https://github.com/Tochemey/goakt#clustering) for details on discovery providers
-and topology configuration.
+See the [Cluster mode](#cluster-mode) section. For workloads beyond what a single node can handle, build a
+clustered Go-Akt actor system and plug eGo into it the same way you do for the local case.
 
 ## Projections & Publishers
 
-eGo pushes persisted domain changes to a stream so read models and integrations can react without reading directly from
-the primary store.
+eGo pushes persisted domain changes to a stream so read models and integrations can react without reading
+directly from the primary store.
 
 ### Projections
 
-Projections consume the write-model stream and build read models using an offset store.
-In `v4`, projections gain several operator-friendly improvements:
+Projections consume the write-model stream and build read models using an offset store. They support:
 
 - Dead letter handling for unrecoverable projection failures
-- Rebuild support from a chosen timestamp
+- Rebuild support from a chosen timestamp via `Engine.RebuildProjection(...)`
 - Lag, offset, and events-behind metrics per shard
 - Event adapter support during consumption
 - Automatic decryption before handlers process encrypted events
+
+In cluster mode, projections run as singletons on the oldest node — eGo detects cluster mode via
+`sys.InCluster()` at registration time, so you don't need to tell it twice.
 
 ### Publishers
 
@@ -268,6 +341,13 @@ eGo provides publisher APIs for both write models:
 
 - `EventPublisher` for `EventSourcedBehavior` events
 - `StatePublisher` for `DurableStateBehavior` state updates
+
+Custom publisher implementations receive `*egopb.Event` / `*egopb.DurableState`
+whose `Timestamp` field is populated via `time.Now().UnixNano()` — Unix epoch
+nanoseconds. The shard the event was produced from travels in the same
+payload (`Event.Shard`, `DurableState.Shard`) so downstream consumers can
+filter or partition by shard without depending on internal pub/sub topic
+naming.
 
 Available connectors:
 
@@ -278,8 +358,7 @@ Available connectors:
 
 ## Observability
 
-Observability is a first-class concern in `v4`.
-With `WithTelemetry()`, eGo can emit:
+With `ego.WithTelemetry(...)` eGo emits:
 
 - Trace spans for command processing
 - Command counters and latency histograms
@@ -288,6 +367,9 @@ With `WithTelemetry()`, eGo can emit:
 - Active entity and projection counts
 - Projection lag, latest offset, and approximate events-behind metrics
 
+The telemetry option produces a Go-Akt extension automatically; it is included in `cfg.GoaktOptions()`
+when set, so the same actor-system bootstrap covers it.
+
 ## Reliability & Operations
 
 eGo includes several production-focused capabilities:
@@ -295,43 +377,79 @@ eGo includes several production-focused capabilities:
 - Faster recovery through snapshots
 - Storage cleanup through retention policies
 - At-rest encryption for events and snapshots
-- GDPR-style erasure with `Engine.EraseEntity()`
-- Pluggable structured logging
+- GDPR-style erasure with `Engine.EraseEntity(...)`
+- Pluggable structured logging via `ego.WithLogger(...)`
 
 ## Sagas & Process Managers
 
-`v4` adds first-class saga support for long-running business processes that coordinate multiple entities.
+eGo includes first-class saga support for long-running business processes that coordinate multiple entities.
 
 You can:
 
-- Start a saga with `Engine.Saga()`
-- Inspect it with `Engine.SagaStatus()`
+- Start a saga with `Engine.Saga(...)`
+- Inspect it with `Engine.SagaStatus(...)`
 - Model compensation logic for timeouts and failures
 - Persist saga state using the same event-sourced foundations
 
-## Clustering
-
-eGo uses [Go-Akt](https://github.com/Tochemey/goakt#clustering) for clustering and entity distribution.
-In `v4`, the cluster options accept `ego.ClusterProvider`, keeping your application code on eGo's abstraction instead of
-depending directly on Go-Akt discovery types. Prefer `WithClusterOption` over the deprecated `WithCluster`.
-
 ## Testkit & Mocks
 
-The [`testkit`](./testkit) package helps you validate behavior quickly with in-memory stores and scenario-based testing.
-eGo also ships [`mocks`](./mocks) to simplify isolated unit tests around your stores and integrations.
+The [`testkit`](./testkit) package helps you validate behavior quickly with in-memory stores and
+scenario-based testing. eGo also ships [`mocks`](./mocks) to simplify isolated unit tests around your stores
+and integrations.
 
-## Migration Notes
+## Migrating From Earlier v4 Releases
 
-Upgrading from `v3` to `v4` mainly involves:
+If you're upgrading from a `v4.1.x` release where eGo built and managed the actor system, the bootstrap
+reshapes from:
 
-1. Updating imports from `github.com/tochemey/ego/v3` to `github.com/tochemey/ego/v4`
-2. Removing the `state *anypb.Any` parameter from projection handlers
-3. Migrating inline event state into snapshots with the migration utility
-4. Configuring a `SnapshotStore` for optimal event-sourced recovery
-5. Updating `WithLogger()` usage to the new `ego.Logger` interface
-6. Switching cluster integrations to `ego.ClusterProvider`
+```go
+// before
+engine := ego.NewEngine("myapp", eventsStore,
+    ego.WithLogger(logger),
+    ego.WithStateStore(stateStore),
+    // ego.WithClusterOption(...) / ego.WithTLS(...) / etc.
+)
+engine.Start(ctx)
+```
 
-See [`CHANGELOG.md`](./CHANGELOG.md) for the full breaking-change list.
+to:
+
+```go
+// after
+cfg := ego.NewConfig(eventsStore,
+    ego.WithLogger(logger),
+    ego.WithStateStore(stateStore),
+)
+
+sys, _ := goakt.NewActorSystem("myapp",
+    append(
+        cfg.GoaktOptions(),
+        // goakt.WithCluster(clusterCfg.WithKinds(ego.ClusterKinds()...)),
+        // goakt.WithTLS(&tlsInfo),
+        // goakt.WithRemote(remote.NewConfig(...)),
+    )...,
+)
+sys.Start(ctx)
+defer sys.Stop(ctx)
+
+engine, _ := ego.NewEngine(sys, cfg)
+engine.Start(ctx)
+defer engine.Stop(ctx)
+```
+
+Cluster, TLS, and remoting configuration moves from eGo options to Go-Akt ones; the previous
+`ego.WithClusterOption`, `ego.WithTLS`, `ego.WithRoles`, `ego.WithClusterConfigurator`, and
+`ego.WithActorSystemOptions` / `ego.WithRemoteOptions` are removed. See
+[`CHANGELOG.md`](./CHANGELOG.md) for the full removal list.
+
+In addition to the bootstrap reshape, this release also changes the **resolution** of the `Timestamp`
+field on `egopb.Event`, `egopb.DurableState`, `egopb.Snapshot`, and `egopb.StateReply` from Unix
+seconds to Unix **nanoseconds** (the underlying `int64` is unchanged). Custom event publishers,
+external dashboards, or ad-hoc SQL reading the raw `timestamp` column must be updated accordingly
+(for example, `to_timestamp(timestamp / 1e9)` in Postgres instead of `to_timestamp(timestamp)`).
+This is the underlying fix for a projection-runner race where events written in the same second as
+the projection's committed offset could be silently skipped between polls — see
+[`CHANGELOG.md`](./CHANGELOG.md) for the details.
 
 ## Examples
 

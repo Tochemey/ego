@@ -7,35 +7,141 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### 🚀 New Features
+### 💥 Breaking Changes
 
-- **Struct-Based Cluster Option** — Added `WithClusterOption(ClusterOption)` for enabling cluster mode with named
-  fields instead of seven positional arguments. `PartitionCount` and `MinimumPeersQuorum` are optional: a zero
-  value falls back to Go-Akt's own defaults (271 partitions, quorum of 1). The engine now skips its chained
-  `WithPartitionCount` / `WithMinimumPeersQuorum` / state-sync / balancer calls when those fields are unset, so
-  Go-Akt's defaults stand. See [option.go](option.go) and [engine.go](engine.go).
+- **eGo Is Now a Meta-Framework on Top of Go-Akt** — eGo no longer constructs, starts, or stops the underlying
+  `goakt.ActorSystem`. Cluster discovery, TLS, remoting, partitioning, supervisors, and any other actor-runtime
+  concern are now configured directly through Go-Akt's APIs. eGo contributes its event-sourcing, durable-state,
+  projection, and saga primitives as Go-Akt extensions and plugs into an actor system the developer has built.
 
-- **User-Supplied Go-Akt Options** — Added three engine options that let developers extend the underlying Go-Akt
-  configuration without giving up ego's critical defaults:
-  - `WithActorSystemOptions(opts ...goakt.Option)` — appends extra actor-system options. They are applied before
-    ego's own options so ego's settings (logger adapter, actor init max retries, default supervisor, pubsub, ego
-    extensions, TLS, cluster, remote) overwrite any conflicting field.
-  - `WithRemoteOptions(opts ...remote.Option)` — appends extra remote options forwarded to `remote.NewConfig`.
-    Bind address and remoting port stay engine-controlled (positional). Only takes effect when cluster mode is
-    enabled via `WithClusterOption`.
-  - `WithClusterConfigurator(fn func(*goakt.ClusterConfig))` — invokes a callback on the cluster configuration
-    before ego pins its critical fields (discovery provider, discovery/peers ports, minimum peers quorum, replica
-    count, partition count, state sync and balancer intervals, kinds, roles). Settings ego does not pin (read/write
-    timeouts, bootstrap timeout, table size, data center configuration, CRDT options, grain activation barrier) are
-    preserved. Only takes effect when cluster mode is enabled via `WithClusterOption`.
+  **New surface:**
 
-  See [option.go](option.go) and [engine.go](engine.go).
+  - `ego.Config` — captures every option an engine needs (events store, plus state store, offset store,
+    projection, snapshot store, event adapters, telemetry, encryptor, logger). Built once with `ego.NewConfig`
+    and reused twice: once to build the actor system, once to plug in the engine.
+  - `ego.NewConfig(eventsStore, opts ...Option) *Config` — constructs the config. Pass `nil` for `eventsStore`
+    in durable-state-only deployments.
+  - `(*Config).GoaktOptions() []goakt.Option` — returns the Go-Akt options eGo needs at actor-system
+    construction: engine extensions (events store, event stream, plus state store, offset store, projection,
+    snapshot store, event adapters, telemetry, encryptor whenever those are configured), pubsub, the logger
+    adapter, and the default supervisor. Pass to `goakt.NewActorSystem(...)`.
+  - `ego.ClusterKinds() []goakt.Actor` — returns the four actor kinds eGo needs registered in the cluster config
+    (`EventSourcedActor`, `DurableStateActor`, `SagaActor`, `ProjectionActor`). Pass to
+    `goakt.NewClusterConfig().WithKinds(...)` for relocation to work in cluster mode.
+  - `ego.NewEngine(sys goakt.ActorSystem, cfg *Config) (*Engine, error)` — plugs eGo into an already-running
+    actor system. Returns an error if `sys` is not running or if a required extension is missing from `sys`.
+    The engine name is taken from `sys.Name()` — there is no separate name parameter. `Engine.Stop` does not
+    call `sys.Stop`; the caller owns the actor-system lifecycle.
 
-### ⚠️ Deprecations
+  **Typical bootstrap (any deployment shape):**
 
-- **`WithCluster`** — Deprecated in favor of `WithClusterOption(ClusterOption{...})`. The old function continues to
-  work and now delegates to the new option internally, so existing callers are unaffected. It will be removed in a
-  future release.
+  ```go
+  cfg := ego.NewConfig(eventsStore, opts...)
+
+  sys, _ := goakt.NewActorSystem("MyApp", cfg.GoaktOptions()...)
+  sys.Start(ctx)
+  defer sys.Stop(ctx)
+
+  engine, _ := ego.NewEngine(sys, cfg)
+  engine.Start(ctx)
+  defer engine.Stop(ctx)
+  ```
+
+  The same four-line shape works for local development and cluster mode; cluster users append Go-Akt's
+  `WithCluster(...)` (with `ego.ClusterKinds()` registered) and `WithRemote(...)` to `cfg.GoaktOptions()`
+  when calling `NewActorSystem`.
+
+  **Removed:**
+
+  - `WithCluster`, `WithClusterOption`, `ClusterOption`, `WithClusterConfigurator`, `ClusterProvider` (cluster
+    configuration is now done directly with `goakt.NewClusterConfig(...)`).
+  - `WithTLS`, `TLS` (use `goakt.WithTLS(...)` directly).
+  - `WithRoles` (use `goakt.NewClusterConfig().WithRoles(...)` directly).
+  - `WithRemoteOptions`, `WithActorSystemOptions` (compose Go-Akt options directly when calling
+    `goakt.NewActorSystem`).
+  - `WithActorSystemBuilder`, `ActorSystemBuilder`, `BuildActorSystem` (no longer needed — the actor system is
+    always built by the caller).
+  - `Engine` constructor argument: the `name string` parameter is removed; the engine name is derived from
+    `sys.Name()`.
+
+  **Why the change.** The previous design tried to be both a Go-Akt wrapper and a Go-Akt collaborator at the
+  same time. That created precedence and cluster-coordination problems whenever a caller needed control over
+  the runtime, and it hid Go-Akt capabilities developers legitimately need (custom cluster config, custom
+  discovery, additional actors on the same system, TLS specifics). Treating eGo as a meta-framework on top of
+  Go-Akt — analogous to how `database/sql` sits on top of a driver, or `net/http` sits on top of a `Listener` —
+  resolves both concerns by exposing the primitives eGo needs and letting the developer compose the runtime.
+
+  See [option.go](option.go), [engine.go](engine.go), and the rewritten [readme.md](./readme.md) for the full
+  bootstrap pattern.
+
+### 📝 Migration Notes
+
+Upgrading from `v4.1.x` to this release requires reshaping the engine bootstrap:
+
+1. Replace `ego.NewEngine("myapp", eventsStore, opts...)` with:
+   ```go
+   cfg := ego.NewConfig(eventsStore, opts...)
+   sys, _ := goakt.NewActorSystem("myapp", cfg.GoaktOptions()...)
+   sys.Start(ctx)
+   engine, _ := ego.NewEngine(sys, cfg)
+   engine.Start(ctx)
+   ```
+2. Move cluster configuration from `ego.WithClusterOption(...)` to a direct
+   `goakt.NewClusterConfig(...).WithKinds(ego.ClusterKinds()...)` call passed to
+   `goakt.NewActorSystem` via `goakt.WithCluster(...)`. Discovery providers come from the `discovery` packages
+   of Go-Akt.
+3. Move TLS from `ego.WithTLS(...)` to `goakt.WithTLS(...)`.
+4. Drop `ego.WithRoles(...)`; use `goakt.NewClusterConfig(...).WithRoles(...)` instead.
+5. Stop calling `Engine.Stop` for actor-system shutdown — call `sys.Stop(ctx)` yourself after `engine.Stop(ctx)`.
+6. Check the `error` returned by the new `ego.NewEngine` signature; it now reports missing required extensions
+   and unstarted actor systems instead of deferring those errors to `Engine.Start`.
+
+### 🐛 Bug Fixes & Internal Changes
+
+- **Event timestamps now use nanosecond resolution (was: seconds).** The `Timestamp` field on
+  `egopb.Event`, `egopb.DurableState`, `egopb.Snapshot`, and `egopb.StateReply` is now populated via
+  `time.Now().UnixNano()` instead of `time.Now().Unix()`. The underlying type stays `int64`, so wire
+  compatibility is preserved, but the **semantic units change**.
+  - Anything that interprets these timestamps as seconds (custom event publishers, external dashboards
+    reading the raw column, ad-hoc SQL using `to_timestamp(timestamp / 1.0)`, etc.) must be updated to
+    treat them as nanoseconds — e.g. `to_timestamp(timestamp / 1e9)` in Postgres.
+  - `Engine.ProjectionLag(...)` continues to return a `time.Duration`; the value is now correct at
+    nanosecond resolution instead of being quantised to whole seconds.
+  - **Why.** Pre-fix, the projection runner's offset cursor was an event timestamp at 1-second
+    resolution, and the poll predicate (`WHERE timestamp > committed_offset`) would silently skip any
+    event written with the same second as the previously committed offset between two polls. Under
+    sub-second burst load, events at the second boundary were dropped (reproduced by `make test` in
+    `example/cluster`: 1000 + 30×10 − 10×5 expected = 1250, observed = 1270 because four debits were
+    skipped). Bumping the timestamp to nanoseconds makes co-timestamp collisions across polls
+    astronomically improbable and eliminates the race for any realistic workload.
+
+- **In-process pub/sub topics collapsed to a single events topic and a single states topic.** Entity
+  actors previously published to `topic.events.<shard>` / `topic.states.<shard>` and subscribers
+  (engine publishers, sagas, `Engine.Subscribe()` consumers) had to enumerate every per-shard topic.
+  With goakt's default 271 partitions hardcoded into the subscribe loop, any deployment configured
+  with `goakt.NewClusterConfig().WithPartitionCount(N)` where `N > 271` would silently drop events
+  for entities mapped to shards ≥ 271.
+  - Now all entity events publish to a single `topic.events` (and durable state to `topic.states`).
+    The shard each event belongs to travels in the payload (`egopb.Event.Shard`,
+    `egopb.DurableState.Shard`), so downstream consumers can still filter by shard.
+  - The internal `Engine.publisherTopicsPartitionCount` helper and the per-shard `generateTopics`
+    helper have been removed. This is internal-only, but anyone who reached into the eventstream
+    extension directly and subscribed to `topic.events.<n>` should switch to the single topic.
+
+- **Sagas now observe events from every shard.** `SagaActor.PreStart` previously subscribed to
+  topics `topic.events.0` … `topic.events.<ownShard>` (only as many topics as the saga's own shard
+  index), so a saga placed in shard 5 missed events from shards 6 and above. Folded into the
+  single-topic change above: sagas now subscribe to `topic.events` once and see every event.
+
+- **`example/cluster/projection.go`** — fixed `AccountDebited` upsert that emitted `VALUES ($1, -$2, $3)`,
+  which Postgres rejected with "operator is not unique: - unknown (SQLSTATE 42725)" because the prefix
+  `-` could not pick an overload against an untyped placeholder. The handler now pre-negates the delta
+  in Go and uses `EXCLUDED.balance` symmetrically with the credit branch.
+
+- **`example/cluster/Makefile`** — the load-distribution probe now hits `/accounts/{id}` instead of
+  `/healthz`. Kind's NGINX Ingress Controller exposes its own `/healthz` on the data port (80) and
+  answers it before the request reaches the app, so the previous probe never received the app's
+  `X-Served-By` header and the assertion was a no-op.
 
 ## [v4.1.2] - 2026-04-26
 

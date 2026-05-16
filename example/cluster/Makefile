@@ -182,9 +182,13 @@ test:
 	fi
 	@echo ""
 	@echo "--- Step 7: Verify load distribution across pods ---"
-	@echo "    Sending 30 health checks and collecting X-Served-By headers..."
+	@echo "    Sending 30 read-side queries and collecting X-Served-By headers..."
+	@# /healthz cannot be used here: Kind's NGINX Ingress Controller exposes
+	@# its own /healthz on the data port (80) and answers it before the
+	@# request reaches the app, so no X-Served-By header makes it back. Hit a
+	@# real backend route instead.
 	@PODS=$$(for i in $$(seq 1 30); do \
-		curl -sf -D - -o /dev/null $(BASE_URL)/healthz 2>/dev/null | grep -i x-served-by | awk '{print $$2}' | tr -d '\r'; \
+		curl -sf -D - -o /dev/null $(BASE_URL)/accounts/acct-1 2>/dev/null | grep -i x-served-by | awk '{print $$2}' | tr -d '\r'; \
 	done); \
 	UNIQUE=$$(echo "$$PODS" | sort -u | grep -c .); \
 	echo "    Pods that served requests:"; \

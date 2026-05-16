@@ -108,13 +108,11 @@ func (s *SagaActor) PreStart(ctx *goakt.Context) error {
 		return err
 	}
 
-	// Subscribe to event stream topics
+	// Subscribe to the single in-process events topic. Sagas observe events
+	// from every shard; the shard is carried in the event payload for any
+	// downstream filtering the saga behavior wants to apply.
 	s.subscriber = s.eventsStream.AddSubscriber()
-	partitionsCount := uint64(ctx.ActorSystem().Partition(s.sagaID)) + 1
-	topics := generateTopics(eventsTopic, partitionsCount)
-	for _, topic := range topics {
-		s.eventsStream.Subscribe(s.subscriber, topic)
-	}
+	s.eventsStream.Subscribe(s.subscriber, eventsTopic)
 
 	return nil
 }
@@ -277,7 +275,7 @@ func (s *SagaActor) persistAndApplyEvents(ctx context.Context, events []Event) e
 			SequenceNumber: s.eventsCounter,
 			IsDeleted:      false,
 			Event:          eventAny,
-			Timestamp:      time.Now().Unix(),
+			Timestamp:      time.Now().UnixNano(),
 		}
 		envelopes = append(envelopes, envelope)
 

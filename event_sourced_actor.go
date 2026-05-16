@@ -45,7 +45,12 @@ import (
 )
 
 const (
-	eventsTopic              = "topic.events.%d"
+	// eventsTopic is the single in-process pub/sub topic eGo's event-sourced
+	// entities publish to and the engine's publishers/subscribers consume
+	// from. The shard each event belongs to is carried in egopb.Event.Shard,
+	// so downstream consumers can filter by shard without the topic name
+	// having to encode it.
+	eventsTopic              = "topic.events"
 	eventsWriterChildName    = "events-writer"
 	snapshotsWriterChildName = "snapshots-writer"
 	eventsJanitorChildName   = "events-janitor"
@@ -119,7 +124,6 @@ type EventSourcedActor struct {
 
 	// Cached values computed once at startup to avoid per-command allocations.
 	shardNumber uint64
-	eventsTopic string
 
 	// Event batching fields. Active only when batchThreshold > 0.
 	batchThreshold   int
@@ -178,7 +182,6 @@ func (entity *EventSourcedActor) Receive(ctx *goakt.ReceiveContext) {
 	switch msg := ctx.Message().(type) {
 	case *goakt.PostStart:
 		entity.shardNumber = ctx.ActorSystem().Partition(entity.persistenceID)
-		entity.eventsTopic = fmt.Sprintf(eventsTopic, entity.shardNumber)
 		entity.spawnChildren(ctx)
 	case *egopb.GetStateCommand:
 		entity.getStateAndReply(ctx)
@@ -480,7 +483,7 @@ func (entity *EventSourcedActor) sendStateReply(ctx *goakt.ReceiveContext) {
 				PersistenceId:  entity.persistenceID,
 				State:          entity.currentStateAny(),
 				SequenceNumber: entity.eventsCounter,
-				Timestamp:      entity.lastCommandTime.Unix(),
+				Timestamp:      entity.lastCommandTime.UnixNano(),
 			},
 		},
 	})
@@ -538,7 +541,7 @@ func (entity *EventSourcedActor) processCommandAndReply(ctx *goakt.ReceiveContex
 		return
 	}
 
-	if err := entity.persistEvents(ctx, envelopes, entity.eventsTopic); err != nil {
+	if err := entity.persistEvents(ctx, envelopes, eventsTopic); err != nil {
 		entity.sendErrorReply(ctx, err)
 		ctx.Shutdown()
 		return
@@ -617,7 +620,7 @@ func (entity *EventSourcedActor) marshalEvent(ctx context.Context, event Event, 
 		SequenceNumber:  seqNr,
 		IsDeleted:       false,
 		Event:           eventAny,
-		Timestamp:       ts.Unix(),
+		Timestamp:       ts.UnixNano(),
 		Shard:           shard,
 		EncryptionKeyId: encKeyID,
 		IsEncrypted:     isEncrypted,
@@ -701,7 +704,7 @@ func (entity *EventSourcedActor) newSnapshotEnvelope(state *anypb.Any) *egopb.Sn
 		PersistenceId:  entity.persistenceID,
 		SequenceNumber: entity.eventsCounter,
 		State:          state,
-		Timestamp:      entity.lastCommandTime.Unix(),
+		Timestamp:      entity.lastCommandTime.UnixNano(),
 	}
 }
 
@@ -792,7 +795,7 @@ func (entity *EventSourcedActor) processAndBatch(ctx *goakt.ReceiveContext, comm
 					PersistenceId:  entity.persistenceID,
 					State:          stateAny,
 					SequenceNumber: counter,
-					Timestamp:      entity.lastCommandTime.Unix(),
+					Timestamp:      entity.lastCommandTime.UnixNano(),
 				},
 			},
 		})
@@ -822,7 +825,7 @@ func (entity *EventSourcedActor) processAndBatch(ctx *goakt.ReceiveContext, comm
 					PersistenceId:  entity.persistenceID,
 					State:          stateAny,
 					SequenceNumber: pendingCounter,
-					Timestamp:      commandTime.Unix(),
+					Timestamp:      commandTime.UnixNano(),
 				},
 			},
 		},
@@ -847,7 +850,7 @@ func (entity *EventSourcedActor) processAndBatch(ctx *goakt.ReceiveContext, comm
 func (entity *EventSourcedActor) flushBatch(ctx *goakt.ReceiveContext) {
 	entity.stopFlushTimer()
 
-	topic := entity.eventsTopic
+	topic := eventsTopic
 	envelopes := entity.batchBuffer
 	writer := entity.eventsWriter
 	timeout := entity.persistTimeout

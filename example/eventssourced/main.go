@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	goakt "github.com/tochemey/goakt/v4/actor"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/tochemey/ego/v4"
@@ -47,8 +48,23 @@ func main() {
 	eventStore := testkit.NewEventsStore()
 	// connect the event store
 	_ = eventStore.Connect(ctx)
-	// create the ego engine
-	engine := ego.NewEngine("Sample", eventStore)
+	// build the eGo Config once and reuse it for both the actor system and
+	// the engine. cfg.GoaktOptions() returns the goakt.Option list eGo needs
+	// (extensions, pubsub, logger adapter, default supervisor); the caller
+	// composes anything else (cluster, TLS, custom actors) directly via goakt.
+	cfg := ego.NewConfig(eventStore)
+	sys, err := goakt.NewActorSystem("Sample", cfg.GoaktOptions()...)
+	if err != nil {
+		log.Fatalf("failed to build actor system: %v", err)
+	}
+	if err := sys.Start(ctx); err != nil {
+		log.Fatalf("failed to start actor system: %v", err)
+	}
+	// plug eGo in
+	engine, err := ego.NewEngine(sys, cfg)
+	if err != nil {
+		log.Fatalf("failed to create ego engine: %v", err)
+	}
 	// start ego engine
 	_ = engine.Start(ctx)
 	// create a persistence id
@@ -87,8 +103,9 @@ func main() {
 
 	// disconnect the event store
 	_ = eventStore.Disconnect(ctx)
-	// stop the actor system
+	// stop ego first, then the actor system (the caller owns its lifecycle)
 	_ = engine.Stop(ctx)
+	_ = sys.Stop(ctx)
 	os.Exit(0)
 }
 

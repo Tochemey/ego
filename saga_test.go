@@ -24,7 +24,6 @@ package ego
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -609,8 +608,7 @@ func TestSagaActor(t *testing.T) {
 		pause.For(time.Second)
 
 		// Publish a non-*egopb.Event payload
-		topic := fmt.Sprintf(eventsTopic, 0)
-		stream.Publish(topic, new(emptypb.Empty))
+		stream.Publish(eventsTopic, new(emptypb.Empty))
 		pause.For(500 * time.Millisecond)
 
 		select {
@@ -669,7 +667,7 @@ func TestSagaActor(t *testing.T) {
 			SequenceNumber: 1,
 			Event:          eventAny,
 		}
-		topic := fmt.Sprintf(eventsTopic, 0)
+		topic := eventsTopic
 		stream.Publish(topic, ownEvent)
 		pause.For(500 * time.Millisecond)
 
@@ -729,7 +727,7 @@ func TestSagaActor(t *testing.T) {
 			SequenceNumber: 1,
 			Event:          eventAny,
 		}
-		topic := fmt.Sprintf(eventsTopic, 0)
+		topic := eventsTopic
 
 		// First event: triggers Complete → saga status becomes SagaCompleted
 		stream.Publish(topic, domainEvent)
@@ -790,7 +788,7 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := fmt.Sprintf(eventsTopic, 0)
+		topic := eventsTopic
 
 		// First event: bad type URL → UnmarshalNew fails → logged and skipped
 		badEvent := &egopb.Event{
@@ -867,7 +865,7 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := fmt.Sprintf(eventsTopic, 0)
+		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
 
@@ -924,7 +922,7 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := fmt.Sprintf(eventsTopic, 0)
+		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
 		stream.Publish(topic, event)
@@ -979,7 +977,7 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := fmt.Sprintf(eventsTopic, 0)
+		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
 		stream.Publish(topic, event)
@@ -1036,7 +1034,7 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := fmt.Sprintf(eventsTopic, 0)
+		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
 		stream.Publish(topic, event)
@@ -1099,7 +1097,7 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := fmt.Sprintf(eventsTopic, 0)
+		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
 		stream.Publish(topic, event)
@@ -1164,7 +1162,7 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := fmt.Sprintf(eventsTopic, 0)
+		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
 		stream.Publish(topic, event)
@@ -1227,7 +1225,7 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := fmt.Sprintf(eventsTopic, 0)
+		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
 		stream.Publish(topic, event)
@@ -1281,7 +1279,7 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := fmt.Sprintf(eventsTopic, 0)
+		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
 		stream.Publish(topic, event)
@@ -1360,7 +1358,7 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := fmt.Sprintf(eventsTopic, 0)
+		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
 		stream.Publish(topic, event)
@@ -1419,7 +1417,7 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := fmt.Sprintf(eventsTopic, 0)
+		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
 		stream.Publish(topic, event)
@@ -1481,7 +1479,7 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := fmt.Sprintf(eventsTopic, 0)
+		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
 		stream.Publish(topic, event)
@@ -1550,7 +1548,7 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := fmt.Sprintf(eventsTopic, 0)
+		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
 		stream.Publish(topic, event)
@@ -1629,7 +1627,7 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := fmt.Sprintf(eventsTopic, 0)
+		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
 		stream.Publish(topic, event)
@@ -1703,7 +1701,7 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := fmt.Sprintf(eventsTopic, 0)
+		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
 		stream.Publish(topic, event)
@@ -1784,7 +1782,7 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := fmt.Sprintf(eventsTopic, 0)
+		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
 		stream.Publish(topic, event)
@@ -1864,7 +1862,7 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := fmt.Sprintf(eventsTopic, 0)
+		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
 		stream.Publish(topic, event)
@@ -1929,7 +1927,7 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := fmt.Sprintf(eventsTopic, 0)
+		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
 		stream.Publish(topic, event)

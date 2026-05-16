@@ -26,15 +26,62 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
 	goakt "github.com/tochemey/goakt/v4/actor"
+	"github.com/tochemey/goakt/v4/discovery"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 
 	samplepb "github.com/tochemey/ego/v4/example/examplepb"
+	"github.com/tochemey/ego/v4/persistence"
 	testpb "github.com/tochemey/ego/v4/test/data/testpb"
 )
+
+// newTestEngine bootstraps a goakt.ActorSystem and a plugged-in eGo Engine
+// the way callers are expected to do it post-refactor, and registers a
+// t.Cleanup hook that stops both at the end of the test.
+//
+// Single-node, non-clustered. Cluster-mode tests build their actor system
+// manually with goakt.NewClusterConfig().
+func newTestEngine(t *testing.T, name string, eventsStore persistence.EventsStore, opts ...Option) *Engine {
+	t.Helper()
+	ctx := context.Background()
+
+	cfg := NewConfig(eventsStore, opts...)
+	sys, err := goakt.NewActorSystem(name, cfg.GoaktOptions()...)
+	require.NoError(t, err)
+	require.NoError(t, sys.Start(ctx))
+
+	engine, err := NewEngine(sys, cfg)
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		_ = engine.Stop(context.Background())
+		_ = sys.Stop(context.Background())
+	})
+
+	return engine
+}
+
+// mockClusterProvider is a discovery.Provider used by cluster-mode tests.
+// It returns a static peers list, suitable for spinning up single-node
+// "clusters" in tests.
+type mockClusterProvider struct {
+	id    string
+	peers []string
+}
+
+var _ discovery.Provider = (*mockClusterProvider)(nil)
+
+func (m *mockClusterProvider) ID() string                       { return m.id }
+func (m *mockClusterProvider) Initialize() error                { return nil }
+func (m *mockClusterProvider) Register() error                  { return nil }
+func (m *mockClusterProvider) Deregister() error                { return nil }
+func (m *mockClusterProvider) DiscoverPeers() ([]string, error) { return m.peers, nil }
+func (m *mockClusterProvider) Close() error                     { return nil }
 
 // AccountEventSourcedBehavior implements EventSourcedBehavior
 type AccountEventSourcedBehavior struct {

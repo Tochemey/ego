@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	goakt "github.com/tochemey/goakt/v4/actor"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/tochemey/ego/v4"
@@ -44,12 +45,25 @@ import (
 func main() {
 	// create the go context
 	ctx := context.Background()
-	// create the event store
+	// create the durable state store
 	durableStore := testkit.NewDurableStore()
-	// connect the event store
+	// connect the durable state store
 	_ = durableStore.Connect(ctx)
-	// create the ego engine
-	engine := ego.NewEngine("Sample", nil, ego.WithStateStore(durableStore))
+	// Durable-state-only deployments pass a nil events store to NewConfig;
+	// the EventsStore extension is still registered by GoaktOptions because
+	// eGo's actor types depend on it being present.
+	cfg := ego.NewConfig(nil, ego.WithStateStore(durableStore))
+	sys, err := goakt.NewActorSystem("Sample", cfg.GoaktOptions()...)
+	if err != nil {
+		log.Fatalf("failed to build actor system: %v", err)
+	}
+	if err := sys.Start(ctx); err != nil {
+		log.Fatalf("failed to start actor system: %v", err)
+	}
+	engine, err := ego.NewEngine(sys, cfg)
+	if err != nil {
+		log.Fatalf("failed to create ego engine: %v", err)
+	}
 	// start ego engine
 	_ = engine.Start(ctx)
 	// create a persistence id
@@ -86,10 +100,11 @@ func main() {
 	signal.Notify(interruptSignal, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	<-interruptSignal
 
-	// disconnect the event store
+	// disconnect the durable state store
 	_ = durableStore.Disconnect(ctx)
-	// stop the actor system
+	// stop ego, then the caller-owned actor system
 	_ = engine.Stop(ctx)
+	_ = sys.Stop(ctx)
 	os.Exit(0)
 }
 

@@ -72,6 +72,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	goakt "github.com/tochemey/goakt/v4/actor"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/tochemey/ego/v4"
@@ -89,8 +90,27 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Create and start the eGo engine.
-	engine := ego.NewEngine("FundTransferExample", eventStore)
+	// Build the eGo Config once and reuse it for both the actor system and
+	// the engine. cfg.GoaktOptions() wires the extensions eGo needs (events
+	// store, event stream, default supervisor, pubsub, logger adapter) at
+	// construction time.
+	cfg := ego.NewConfig(eventStore)
+	sys, err := goakt.NewActorSystem("FundTransferExample", cfg.GoaktOptions()...)
+	if err != nil {
+		slog.Error("failed to build actor system", "err", err)
+		os.Exit(1)
+	}
+	if err := sys.Start(ctx); err != nil {
+		slog.Error("failed to start actor system", "err", err)
+		os.Exit(1)
+	}
+
+	// Plug eGo into the running actor system.
+	engine, err := ego.NewEngine(sys, cfg)
+	if err != nil {
+		slog.Error("failed to create engine", "err", err)
+		os.Exit(1)
+	}
 	if err := engine.Start(ctx); err != nil {
 		slog.Error("failed to start engine", "err", err)
 		os.Exit(1)
@@ -206,6 +226,7 @@ func main() {
 
 	_ = eventStore.Disconnect(ctx)
 	_ = engine.Stop(ctx)
+	_ = sys.Stop(ctx)
 	os.Exit(0)
 }
 
