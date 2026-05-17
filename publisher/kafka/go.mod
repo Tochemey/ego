@@ -4,8 +4,8 @@ go 1.26.0
 
 require (
 	github.com/IBM/sarama v1.48.2
-	github.com/tochemey/ego/v4 v4.1.2
-	github.com/tochemey/goakt/v4 v4.2.3
+	github.com/tochemey/ego/v4 v4.2.0
+	github.com/tochemey/goakt/v4 v4.2.4
 	go.uber.org/atomic v1.11.0
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af
 )
@@ -60,6 +60,10 @@ require (
 )
 
 require (
+	github.com/bytedance/gopkg v0.1.4 // indirect
+	github.com/bytedance/sonic v1.15.1 // indirect
+	github.com/bytedance/sonic/loader v0.5.1 // indirect
+	github.com/cloudwego/base64x v0.1.7 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/eapache/go-resiliency v1.7.0 // indirect
 	github.com/eapache/queue v1.1.0 // indirect
@@ -74,7 +78,9 @@ require (
 	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/pierrec/lz4/v4 v4.1.26 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20250401214520-65e299d6c5c9 // indirect
+	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	go.mongodb.org/mongo-driver v1.17.9 // indirect
+	golang.org/x/arch v0.27.0 // indirect
 	golang.org/x/crypto v0.51.0 // indirect
 	golang.org/x/net v0.54.0 // indirect
 )

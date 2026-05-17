@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/gorilla/websocket v1.5.3
-	github.com/tochemey/ego/v4 v4.1.2
+	github.com/tochemey/ego/v4 v4.2.0
 	github.com/tochemey/gopack v0.2.1
 	go.uber.org/atomic v1.11.0
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af
@@ -16,7 +16,11 @@ require (
 	github.com/andybalholm/brotli v1.2.1 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/bits-and-blooms/bitset v1.24.4 // indirect
+	github.com/bytedance/gopkg v0.1.4 // indirect
+	github.com/bytedance/sonic v1.15.1 // indirect
+	github.com/bytedance/sonic/loader v0.5.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/cloudwego/base64x v0.1.7 // indirect
 	github.com/deckarep/golang-set/v2 v2.9.0 // indirect
 	github.com/flowchartsman/retry v1.2.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.2 // indirect
@@ -44,8 +48,9 @@ require (
 	github.com/tidwall/btree v1.8.1 // indirect
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/redcon v1.6.2 // indirect
-	github.com/tochemey/goakt/v4 v4.2.3 // indirect
+	github.com/tochemey/goakt/v4 v4.2.4 // indirect
 	github.com/tochemey/olric v0.3.9 // indirect
+	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
@@ -58,6 +63,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.43.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.28.0 // indirect
+	golang.org/x/arch v0.27.0 // indirect
 	golang.org/x/mod v0.36.0 // indirect
 	golang.org/x/net v0.54.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
