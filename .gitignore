@@ -17,3 +17,4 @@ gen/
 .claude/
 .config/
 *.out
+.local/
