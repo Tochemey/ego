@@ -3,7 +3,7 @@ module github.com/tochemey/ego/v4/publisher/kafka
 go 1.26.0
 
 require (
-	github.com/IBM/sarama v1.48.2
+	github.com/IBM/sarama v1.50.1
 	github.com/tochemey/ego/v4 v4.2.0
 	github.com/tochemey/goakt/v4 v4.2.4
 	go.uber.org/atomic v1.11.0
@@ -55,7 +55,7 @@ require (
 	go.uber.org/zap v1.28.0 // indirect
 	golang.org/x/mod v0.36.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.44.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/tools v0.45.0 // indirect
 )
 
@@ -81,8 +81,8 @@ require (
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	go.mongodb.org/mongo-driver v1.17.9 // indirect
 	golang.org/x/arch v0.27.0 // indirect
-	golang.org/x/crypto v0.51.0 // indirect
-	golang.org/x/net v0.54.0 // indirect
+	golang.org/x/crypto v0.52.0 // indirect
+	golang.org/x/net v0.55.0 // indirect
 )
 
 exclude (
