@@ -6,7 +6,6 @@
   <a href="https://github.com/Tochemey/ego/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/Tochemey/ego/build.yml?branch=main" alt="build"></a>
   <a href="https://pkg.go.dev/github.com/tochemey/ego"><img src="https://pkg.go.dev/badge/github.com/tochemey/ego.svg" alt="Go Reference"></a>
   <a href="https://go.dev/doc/install"><img src="https://img.shields.io/github/go-mod/go-version/tochemey/ego" alt="Go version"></a>
-  <a href="https://github.com/Tochemey/ego/releases"><img src="https://img.shields.io/github/v/release/tochemey/ego?sort=semver&display_name=release" alt="GitHub Release"></a>
   <a href="https://codecov.io/gh/Tochemey/ego"><img src="https://codecov.io/gh/Tochemey/ego/branch/main/graph/badge.svg?token=Z5b9gM6Mnt" alt="codecov"></a>
 </p>
 
