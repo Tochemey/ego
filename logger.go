@@ -86,9 +86,10 @@ func (defaultLogger) Error(msg string, args ...any) { slog.Error(msg, args...) }
 // loggerAdapter wraps a Logger and satisfies the goaktlog.Logger interface
 // used internally by the underlying engine.
 type loggerAdapter struct {
-	inner  Logger
-	level  log.Level
-	fields []any // accumulated key-value pairs from With()
+	inner    Logger
+	level    log.Level
+	severity int   // cached severity of level, for Enabled gating
+	fields   []any // accumulated key-value pairs from With()
 }
 
 // compile-time check
@@ -102,7 +103,7 @@ func newLoggerAdapter(inner Logger) *loggerAdapter {
 	if ll, ok := inner.(LeveledLogger); ok {
 		level = parseLevel(ll.Level())
 	}
-	return &loggerAdapter{inner: inner, level: level}
+	return &loggerAdapter{inner: inner, level: level, severity: levelSeverity(level)}
 }
 
 // isNilLogger returns true when l is nil or a typed-nil (e.g. (*MyLogger)(nil)).
@@ -167,10 +168,14 @@ func goaktArgsToMsg(args []any) (string, []any) {
 	if len(args) == 0 {
 		return "", nil
 	}
-	if len(args) == 1 {
-		return fmt.Sprint(args[0]), nil
+	msg, ok := args[0].(string) // the common case — avoids fmt.Sprint reflection
+	if !ok {
+		msg = fmt.Sprint(args[0])
 	}
-	return fmt.Sprint(args[0]), args[1:]
+	if len(args) == 1 {
+		return msg, nil
+	}
+	return msg, args[1:]
 }
 
 // mergeFields returns the adapter's accumulated fields combined with additional
@@ -195,12 +200,9 @@ func (a *loggerAdapter) Debug(args ...any) {
 func (a *loggerAdapter) Debugf(format string, args ...any) {
 	a.inner.Debug(fmt.Sprintf(format, args...), a.fields...)
 }
-func (a *loggerAdapter) DebugContext(_ context.Context, args ...any) {
-	msg, fields := goaktArgsToMsg(args)
-	a.inner.Debug(msg, a.mergeFields(fields)...)
-}
+func (a *loggerAdapter) DebugContext(_ context.Context, args ...any) { a.Debug(args...) }
 func (a *loggerAdapter) DebugfContext(_ context.Context, format string, args ...any) {
-	a.inner.Debug(fmt.Sprintf(format, args...), a.fields...)
+	a.Debugf(format, args...)
 }
 func (a *loggerAdapter) Info(args ...any) {
 	msg, fields := goaktArgsToMsg(args)
@@ -209,12 +211,9 @@ func (a *loggerAdapter) Info(args ...any) {
 func (a *loggerAdapter) Infof(format string, args ...any) {
 	a.inner.Info(fmt.Sprintf(format, args...), a.fields...)
 }
-func (a *loggerAdapter) InfoContext(_ context.Context, args ...any) {
-	msg, fields := goaktArgsToMsg(args)
-	a.inner.Info(msg, a.mergeFields(fields)...)
-}
+func (a *loggerAdapter) InfoContext(_ context.Context, args ...any) { a.Info(args...) }
 func (a *loggerAdapter) InfofContext(_ context.Context, format string, args ...any) {
-	a.inner.Info(fmt.Sprintf(format, args...), a.fields...)
+	a.Infof(format, args...)
 }
 func (a *loggerAdapter) Warn(args ...any) {
 	msg, fields := goaktArgsToMsg(args)
@@ -223,12 +222,9 @@ func (a *loggerAdapter) Warn(args ...any) {
 func (a *loggerAdapter) Warnf(format string, args ...any) {
 	a.inner.Warn(fmt.Sprintf(format, args...), a.fields...)
 }
-func (a *loggerAdapter) WarnContext(_ context.Context, args ...any) {
-	msg, fields := goaktArgsToMsg(args)
-	a.inner.Warn(msg, a.mergeFields(fields)...)
-}
+func (a *loggerAdapter) WarnContext(_ context.Context, args ...any) { a.Warn(args...) }
 func (a *loggerAdapter) WarnfContext(_ context.Context, format string, args ...any) {
-	a.inner.Warn(fmt.Sprintf(format, args...), a.fields...)
+	a.Warnf(format, args...)
 }
 func (a *loggerAdapter) Error(args ...any) {
 	msg, fields := goaktArgsToMsg(args)
@@ -237,12 +233,9 @@ func (a *loggerAdapter) Error(args ...any) {
 func (a *loggerAdapter) Errorf(format string, args ...any) {
 	a.inner.Error(fmt.Sprintf(format, args...), a.fields...)
 }
-func (a *loggerAdapter) ErrorContext(_ context.Context, args ...any) {
-	msg, fields := goaktArgsToMsg(args)
-	a.inner.Error(msg, a.mergeFields(fields)...)
-}
+func (a *loggerAdapter) ErrorContext(_ context.Context, args ...any) { a.Error(args...) }
 func (a *loggerAdapter) ErrorfContext(_ context.Context, format string, args ...any) {
-	a.inner.Error(fmt.Sprintf(format, args...), a.fields...)
+	a.Errorf(format, args...)
 }
 
 func (a *loggerAdapter) Fatal(args ...any) {
@@ -270,7 +263,7 @@ func (a *loggerAdapter) Panicf(format string, args ...any) {
 
 func (a *loggerAdapter) LogLevel() log.Level { return a.level }
 func (a *loggerAdapter) Enabled(l log.Level) bool {
-	return levelSeverity(l) >= levelSeverity(a.level)
+	return levelSeverity(l) >= a.severity
 }
 func (a *loggerAdapter) With(keyValues ...any) log.Logger {
 	if len(keyValues) == 0 {
@@ -279,7 +272,7 @@ func (a *loggerAdapter) With(keyValues ...any) log.Logger {
 	merged := make([]any, 0, len(a.fields)+len(keyValues))
 	merged = append(merged, a.fields...)
 	merged = append(merged, keyValues...)
-	return &loggerAdapter{inner: a.inner, level: a.level, fields: merged}
+	return &loggerAdapter{inner: a.inner, level: a.level, severity: a.severity, fields: merged}
 }
 func (a *loggerAdapter) LogOutput() []io.Writer { return nil }
 func (a *loggerAdapter) Flush() error           { return nil }
