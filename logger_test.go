@@ -24,8 +24,6 @@ package ego
 
 import (
 	"context"
-	"os"
-	"os/exec"
 	"strings"
 	"testing"
 
@@ -222,80 +220,6 @@ func TestLoggerAdapterErrorfContext(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// Panic family
-// -----------------------------------------------------------------------------
-
-func TestLoggerAdapterPanic(t *testing.T) {
-	spy := &spyLogger{}
-	a := newAdapter(spy)
-	assert.Panics(t, func() {
-		a.Panic("panic msg")
-	})
-	assert.Equal(t, "error", spy.lastMethod)
-	assert.Equal(t, "panic msg", spy.lastMsg)
-}
-
-func TestLoggerAdapterPanicf(t *testing.T) {
-	spy := &spyLogger{}
-	a := newAdapter(spy)
-	assert.Panics(t, func() {
-		a.Panicf("panic %s", "formatted")
-	})
-	assert.Equal(t, "error", spy.lastMethod)
-	assert.Equal(t, "panic formatted", spy.lastMsg)
-}
-
-// -----------------------------------------------------------------------------
-// Fatal family — subprocess tests (os.Exit(1) cannot be tested in-process)
-// -----------------------------------------------------------------------------
-
-func TestLoggerAdapterFatal(t *testing.T) {
-	if os.Getenv("GO_TEST_ADAPTER_FATAL") == "1" {
-		a := newAdapter(&spyLogger{})
-		a.Fatal("fatal msg")
-		return
-	}
-	cmd := exec.Command(os.Args[0], "-test.run=TestLoggerAdapterFatalHelperProcess$", "-test.v") // #nosec G204 G702
-	cmd.Env = append(os.Environ(), "GO_TEST_ADAPTER_FATAL=1")
-	out, err := cmd.CombinedOutput()
-	var exitErr *exec.ExitError
-	require.ErrorAs(t, err, &exitErr)
-	assert.Equal(t, 1, exitErr.ExitCode())
-	assert.NotEmpty(t, out)
-}
-
-func TestLoggerAdapterFatalHelperProcess(t *testing.T) {
-	if os.Getenv("GO_TEST_ADAPTER_FATAL") != "1" {
-		t.Skip("helper process")
-	}
-	a := newAdapter(&spyLogger{})
-	a.Fatal("fatal msg")
-}
-
-func TestLoggerAdapterFatalf(t *testing.T) {
-	if os.Getenv("GO_TEST_ADAPTER_FATALF") == "1" {
-		a := newAdapter(&spyLogger{})
-		a.Fatalf("fatal %s", "formatted")
-		return
-	}
-	cmd := exec.Command(os.Args[0], "-test.run=TestLoggerAdapterFatalfHelperProcess$", "-test.v") // #nosec G204 G702
-	cmd.Env = append(os.Environ(), "GO_TEST_ADAPTER_FATALF=1")
-	out, err := cmd.CombinedOutput()
-	var exitErr *exec.ExitError
-	require.ErrorAs(t, err, &exitErr)
-	assert.Equal(t, 1, exitErr.ExitCode())
-	assert.NotEmpty(t, out)
-}
-
-func TestLoggerAdapterFatalfHelperProcess(t *testing.T) {
-	if os.Getenv("GO_TEST_ADAPTER_FATALF") != "1" {
-		t.Skip("helper process")
-	}
-	a := newAdapter(&spyLogger{})
-	a.Fatalf("fatal %s", "formatted")
-}
-
-// -----------------------------------------------------------------------------
 // Utility methods
 // -----------------------------------------------------------------------------
 
@@ -394,11 +318,6 @@ func TestLoggerAdapterWith(t *testing.T) {
 	})
 }
 
-func TestLoggerAdapterLogOutput(t *testing.T) {
-	a := newAdapter(&spyLogger{})
-	assert.Nil(t, a.LogOutput())
-}
-
 func TestLoggerAdapterFlush(t *testing.T) {
 	a := newAdapter(&spyLogger{})
 	assert.NoError(t, a.Flush())
@@ -472,14 +391,6 @@ func TestLoggerAdapterMultiArgRouting(t *testing.T) {
 		spy := &spyLogger{}
 		a := newAdapter(spy)
 		a.Error("msg", "k", "v")
-		assert.Equal(t, "msg", spy.lastMsg)
-		assert.Equal(t, []any{"k", "v"}, spy.lastFields)
-	})
-
-	t.Run("Panic passes fields to inner logger before panicking", func(t *testing.T) {
-		spy := &spyLogger{}
-		a := newAdapter(spy)
-		assert.Panics(t, func() { a.Panic("msg", "k", "v") })
 		assert.Equal(t, "msg", spy.lastMsg)
 		assert.Equal(t, []any{"k", "v"}, spy.lastFields)
 	})

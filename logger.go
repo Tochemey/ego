@@ -25,14 +25,23 @@ package ego
 import (
 	"context"
 	"fmt"
-	"io"
 	golog "log"
 	"log/slog"
-	"os"
 	"reflect"
 	"strings"
 
 	"github.com/tochemey/goakt/v4/log"
+)
+
+// Log level strings recognized by LeveledLogger.Level.
+const (
+	levelDebug   = "debug"
+	levelInfo    = "info"
+	levelWarn    = "warn"
+	levelWarning = "warning"
+	levelError   = "error"
+	levelFatal   = "fatal"
+	levelPanic   = "panic"
 )
 
 // Logger is the logging interface that developers can implement to plug in
@@ -86,10 +95,9 @@ func (defaultLogger) Error(msg string, args ...any) { slog.Error(msg, args...) }
 // loggerAdapter wraps a Logger and satisfies the goaktlog.Logger interface
 // used internally by the underlying engine.
 type loggerAdapter struct {
-	inner    Logger
-	level    log.Level
-	severity int   // cached severity of level, for Enabled gating
-	fields   []any // accumulated key-value pairs from With()
+	inner  Logger
+	level  log.Level
+	fields []any // accumulated key-value pairs from With()
 }
 
 // compile-time check
@@ -103,7 +111,7 @@ func newLoggerAdapter(inner Logger) *loggerAdapter {
 	if ll, ok := inner.(LeveledLogger); ok {
 		level = parseLevel(ll.Level())
 	}
-	return &loggerAdapter{inner: inner, level: level, severity: levelSeverity(level)}
+	return &loggerAdapter{inner: inner, level: level}
 }
 
 // isNilLogger returns true when l is nil or a typed-nil (e.g. (*MyLogger)(nil)).
@@ -143,17 +151,17 @@ func levelSeverity(l log.Level) int {
 // Unrecognized values default to InfoLevel.
 func parseLevel(s string) log.Level {
 	switch strings.ToLower(s) {
-	case "debug":
+	case levelDebug:
 		return log.DebugLevel
-	case "info":
+	case levelInfo:
 		return log.InfoLevel
-	case "warn", "warning":
+	case levelWarn, levelWarning:
 		return log.WarningLevel
-	case "error":
+	case levelError:
 		return log.ErrorLevel
-	case "fatal":
+	case levelFatal:
 		return log.FatalLevel
-	case "panic":
+	case levelPanic:
 		return log.PanicLevel
 	default:
 		return log.InfoLevel
@@ -168,10 +176,12 @@ func goaktArgsToMsg(args []any) (string, []any) {
 	if len(args) == 0 {
 		return "", nil
 	}
+
 	msg, ok := args[0].(string) // the common case — avoids fmt.Sprint reflection
 	if !ok {
 		msg = fmt.Sprint(args[0])
 	}
+
 	if len(args) == 1 {
 		return msg, nil
 	}
@@ -184,9 +194,11 @@ func (a *loggerAdapter) mergeFields(extra []any) []any {
 	if len(a.fields) == 0 {
 		return extra
 	}
+
 	if len(extra) == 0 {
 		return a.fields
 	}
+
 	merged := make([]any, 0, len(a.fields)+len(extra))
 	merged = append(merged, a.fields...)
 	merged = append(merged, extra...)
@@ -238,32 +250,9 @@ func (a *loggerAdapter) ErrorfContext(_ context.Context, format string, args ...
 	a.Errorf(format, args...)
 }
 
-func (a *loggerAdapter) Fatal(args ...any) {
-	msg, fields := goaktArgsToMsg(args)
-	a.inner.Error(msg, a.mergeFields(fields)...)
-	os.Exit(1)
-}
-
-func (a *loggerAdapter) Fatalf(format string, args ...any) {
-	a.inner.Error(fmt.Sprintf(format, args...), a.fields...)
-	os.Exit(1)
-}
-
-func (a *loggerAdapter) Panic(args ...any) {
-	msg, fields := goaktArgsToMsg(args)
-	a.inner.Error(msg, a.mergeFields(fields)...)
-	panic(msg)
-}
-
-func (a *loggerAdapter) Panicf(format string, args ...any) {
-	msg := fmt.Sprintf(format, args...)
-	a.inner.Error(msg, a.fields...)
-	panic(msg)
-}
-
 func (a *loggerAdapter) LogLevel() log.Level { return a.level }
 func (a *loggerAdapter) Enabled(l log.Level) bool {
-	return levelSeverity(l) >= a.severity
+	return levelSeverity(l) >= levelSeverity(a.level)
 }
 func (a *loggerAdapter) With(keyValues ...any) log.Logger {
 	if len(keyValues) == 0 {
@@ -272,10 +261,9 @@ func (a *loggerAdapter) With(keyValues ...any) log.Logger {
 	merged := make([]any, 0, len(a.fields)+len(keyValues))
 	merged = append(merged, a.fields...)
 	merged = append(merged, keyValues...)
-	return &loggerAdapter{inner: a.inner, level: a.level, severity: a.severity, fields: merged}
+	return &loggerAdapter{inner: a.inner, level: a.level, fields: merged}
 }
-func (a *loggerAdapter) LogOutput() []io.Writer { return nil }
-func (a *loggerAdapter) Flush() error           { return nil }
+func (a *loggerAdapter) Flush() error { return nil }
 
 func (a *loggerAdapter) StdLogger() *golog.Logger {
 	return golog.New(&loggerWriter{inner: a.inner}, "", 0)
