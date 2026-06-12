@@ -27,6 +27,7 @@ import (
 	"errors"
 	"net"
 	"strconv"
+	"syscall"
 	"testing"
 	"time"
 
@@ -919,6 +920,57 @@ func TestEngineAddEventPublishers(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for event publish")
 	}
+}
+
+// TestEnginePublisherIdleCPU is the regression test for
+// https://github.com/Tochemey/ego/issues/291: the publisher consumption
+// loops used to poll Subscriber.Iterator() — which returns a closed snapshot
+// channel — in a tight select, pinning one full CPU core per registered
+// publisher whenever the stream was idle. Post-fix the loops block on the
+// subscriber's Ready signal, so an idle engine with publishers must consume
+// close to zero CPU.
+func TestEnginePublisherIdleCPU(t *testing.T) {
+	ctx := context.Background()
+	store := testkit.NewEventsStore()
+	require.NoError(t, store.Connect(ctx))
+	t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+	eventPub := new(egomock.EventPublisher)
+	eventPub.On("ID").Return("eGo.test.EventPublisher")
+	eventPub.On("Close", mock.Anything).Return(nil)
+
+	statePub := new(egomock.StatePublisher)
+	statePub.On("ID").Return("eGo.test.StatePublisher")
+	statePub.On("Close", mock.Anything).Return(nil)
+
+	engine := newTestEngine(t, "Sample", store, WithLogger(DiscardLogger))
+	require.NoError(t, engine.Start(ctx))
+	require.NoError(t, engine.AddEventPublishers(eventPub))
+	require.NoError(t, engine.AddStatePublishers(statePub))
+
+	// let startup work settle before sampling
+	pause.For(500 * time.Millisecond)
+
+	cpuStart := processCPUTime(t)
+	const idle = 2 * time.Second
+	pause.For(idle)
+	cpuBurned := processCPUTime(t) - cpuStart
+
+	// Pre-fix, each of the two idle consumption loops burned a full core
+	// (~2s of CPU each over the 2s window). The threshold leaves generous
+	// headroom for runtime and actor-system background work while still
+	// catching any loop that spins instead of blocking.
+	require.Less(t, cpuBurned, idle/2,
+		"idle publisher loops burned %v of CPU over %v of wall time: busy-spin regression", cpuBurned, idle)
+}
+
+// processCPUTime returns the cumulative user+system CPU time of the test
+// process.
+func processCPUTime(t *testing.T) time.Duration {
+	t.Helper()
+	var usage syscall.Rusage
+	require.NoError(t, syscall.Getrusage(syscall.RUSAGE_SELF, &usage))
+	return time.Duration(usage.Utime.Nano() + usage.Stime.Nano())
 }
 
 // TestEngineAddStatePublishers exercises the happy path of

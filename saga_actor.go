@@ -54,11 +54,12 @@ type SagaActor struct {
 	sagaID        string
 	timeout       time.Duration
 
-	// actorSystem and logger are stored during PostStart so that the
+	// actorSystem, logger and self are stored during PostStart so that the
 	// consumeEvents goroutine can use them safely after the ReceiveContext
 	// from PostStart has been returned to the pool.
 	actorSystem goakt.ActorSystem
 	logger      log.Logger
+	self        *goakt.PID
 
 	// stopCh is used to stop the event consumption loop
 	stopCh chan struct{}
@@ -118,12 +119,18 @@ func (s *SagaActor) PreStart(ctx *goakt.Context) error {
 }
 
 // Receive handles messages sent to the saga actor.
+//
+// All saga state (currentState, eventsCounter, status) is read and written
+// exclusively from here: the consumeEvents goroutine forwards stream events
+// to the actor's own mailbox instead of processing them itself, so the
+// actor's serialized message loop is the only writer.
 func (s *SagaActor) Receive(ctx *goakt.ReceiveContext) {
-	switch ctx.Message().(type) {
+	switch message := ctx.Message().(type) {
 	case *goakt.PostStart:
 		// Capture stable references before the ReceiveContext is returned to the pool.
 		s.actorSystem = ctx.ActorSystem()
 		s.logger = ctx.Logger()
+		s.self = ctx.Self()
 		// Start consuming events from the stream
 		go s.consumeEvents()
 		// Schedule timeout if configured
@@ -131,6 +138,8 @@ func (s *SagaActor) Receive(ctx *goakt.ReceiveContext) {
 			self := ctx.Self()
 			_ = ctx.ActorSystem().ScheduleOnce(ctx.Context(), &sagaTimeoutMsg{}, self, s.timeout)
 		}
+	case *egopb.Event:
+		s.handleStreamEvent(message)
 	case *sagaTimeoutMsg:
 		if s.status == SagaRunning {
 			s.status = SagaCompensating
@@ -188,20 +197,35 @@ func (s *SagaActor) recover(ctx context.Context) error {
 	return nil
 }
 
-// consumeEvents reads events from the stream and processes them via the behavior.
-// It uses the stable actorSystem and logger fields captured during PostStart instead
-// of the ReceiveContext (which is returned to the pool once Receive returns).
+// consumeEvents pumps events from the stream into the actor's own mailbox.
+// It uses the stable actorSystem, logger and self fields captured during
+// PostStart instead of the ReceiveContext (which is returned to the pool once
+// Receive returns).
+//
+// It blocks on the subscriber's Ready signal when idle, then drains the
+// snapshot returned by Iterator. Selecting on Iterator directly would
+// busy-spin a CPU core: it returns a closed snapshot channel that yields
+// nil immediately whenever the queue is empty.
+//
+// Events are forwarded to the mailbox rather than processed here so that all
+// saga state stays owned by the actor's serialized message loop — processing
+// them on this goroutine would race with Receive (state queries, timeout).
 func (s *SagaActor) consumeEvents() {
 	for {
 		select {
 		case <-s.stopCh:
 			return
-		case message := <-s.subscriber.Iterator():
-			if message == nil {
-				continue
+		case <-s.subscriber.Ready():
+		}
+
+		for message := range s.subscriber.Iterator() {
+			select {
+			case <-s.stopCh:
+				return
+			default:
 			}
 
-			if s.status != SagaRunning {
+			if message == nil {
 				continue
 			}
 
@@ -215,21 +239,33 @@ func (s *SagaActor) consumeEvents() {
 				continue
 			}
 
-			eventMsg, err := event.GetEvent().UnmarshalNew()
-			if err != nil {
-				s.logger.Errorf("saga %s: failed to unmarshal event: %v", s.sagaID, err)
-				continue
+			if err := s.actorSystem.NoSender().Tell(context.Background(), s.self, event); err != nil {
+				s.logger.Errorf("saga %s: failed to forward event to mailbox: %v", s.sagaID, err)
 			}
-
-			action, err := s.behavior.HandleEvent(context.Background(), eventMsg.(Event), s.currentState)
-			if err != nil {
-				s.logger.Errorf("saga %s: HandleEvent failed: %v", s.sagaID, err)
-				continue
-			}
-
-			s.processAction(action)
 		}
 	}
+}
+
+// handleStreamEvent processes a stream event forwarded by consumeEvents.
+// It runs on the actor's message loop, so it can freely touch saga state.
+func (s *SagaActor) handleStreamEvent(event *egopb.Event) {
+	if s.status != SagaRunning {
+		return
+	}
+
+	eventMsg, err := event.GetEvent().UnmarshalNew()
+	if err != nil {
+		s.logger.Errorf("saga %s: failed to unmarshal event: %v", s.sagaID, err)
+		return
+	}
+
+	action, err := s.behavior.HandleEvent(context.Background(), eventMsg.(Event), s.currentState)
+	if err != nil {
+		s.logger.Errorf("saga %s: HandleEvent failed: %v", s.sagaID, err)
+		return
+	}
+
+	s.processAction(action)
 }
 
 // processAction executes a SagaAction: persists saga events, sends commands, and handles completion/compensation.

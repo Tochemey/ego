@@ -24,6 +24,7 @@ package ego
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -704,11 +705,13 @@ func TestSagaActor(t *testing.T) {
 		require.NoError(t, actorSystem.Start(ctx))
 		pause.For(time.Second)
 
-		callCount := 0
+		// the saga processes events on its own goroutine, so the counter must
+		// be atomic for the test goroutine to read it safely
+		var callCount atomic.Int32
 		behavior := &callbackSagaBehavior{
 			id: sagaID,
 			handleEvent: func(_ context.Context, _ Event, _ State) (*SagaAction, error) {
-				callCount++
+				callCount.Add(1)
 				return &SagaAction{Complete: true}, nil
 			},
 		}
@@ -733,14 +736,14 @@ func TestSagaActor(t *testing.T) {
 		stream.Publish(topic, domainEvent)
 		pause.For(500 * time.Millisecond)
 
-		countAfterFirst := callCount
+		countAfterFirst := callCount.Load()
 
 		// Subsequent events should be ignored
 		stream.Publish(topic, domainEvent)
 		stream.Publish(topic, domainEvent)
 		pause.For(500 * time.Millisecond)
 
-		assert.Equal(t, countAfterFirst, callCount, "HandleEvent should not be called after saga completes")
+		assert.Equal(t, countAfterFirst, callCount.Load(), "HandleEvent should not be called after saga completes")
 
 		stream.Close()
 		require.NoError(t, actorSystem.Stop(ctx))
@@ -1013,7 +1016,9 @@ func TestSagaActor(t *testing.T) {
 		pause.For(time.Second)
 
 		handled := make(chan struct{}, 1)
-		applyCallCount := 0
+		// the saga processes events on its own goroutine, so the counter must
+		// be atomic for the test goroutine to read it safely
+		var applyCallCount atomic.Int32
 		behavior := &callbackSagaBehavior{
 			id: sagaID,
 			handleEvent: func(_ context.Context, event Event, _ State) (*SagaAction, error) {
@@ -1021,7 +1026,7 @@ func TestSagaActor(t *testing.T) {
 				return &SagaAction{Events: []Event{event}}, nil
 			},
 			applyEvent: func(_ context.Context, _ Event, state State) (State, error) {
-				applyCallCount++
+				applyCallCount.Add(1)
 				return nil, assert.AnError
 			},
 		}
@@ -1048,7 +1053,7 @@ func TestSagaActor(t *testing.T) {
 
 		// Actor must still be alive despite the error
 		require.True(t, pid.IsRunning())
-		assert.Positive(t, applyCallCount)
+		assert.Positive(t, applyCallCount.Load())
 
 		stream.Close()
 		require.NoError(t, actorSystem.Stop(ctx))
