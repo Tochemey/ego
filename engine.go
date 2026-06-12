@@ -1134,13 +1134,26 @@ func toSupervisorDirective(directive SupervisorDirective) supervisor.Directive {
 	}
 }
 
-// sendEvent sends events to the event publisher
+// sendEvent sends events to the event publisher.
+// It blocks on the subscriber's Ready signal when idle, then drains the
+// snapshot returned by Iterator. Selecting on Iterator directly would
+// busy-spin a CPU core: it returns a closed snapshot channel that yields
+// nil immediately whenever the queue is empty.
 func (engine *Engine) sendEvent(stream *eventsStream) {
 	for {
 		select {
 		case <-stream.done:
 			return
-		case message := <-stream.subscriber.Iterator():
+		case <-stream.subscriber.Ready():
+		}
+
+		for message := range stream.subscriber.Iterator() {
+			select {
+			case <-stream.done:
+				return
+			default:
+			}
+
 			if message == nil {
 				continue
 			}
@@ -1167,13 +1180,26 @@ func (engine *Engine) sendEvent(stream *eventsStream) {
 	}
 }
 
-// sendState sends state changes to the state publisher
+// sendState sends state changes to the state publisher.
+// It blocks on the subscriber's Ready signal when idle, then drains the
+// snapshot returned by Iterator. Selecting on Iterator directly would
+// busy-spin a CPU core: it returns a closed snapshot channel that yields
+// nil immediately whenever the queue is empty.
 func (engine *Engine) sendState(stream *statesStream) {
 	for {
 		select {
 		case <-stream.done:
 			return
-		case message := <-stream.subscriber.Iterator():
+		case <-stream.subscriber.Ready():
+		}
+
+		for message := range stream.subscriber.Iterator() {
+			select {
+			case <-stream.done:
+				return
+			default:
+			}
+
 			if message == nil {
 				continue
 			}

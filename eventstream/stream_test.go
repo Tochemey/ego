@@ -88,6 +88,55 @@ func TestStream(t *testing.T) {
 		}
 	})
 
+	t.Run("With Ready signaling", func(t *testing.T) {
+		sub := newSubscriber()
+
+		// no message yet: Ready must not fire
+		select {
+		case <-sub.Ready():
+			require.Fail(t, "Ready fired without any message")
+		default:
+		}
+
+		// a signal wakes a consumer blocked on Ready
+		sub.signal(NewMessage("a", "one"))
+		select {
+		case <-sub.Ready():
+		case <-time.After(time.Second):
+			require.Fail(t, "Ready did not fire after signal")
+		}
+
+		// coalescing: many signals while no one is draining keep at most one
+		// pending wake-up, and a single drain still sees every message
+		sub.signal(NewMessage("a", "two"))
+		sub.signal(NewMessage("a", "three"))
+		<-sub.Ready()
+		var seen []*Message
+		for msg := range sub.Iterator() {
+			seen = append(seen, msg)
+		}
+		require.Len(t, seen, 3)
+		select {
+		case <-sub.Ready():
+			require.Fail(t, "Ready should have at most one pending wake-up")
+		default:
+		}
+
+		// Shutdown wakes a consumer blocked on Ready
+		done := make(chan struct{})
+		go func() {
+			<-sub.Ready()
+			close(done)
+		}()
+		sub.Shutdown()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			require.Fail(t, "Ready did not fire on shutdown")
+		}
+		require.False(t, sub.Active())
+	})
+
 	t.Run("With Subscription", func(t *testing.T) {
 		broker := New()
 

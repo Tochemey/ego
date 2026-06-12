@@ -37,6 +37,12 @@ type Subscriber interface {
 	Active() bool
 	Topics() []string
 	Iterator() chan *Message
+	// Ready returns a channel that receives a signal whenever new messages
+	// are available to drain via Iterator, or when the subscriber shuts down.
+	// Block on Ready instead of calling Iterator in a tight loop: Iterator
+	// returns a closed snapshot channel, so polling it while the queue is
+	// empty busy-spins a CPU core.
+	Ready() <-chan struct{}
 	Shutdown()
 	signal(message *Message)
 	subscribe(topic string)
@@ -55,6 +61,10 @@ type subscriber struct {
 	topics map[string]bool
 	// states whether the given subscriber is active or not
 	active *atomic.Bool
+	// notify wakes consumers blocked on Ready when a message is enqueued
+	// or the subscriber shuts down. Capacity one: a pending wake-up already
+	// guarantees the next Iterator drain sees every enqueued message.
+	notify chan struct{}
 }
 
 var _ Subscriber = &subscriber{}
@@ -72,6 +82,7 @@ func newSubscriber() *subscriber {
 		messages: queue.NewQueue(),
 		topics:   make(map[string]bool),
 		active:   atomic.NewBool(true),
+		notify:   make(chan struct{}, 1),
 	}
 }
 
@@ -101,6 +112,17 @@ func (x *subscriber) Topics() []string {
 // Shutdown shutdowns the consumer
 func (x *subscriber) Shutdown() {
 	x.active.Store(false)
+	// wake any consumer blocked on Ready so it can observe the shutdown
+	select {
+	case x.notify <- struct{}{}:
+	default:
+	}
+}
+
+// Ready returns a channel that receives a signal whenever new messages are
+// available to drain via Iterator, or when the subscriber shuts down.
+func (x *subscriber) Ready() <-chan struct{} {
+	return x.notify
 }
 
 func (x *subscriber) Iterator() chan *Message {
@@ -130,6 +152,13 @@ func (x *subscriber) signal(message *Message) {
 	// only receive message when active
 	if x.active.Load() {
 		x.messages.Enqueue(message)
+		// wake a consumer blocked on Ready. Dropping the send when the
+		// buffer is full is safe: the pending wake-up's drain will pick
+		// this message up too.
+		select {
+		case x.notify <- struct{}{}:
+		default:
+		}
 	}
 }
 
