@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 🐛 Bug Fixes
+
+- **Publisher and saga event-stream loops no longer busy-spin a CPU core when idle** (`6789f66`, #292).
+  `eventstream.Subscriber.Iterator()` returns a closed snapshot channel whenever the queue is empty, so the
+  engine's `sendEvent`/`sendState` publisher loops and the saga actor's receive loop — which `select`ed on
+  `Iterator()` directly — spun at 100% CPU per loop while waiting for messages. The `Subscriber` interface
+  gained a `Ready() <-chan struct{}` signal that fires when messages are enqueued or the subscriber shuts
+  down; the loops now block on `Ready()` while idle and only drain the `Iterator()` snapshot once woken.
+  If you implement `eventstream.Subscriber` yourself, you must add the `Ready()` method.
+
+### 🧹 Improvements
+
+- **Logger adapter refactor** (`8f0a73d`, `491c480`). The goakt logger adapter avoids `fmt.Sprint`
+  reflection on the common single-string-message path, delegates the `*Context` variants to their
+  non-context counterparts instead of duplicating their bodies, and replaces ad-hoc level strings with
+  named constants. Dead code and redundant tests were removed alongside.
+
+### ⬆️ Dependencies
+
+- `github.com/tochemey/goakt/v4` v4.2.4 → v4.2.8 (`480f0a3` #277, `a662ab0` #290)
+- `go.opentelemetry.io/otel` (monorepo) v1.43.0 → v1.44.0 (`e547a3d` #283)
+- `github.com/ibm/sarama` → v1.50.2 (`c8d88d5` #280, `1a4110d` #288)
+- `github.com/jackc/pgx/v5` → v5.10.0 (`91948bb` #276, `a6447a1` #287)
+- Toolchain: Go 1.26.4 (#285, #286), `golangci-lint` v2.12.2 (#278), `codecov/codecov-action` v7 (#289),
+  `docker/dockerfile` v1.24 (#279)
+
 ## [v4.2.0] - 2026-05-17
 
 ### 💥 Breaking Changes
