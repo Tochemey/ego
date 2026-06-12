@@ -24,15 +24,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   non-context counterparts instead of duplicating their bodies, and replaces ad-hoc level strings with
   named constants. Dead code and redundant tests were removed alongside.
 
-### ⬆️ Dependencies
-
-- `github.com/tochemey/goakt/v4` v4.2.4 → v4.2.8 (`480f0a3` #277, `a662ab0` #290)
-- `go.opentelemetry.io/otel` (monorepo) v1.43.0 → v1.44.0 (`e547a3d` #283)
-- `github.com/ibm/sarama` → v1.50.2 (`c8d88d5` #280, `1a4110d` #288)
-- `github.com/jackc/pgx/v5` → v5.10.0 (`91948bb` #276, `a6447a1` #287)
-- Toolchain: Go 1.26.4 (#285, #286), `golangci-lint` v2.12.2 (#278), `codecov/codecov-action` v7 (#289),
-  `docker/dockerfile` v1.24 (#279)
-
 ## [v4.2.0] - 2026-05-17
 
 ### 💥 Breaking Changes
