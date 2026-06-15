@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/google/uuid v1.6.0
 	github.com/tochemey/ego/v4 v4.2.0
-	github.com/tochemey/goakt/v4 v4.2.9
+	github.com/tochemey/goakt/v4 v4.2.10
 )
 
 require (
