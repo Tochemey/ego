@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.24
+# syntax=docker/dockerfile:1.25
 # CI tooling image for ego. Mirrors the toolchain previously declared in the
 # Earthfile so that Makefile targets (docker-lint, docker-test, docker-mock,
 # docker-protogen) can run in a hermetic container.
