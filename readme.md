@@ -7,6 +7,7 @@
   <a href="https://pkg.go.dev/github.com/tochemey/ego"><img src="https://pkg.go.dev/badge/github.com/tochemey/ego.svg" alt="Go Reference"></a>
   <a href="https://go.dev/doc/install"><img src="https://img.shields.io/github/go-mod/go-version/tochemey/ego" alt="Go version"></a>
   <a href="https://codecov.io/gh/Tochemey/ego"><img src="https://codecov.io/gh/Tochemey/ego/branch/main/graph/badge.svg?token=Z5b9gM6Mnt" alt="codecov"></a>
+  <a href="https://human-oss.dev"><img src="https://human-oss.dev/badge.svg" alt="Open Source AI Manifesto" /></a>
 </p>
 
 eGo is a **meta-framework** for building event-sourced and durable-state CQRS applications in Go using **protocol buffers** for _commands_, _events_ and _states_.
