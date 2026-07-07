@@ -467,6 +467,8 @@ github.com/tochemey/goakt/v4 v4.2.10 h1:Y6zolpZst2PvG67hnVBhU0fl5KCycMkDC3ASDQVk
 github.com/tochemey/goakt/v4 v4.2.10/go.mod h1:ie7CKysI1CJ7oHC+MgNCzftot3gOLBvp34QSMDgXED4=
 github.com/tochemey/goakt/v4 v4.2.13 h1:Pq7+EGApre5d8rUMFD/EcZmtsKnTQ4ALuNKQ1a1O6/Q=
 github.com/tochemey/goakt/v4 v4.2.13/go.mod h1:KxXy+niDlSrdeLnWkNg+nDQ5BCZGxrkKZEAQbBSmxNY=
+github.com/tochemey/goakt/v4 v4.3.0 h1:FCTNfH/USjQhGksXbxbVkp70pEMNGYlDUezb6tSZpIk=
+github.com/tochemey/goakt/v4 v4.3.0/go.mod h1:KxXy+niDlSrdeLnWkNg+nDQ5BCZGxrkKZEAQbBSmxNY=
 github.com/tochemey/olric v0.3.9 h1:MU3VVQ3TZwdRzyxai0myxNMZj0lMK/RCjhaYh2Xe6aQ=
 github.com/tochemey/olric v0.3.9/go.mod h1:r5OVAIw1zaZJ5WKvKj1c4XnLwFaYpH8EJpm4dAD8Bp0=
 github.com/tochemey/olric v0.3.10 h1:S5Ypz0QxZiLFv7DUrm9q40+mh9FO24WniZRabU33aQE=
