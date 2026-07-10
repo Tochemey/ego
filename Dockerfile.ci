@@ -3,7 +3,7 @@
 # Earthfile so that Makefile targets (docker-lint, docker-test, docker-mock,
 # docker-protogen) can run in a hermetic container.
 
-FROM golang:1.26.4-alpine
+FROM golang:1.26.5-alpine
 
 # CGO/build dependencies and shell utilities.
 RUN apk --no-cache add \
