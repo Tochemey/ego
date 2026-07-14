@@ -463,6 +463,109 @@ func TestEngineClusterMode(t *testing.T) {
 	assert.EqualValues(t, 100, acct.GetAccountBalance())
 }
 
+// TestEngineMultiNodeRemoteEntitySpawn is a regression test for remote entity
+// spawns failing with "dependency type is not registered".
+//
+// With the default RoundRobin placement, Engine.Entity routes spawns to peer
+// nodes. The receiving node deserializes the spawn request's dependencies
+// (the behavior and eGo's internal EntityConfig) against its own registry,
+// which is populated at NewEngine time from WithEntityKinds. Only node1 ever
+// calls Entity(), so every spawn landing on node2 exercises that
+// pre-registration path; before the fix those spawns failed because node2's
+// registry was only populated by its own (never-issued) Entity() calls.
+func TestEngineMultiNodeRemoteEntitySpawn(t *testing.T) {
+	ctx := context.Background()
+	host := "127.0.0.1"
+
+	ports := dynaport.Get(6)
+	gossipAddrs := []string{
+		net.JoinHostPort(host, strconv.Itoa(ports[0])),
+		net.JoinHostPort(host, strconv.Itoa(ports[3])),
+	}
+
+	newNode := func(gossipPort, peersPort, remotingPort int) (goakt.ActorSystem, *Config) {
+		store := testkit.NewEventsStore()
+		require.NoError(t, store.Connect(ctx))
+		t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+		cfg := NewConfig(store,
+			WithLogger(DiscardLogger),
+			WithEntityKinds(new(AccountEventSourcedBehavior)),
+		)
+
+		provider := &mockClusterProvider{id: "test", peers: gossipAddrs}
+		clusterCfg := goakt.NewClusterConfig().
+			WithDiscovery(provider).
+			WithDiscoveryPort(gossipPort).
+			WithPeersPort(peersPort).
+			WithMinimumPeersQuorum(1).
+			WithReplicaCount(1).
+			WithPartitionCount(7).
+			WithKinds(ClusterKinds()...)
+
+		goaktOpts := append(cfg.GoaktOptions(),
+			goakt.WithCluster(clusterCfg),
+			goakt.WithRemote(remote.NewConfig(host, remotingPort)),
+		)
+
+		sys, err := goakt.NewActorSystem("Sample", goaktOpts...)
+		require.NoError(t, err)
+		return sys, cfg
+	}
+
+	sys1, cfg1 := newNode(ports[0], ports[1], ports[2])
+	sys2, cfg2 := newNode(ports[3], ports[4], ports[5])
+
+	// start both nodes concurrently so they bootstrap the cluster together
+	errs := make(chan error, 2)
+	go func() { errs <- sys1.Start(ctx) }()
+	go func() { errs <- sys2.Start(ctx) }()
+	require.NoError(t, <-errs)
+	require.NoError(t, <-errs)
+	t.Cleanup(func() {
+		_ = sys1.Stop(context.Background())
+		_ = sys2.Stop(context.Background())
+	})
+
+	// wait until both nodes see each other as peers
+	require.Eventually(t, func() bool {
+		peers1, err1 := sys1.Peers(ctx, time.Second)
+		peers2, err2 := sys2.Peers(ctx, time.Second)
+		return err1 == nil && err2 == nil && len(peers1) == 1 && len(peers2) == 1
+	}, 30*time.Second, 500*time.Millisecond, "the two nodes never formed a cluster")
+
+	engine1, err := NewEngine(sys1, cfg1)
+	require.NoError(t, err)
+	require.NoError(t, engine1.Start(ctx))
+	engine2, err := NewEngine(sys2, cfg2)
+	require.NoError(t, err)
+	require.NoError(t, engine2.Start(ctx))
+	t.Cleanup(func() {
+		_ = engine1.Stop(context.Background())
+		_ = engine2.Stop(context.Background())
+	})
+
+	// Only node1 spawns. With RoundRobin placement over two members, a run of
+	// spawns is guaranteed to place some entities on node2, which never called
+	// Entity() itself.
+	for range 8 {
+		entityID := uuid.NewString()
+		require.NoError(t, engine1.Entity(ctx, NewEventSourcedEntity(entityID)),
+			"remote spawn must succeed on a node that never called Entity() itself")
+
+		// SpawnOn (and therefore Entity) only returns once the actor's
+		// registry record is written to the cluster store, so the entity is
+		// immediately addressable from this node — no retry needed.
+		state, _, err := engine1.SendCommand(ctx, entityID, &testpb.CreateAccount{
+			AccountBalance: 100,
+		}, time.Minute)
+		require.NoError(t, err)
+		account, ok := state.(*testpb.Account)
+		require.True(t, ok)
+		assert.EqualValues(t, 100, account.GetAccountBalance())
+	}
+}
+
 // TestParseCommandReply pins the reply-decoding contract.
 func TestParseCommandReply(t *testing.T) {
 	t.Run("error reply", func(t *testing.T) {

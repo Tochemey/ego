@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 🐛 Bug Fixes
+
+- **Remote entity spawns no longer fail with `dependency type is not registered` in cluster mode.**
+  `Engine.Entity`, `Engine.DurableStateEntity`, and `Engine.Saga` registered the behavior's dependency type
+  only on the calling node, at spawn time. With the default `RoundRobin` placement, `SpawnOn` routes most
+  spawns to a peer, and the receiving node deserializes the spawn request's dependencies (the behavior plus
+  eGo's internal spawn-configuration types) against **its own** registry — failing unless that node had
+  already spawned the same kind itself. On a fresh N-node cluster, the first spawn of any entity kind failed
+  roughly (N−1)/N of the time.
+
+  `NewEngine` now registers eGo's internal spawn-configuration dependency types (which application code
+  cannot reach) on every node, together with the behavior kinds supplied via the new `WithEntityKinds`
+  option:
+
+  - `ego.EntityKind` — alias for goakt's `extension.Dependency`; every `EventSourcedBehavior`,
+    `DurableStateBehavior`, and `SagaBehavior` value is an `EntityKind`.
+  - `ego.WithEntityKinds(kinds ...EntityKind) Option` — lists the behavior types this node can host.
+    Pass one value per behavior type (a zero value is fine; only the concrete type is registered).
+
+  **Cluster deployments must now build every node's `Config` with `WithEntityKinds`, listing every entity,
+  durable-state, and saga behavior the cluster hosts** — the same contract `ClusterKinds()` already
+  establishes for actor kinds:
+
+  ```go
+  cfg := ego.NewConfig(eventsStore,
+      ego.WithEntityKinds(new(AccountBehavior), new(OrderBehavior)),
+      // ...
+  )
+  ```
+
+  Single-node deployments are unaffected and may omit the option: the lazy registration done by
+  `Entity`, `DurableStateEntity`, and `Saga` remains as a local-node fallback.
+
 ## [v4.2.1] - 2026-06-20
 
 ### 🐛 Bug Fixes
