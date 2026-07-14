@@ -29,6 +29,7 @@ import (
 
 	"github.com/tochemey/ego/v4/encryption"
 	"github.com/tochemey/ego/v4/eventadapter"
+	"github.com/tochemey/ego/v4/eventstream"
 	"github.com/tochemey/ego/v4/projection"
 )
 
@@ -117,5 +118,13 @@ func withMetrics(m *metrics) runnerOption {
 func withEncryptor(enc encryption.Encryptor) runnerOption {
 	return runnerOptionFunc(func(runner *projectionRunner) {
 		runner.encryptor = enc
+	})
+}
+
+// withEventsStream sets the in-process events stream that triggers an
+// immediate pull when events are persisted on the local node.
+func withEventsStream(stream eventstream.Stream) runnerOption {
+	return runnerOptionFunc(func(runner *projectionRunner) {
+		runner.eventsStream = stream
 	})
 }

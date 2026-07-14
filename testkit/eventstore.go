@@ -27,7 +27,6 @@ import (
 	"sort"
 	"sync"
 
-	goset "github.com/deckarep/golang-set/v2"
 	"go.uber.org/atomic"
 
 	"github.com/tochemey/ego/v4/egopb"
@@ -230,12 +229,14 @@ func (x *EventStore) GetShardEvents(_ context.Context, shardNumber uint64, offse
 	return events, nextOffset, nil
 }
 
-func (x *EventStore) ShardNumbers(context.Context) ([]uint64, error) {
-	shards := goset.NewSet[uint64]()
+func (x *EventStore) ShardOffsets(context.Context) (map[uint64]int64, error) {
+	offsets := make(map[uint64]int64)
 	x.db.Range(func(_ any, value any) bool {
 		event := value.(*egopb.Event)
-		shards.Add(event.GetShard())
+		if event.GetTimestamp() > offsets[event.GetShard()] {
+			offsets[event.GetShard()] = event.GetTimestamp()
+		}
 		return true
 	})
-	return shards.ToSlice(), nil
+	return offsets, nil
 }

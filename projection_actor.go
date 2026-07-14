@@ -68,6 +68,12 @@ func (x *ProjectionActor) PreStart(ctx *goakt.Context) error {
 		opts = append(opts, withEventAdapters(ext.(*extensions.EventAdapters).Adapters()))
 	}
 
+	// Events persisted on this node trigger an immediate pull instead of
+	// waiting for the next pull interval.
+	if ext := ctx.Extension(extensions.EventsStreamExtensionID); ext != nil {
+		opts = append(opts, withEventsStream(ext.(*extensions.EventsStream).Underlying()))
+	}
+
 	if ext := ctx.Extension(extensions.EncryptorExtensionID); ext != nil {
 		opts = append(opts, withEncryptor(ext.(*extensions.EncryptorExtension).Encryptor()))
 	}

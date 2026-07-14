@@ -7,7 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 💥 Breaking Changes
+
+- **`EventsStore.ShardNumbers` is replaced by `ShardOffsets`.**
+  `ShardNumbers(ctx) ([]uint64, error)` returned only the distinct shard numbers, forcing the projection
+  runner to interrogate every shard on every pull to find out which ones had new events. The new method
+
+  ```go
+  ShardOffsets(ctx context.Context) (map[uint64]int64, error)
+  ```
+
+  returns every distinct shard mapped to the offset (timestamp) of its most recent event, so a single
+  round trip answers both "which shards exist" and "which shards are behind".
+
+  **Migration for store implementors** — replace the `ShardNumbers` query with an aggregate:
+
+  ```sql
+  -- before
+  SELECT DISTINCT shard_number FROM events_store
+  -- after
+  SELECT shard_number, MAX(timestamp) FROM events_store GROUP BY shard_number
+  ```
+
+  An index on `(shard_number, timestamp)` keeps the aggregate cheap. No schema change is required.
+
+### ⚡ Performance Improvements
+
+- **Projection pulls are now O(active shards) instead of O(all shards × 2 + events).**
+  Previously each pull issued one `ShardNumbers` query, then one `GetCurrentOffset` **and** one
+  `GetShardEvents` per shard in the journal — even for shards with nothing new — plus one `WriteOffset`
+  per event. With hundreds of shards over a few milliseconds of database round-trip time, a single pull
+  stretched into hundreds of milliseconds and compounded into multi-second projection latency under
+  write bursts. Each pull now costs one `ShardOffsets` query when the projection is caught up, plus one
+  `GetShardEvents` and one `WriteOffset` per shard that actually has pending events:
+
+  - committed offsets are cached in memory (the projection runs as a cluster singleton, so the runner is
+    the sole writer of its offsets) and compared against `ShardOffsets` to skip caught-up shards;
+  - the offset is committed once per processed batch instead of once per event;
+  - events persisted on the projection's node trigger an immediate pull through the in-process events
+    stream instead of waiting for the next `pullInterval` tick (peer-node writes still ride the ticker);
+  - a full event buffer triggers an immediate follow-up pull, draining backlogs without idling between
+    ticks.
+
+  `Engine.ProjectionLag` benefits as well: it previously scanned up to 10,000 events per shard to locate
+  the newest timestamp; it now reads it straight from `ShardOffsets`.
+
 ### 🐛 Bug Fixes
+
+- **A projection crash mid-batch no longer skips the rest of the batch.** The runner committed the
+  batch's `nextOffset` after **each** event, so the very first commit already pointed past every event in
+  the batch; a crash between two events of the same batch silently dropped the remaining ones on restart.
+  The offset is now committed once, after the whole batch has been handled, restoring at-least-once
+  delivery within a batch.
 
 - **Remote entity spawns no longer fail with `dependency type is not registered` in cluster mode.**
   `Engine.Entity`, `Engine.DurableStateEntity`, and `Engine.Saga` registered the behavior's dependency type

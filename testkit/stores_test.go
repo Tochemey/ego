@@ -243,22 +243,25 @@ func TestEventStore_GetShardEvents(t *testing.T) {
 	require.NoError(t, store.Disconnect(ctx))
 }
 
-func TestEventStore_ShardNumbers(t *testing.T) {
+func TestEventStore_ShardOffsets(t *testing.T) {
 	ctx := context.TODO()
 	store := NewEventsStore()
 	require.NoError(t, store.Connect(ctx))
 
 	anyEvent, _ := anypb.New(&testpb.AccountCreated{AccountId: "acc-1", AccountBalance: 100})
 	events := []*egopb.Event{
-		{PersistenceId: "sn-1", SequenceNumber: 1, Event: anyEvent, Timestamp: time.Now().UnixMilli(), Shard: 1},
-		{PersistenceId: "sn-2", SequenceNumber: 1, Event: anyEvent, Timestamp: time.Now().UnixMilli(), Shard: 2},
-		{PersistenceId: "sn-3", SequenceNumber: 1, Event: anyEvent, Timestamp: time.Now().UnixMilli(), Shard: 1},
+		{PersistenceId: "sn-1", SequenceNumber: 1, Event: anyEvent, Timestamp: 100, Shard: 1},
+		{PersistenceId: "sn-2", SequenceNumber: 1, Event: anyEvent, Timestamp: 300, Shard: 2},
+		{PersistenceId: "sn-3", SequenceNumber: 1, Event: anyEvent, Timestamp: 200, Shard: 1},
 	}
 	require.NoError(t, store.WriteEvents(ctx, events))
 
-	shards, err := store.ShardNumbers(ctx)
+	offsets, err := store.ShardOffsets(ctx)
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, len(shards), 2)
+	assert.Len(t, offsets, 2)
+	// each shard reports the timestamp of its most recent event
+	assert.Equal(t, int64(200), offsets[1])
+	assert.Equal(t, int64(300), offsets[2])
 
 	require.NoError(t, store.Disconnect(ctx))
 }
