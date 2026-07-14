@@ -36,7 +36,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	goakt "github.com/tochemey/goakt/v4/actor"
-	gerrors "github.com/tochemey/goakt/v4/errors"
 	"github.com/tochemey/goakt/v4/remote"
 	"github.com/tochemey/goakt/v4/supervisor"
 	"github.com/travisjeffery/go-dynaport"
@@ -554,21 +553,12 @@ func TestEngineMultiNodeRemoteEntitySpawn(t *testing.T) {
 		require.NoError(t, engine1.Entity(ctx, NewEventSourcedEntity(entityID)),
 			"remote spawn must succeed on a node that never called Entity() itself")
 
-		// A remotely-placed entity becomes visible to this node's directory
-		// after the next cluster state sync, so tolerate a short window of
-		// "actor not found" before asserting on the command outcome.
-		var state State
-		var err error
-		deadline := time.Now().Add(10 * time.Second)
-		for {
-			state, _, err = engine1.SendCommand(ctx, entityID, &testpb.CreateAccount{
-				AccountBalance: 100,
-			}, time.Minute)
-			if !errors.Is(err, gerrors.ErrActorNotFound) || time.Now().After(deadline) {
-				break
-			}
-			pause.For(200 * time.Millisecond)
-		}
+		// SpawnOn (and therefore Entity) only returns once the actor's
+		// registry record is written to the cluster store, so the entity is
+		// immediately addressable from this node — no retry needed.
+		state, _, err := engine1.SendCommand(ctx, entityID, &testpb.CreateAccount{
+			AccountBalance: 100,
+		}, time.Minute)
 		require.NoError(t, err)
 		account, ok := state.(*testpb.Account)
 		require.True(t, ok)

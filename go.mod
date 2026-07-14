@@ -7,7 +7,7 @@ require (
 	github.com/flowchartsman/retry v1.2.0
 	github.com/google/uuid v1.6.0
 	github.com/stretchr/testify v1.11.1
-	github.com/tochemey/goakt/v4 v4.3.2-0.20260714091355-7f234b9939f0
+	github.com/tochemey/goakt/v4 v4.3.2-0.20260714210131-cfb78a01e4bc
 	github.com/travisjeffery/go-dynaport v1.0.0
 	go.opentelemetry.io/otel v1.44.0
 	go.opentelemetry.io/otel/metric v1.44.0
