@@ -24,6 +24,7 @@ package ego
 
 import (
 	goakt "github.com/tochemey/goakt/v4/actor"
+	"github.com/tochemey/goakt/v4/extension"
 	"github.com/tochemey/goakt/v4/supervisor"
 
 	"github.com/tochemey/ego/v4/encryption"
@@ -51,6 +52,7 @@ type Config struct {
 	eventAdapters []eventadapter.EventAdapter
 	telemetry     *Telemetry
 	encryptor     encryption.Encryptor
+	entityKinds   []EntityKind
 
 	// eventStream is the in-process pub/sub stream eGo's entity actors
 	// publish to and the engine's publishers/subscribers consume from. It is
@@ -165,6 +167,10 @@ func (c *Config) GoaktOptions() []goakt.Option {
 //
 // Plug them into goakt.NewClusterConfig().WithKinds(...) alongside any
 // caller-defined kinds. Has no effect in single-node deployments.
+//
+// ClusterKinds covers the actor types only. The behaviors those actors are
+// spawned with travel as dependencies and need their own registration on
+// every node — see WithEntityKinds.
 func ClusterKinds() []goakt.Actor {
 	return []goakt.Actor{
 		new(EventSourcedActor),
@@ -280,6 +286,42 @@ func WithTelemetry(telemetry *Telemetry) Option {
 func WithEventAdapters(adapters ...eventadapter.EventAdapter) Option {
 	return OptionFunc(func(c *Config) {
 		c.eventAdapters = append(c.eventAdapters, adapters...)
+	})
+}
+
+// EntityKind is the common contract satisfied by every behavior eGo spawns
+// as an entity: EventSourcedBehavior, DurableStateBehavior, and SagaBehavior
+// values are all EntityKinds.
+//
+// It aliases goakt's extension.Dependency because behaviors ride along in
+// spawn requests as dependencies: when a spawn is placed on a remote node,
+// the behavior is serialized on the calling side and reconstructed on the
+// receiving side from goakt's dependency type registry. WithEntityKinds is
+// how that registry learns about behavior types ahead of time.
+type EntityKind = extension.Dependency
+
+// WithEntityKinds pre-registers the behavior types of the entity kinds this
+// node can host, so their spawn requests can be deserialized on arrival.
+//
+// In cluster mode, Engine.Entity, Engine.DurableStateEntity, and Engine.Saga
+// serialize the behavior as a spawn dependency and may place the actor on a
+// remote node. The receiving node reconstructs the behavior against its own
+// type registry, and fails with a "dependency type is not registered" error
+// when the type is unknown there. Registering behaviors lazily at spawn time
+// only covers the calling node, so every node must list every kind it may
+// receive — the same contract ClusterKinds establishes for actor kinds.
+//
+// Pass one value per behavior type (a zero value is fine; only its concrete
+// type is registered): event-sourced behaviors, durable-state behaviors, and
+// saga behaviors all qualify. NewEngine registers them, alongside eGo's
+// internal spawn-configuration types, on the node's actor system.
+//
+// Single-node deployments may omit this option; the lazy registration done by
+// Entity, DurableStateEntity, and Saga is sufficient when spawns never leave
+// the local node.
+func WithEntityKinds(kinds ...EntityKind) Option {
+	return OptionFunc(func(c *Config) {
+		c.entityKinds = append(c.entityKinds, kinds...)
 	})
 }
 

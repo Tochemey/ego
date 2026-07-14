@@ -32,6 +32,7 @@ import (
 
 	goakt "github.com/tochemey/goakt/v4/actor"
 	gerrors "github.com/tochemey/goakt/v4/errors"
+	"github.com/tochemey/goakt/v4/extension"
 	"github.com/tochemey/goakt/v4/passivation"
 	"github.com/tochemey/goakt/v4/supervisor"
 	"go.opentelemetry.io/otel"
@@ -138,6 +139,12 @@ type Engine struct {
 //   - every extension eGo needs based on cfg must be registered on sys
 //     (otherwise returns ErrMissingRequiredExtensions with the missing IDs).
 //
+// NewEngine also registers eGo's internal spawn-configuration dependency
+// types and any behavior kinds supplied via WithEntityKinds on the actor
+// system, so that entity spawn requests routed to this node from cluster
+// peers can be deserialized. Every node in a cluster must therefore build
+// its engine with the same WithEntityKinds list.
+//
 // The engine does NOT take ownership of the actor system. Engine.Stop will
 // not call sys.Stop; the caller stops the actor system on their own
 // schedule (typically after Engine.Stop).
@@ -162,6 +169,19 @@ func NewEngine(actorSys goakt.ActorSystem, config *Config) (*Engine, error) {
 	}
 
 	if err := validateActorSystemExtensions(actorSys, config); err != nil {
+		return nil, err
+	}
+
+	// Register dependency types on this node so spawn requests placed here by
+	// peers (SpawnOn placement, relocation) can be deserialized even before
+	// this node has spawned such an entity itself. The internal spawn-config
+	// types live in internal/extensions and cannot be registered by
+	// application code; user behavior kinds come from WithEntityKinds.
+	dependencies := append(
+		[]extension.Dependency{new(extensions.EntityConfig), new(extensions.SagaConfig)},
+		config.entityKinds...,
+	)
+	if err := actorSys.Inject(dependencies...); err != nil {
 		return nil, err
 	}
 
@@ -541,8 +561,12 @@ func (engine *Engine) Entity(ctx context.Context, behavior EventSourcedBehavior,
 	}
 	actorSystem := ref.sys
 
-	// Register dependency types so the actor system can reconstruct them during relocation.
-	// No need to check for error here as it was done during Start().
+	// Register the behavior type on the local node as a fallback for kinds
+	// missing from WithEntityKinds. This only covers spawns placed locally:
+	// in cluster mode the spawn may land on a peer, which can only
+	// deserialize the behavior if it was registered there via WithEntityKinds.
+	// Inject only errors when the actor system is not started, which the
+	// Started check above already rules out.
 	_ = actorSystem.Inject(behavior)
 
 	config := newSpawnConfig(opts...)
@@ -639,7 +663,12 @@ func (engine *Engine) DurableStateEntity(ctx context.Context, behavior DurableSt
 		return ErrDurableStateStoreRequired
 	}
 
-	// no need to check for error here as it was done during Start()
+	// Register the behavior type on the local node as a fallback for kinds
+	// missing from WithEntityKinds. This only covers spawns placed locally:
+	// in cluster mode the spawn may land on a peer, which can only
+	// deserialize the behavior if it was registered there via WithEntityKinds.
+	// Inject only errors when the actor system is not started, which the
+	// Started check above already rules out.
 	_ = actorSystem.Inject(behavior)
 
 	sOptions := buildSpawnOptions(opts...)
@@ -822,7 +851,10 @@ func (engine *Engine) Saga(ctx context.Context, behavior SagaBehavior, timeout t
 	}
 	actorSystem := ref.sys
 
-	// Register dependency types so the actor system can reconstruct them during relocation.
+	// Register the behavior type on the local node as a fallback for kinds
+	// missing from WithEntityKinds; relocation to a peer requires the type to
+	// be registered there via WithEntityKinds. Inject only errors when the
+	// actor system is not started, which the Started check above rules out.
 	_ = actorSystem.Inject(behavior)
 
 	sagaCfg := extensions.NewSagaConfig(timeout)
