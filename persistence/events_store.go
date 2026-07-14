@@ -50,6 +50,12 @@ type EventsStore interface {
 	PersistenceIDs(ctx context.Context, pageSize uint64, pageToken string) (persistenceIDs []string, nextPageToken string, err error)
 	// GetShardEvents returns the next (limit) events after the offset in the journal for a given shard
 	GetShardEvents(ctx context.Context, shardNumber uint64, offset int64, limit uint64) ([]*egopb.Event, int64, error)
-	// ShardNumbers returns the distinct list of all the shards in the journal store
-	ShardNumbers(ctx context.Context) ([]uint64, error)
+	// ShardOffsets returns every distinct shard in the journal mapped to the
+	// offset (timestamp) of its most recent event. Compared against the
+	// offsets a projection has committed, it tells which shards have pending
+	// events without scanning every shard. An empty journal yields an empty
+	// map. SQL-backed stores implement it with a single query:
+	//
+	//	SELECT shard_number, MAX(timestamp) FROM events_store GROUP BY shard_number
+	ShardOffsets(ctx context.Context) (map[uint64]int64, error)
 }

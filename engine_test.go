@@ -1360,13 +1360,13 @@ func TestEngineProjectionLagClampsNegative(t *testing.T) {
 
 	// Discover the populated shards and stamp a future offset on each so
 	// currOffset > latestTimestamp and the clamp branch fires.
-	shards, err := store.ShardNumbers(ctx)
+	shardOffsets, err := store.ShardOffsets(ctx)
 	require.NoError(t, err)
-	require.NotEmpty(t, shards)
+	require.NotEmpty(t, shardOffsets)
 
 	const projectionName = "future-projection"
 	future := time.Now().Add(24 * time.Hour).UnixNano()
-	for _, shard := range shards {
+	for shard := range shardOffsets {
 		require.NoError(t, offsetStore.WriteOffset(ctx, &egopb.Offset{
 			ProjectionName: projectionName,
 			ShardNumber:    shard,
@@ -1678,26 +1678,25 @@ func TestEngineEraseEntityStoreErrors(t *testing.T) {
 }
 
 // TestEngineProjectionLagStoreErrors covers ProjectionLag's per-store error
-// wraps: ShardNumbers failure, GetCurrentOffset failure, and both
-// GetShardEvents failure points.
+// wraps: ShardOffsets failure and GetCurrentOffset failure.
 func TestEngineProjectionLagStoreErrors(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("ShardNumbers failure", func(t *testing.T) {
+	t.Run("ShardOffsets failure", func(t *testing.T) {
 		eventsStore := new(mockpersistence.EventsStore)
-		eventsStore.On("ShardNumbers", mock.Anything).Return([]uint64{}, errors.New("shards down"))
+		eventsStore.On("ShardOffsets", mock.Anything).Return(map[uint64]int64(nil), errors.New("shards down"))
 		offsetStore := new(mockoffsetstore.OffsetStore)
 
 		engine := synthEngineWithStores(eventsStore, nil, offsetStore)
 		lags, err := engine.ProjectionLag(ctx, "any")
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "failed to fetch shard numbers")
+		require.Contains(t, err.Error(), "failed to fetch shard offsets")
 		require.Nil(t, lags)
 	})
 
 	t.Run("GetCurrentOffset failure", func(t *testing.T) {
 		eventsStore := new(mockpersistence.EventsStore)
-		eventsStore.On("ShardNumbers", mock.Anything).Return([]uint64{1}, nil)
+		eventsStore.On("ShardOffsets", mock.Anything).Return(map[uint64]int64{1: 100}, nil)
 
 		offsetStore := new(mockoffsetstore.OffsetStore)
 		offsetStore.On("GetCurrentOffset", mock.Anything, mock.AnythingOfType("*egopb.ProjectionId")).
@@ -1709,93 +1708,25 @@ func TestEngineProjectionLagStoreErrors(t *testing.T) {
 		require.Contains(t, err.Error(), "failed to get offset for shard")
 		require.Nil(t, lags)
 	})
-
-	t.Run("first GetShardEvents failure", func(t *testing.T) {
-		eventsStore := new(mockpersistence.EventsStore)
-		eventsStore.On("ShardNumbers", mock.Anything).Return([]uint64{1}, nil)
-		eventsStore.On("GetShardEvents", mock.Anything, uint64(1), int64(0), uint64(1)).
-			Return([]*egopb.Event(nil), int64(0), errors.New("probe down"))
-
-		offsetStore := new(mockoffsetstore.OffsetStore)
-		offsetStore.On("GetCurrentOffset", mock.Anything, mock.AnythingOfType("*egopb.ProjectionId")).
-			Return(&egopb.Offset{Value: 0}, nil)
-
-		engine := synthEngineWithStores(eventsStore, nil, offsetStore)
-		lags, err := engine.ProjectionLag(ctx, "any")
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "failed to get latest event for shard")
-		require.Nil(t, lags)
-	})
-
-	t.Run("second GetShardEvents failure", func(t *testing.T) {
-		eventsStore := new(mockpersistence.EventsStore)
-		eventsStore.On("ShardNumbers", mock.Anything).Return([]uint64{1}, nil)
-		// Probe succeeds, returning one event so the loop falls through to
-		// the larger scan.
-		eventsStore.On("GetShardEvents", mock.Anything, uint64(1), int64(0), uint64(1)).
-			Return([]*egopb.Event{{Timestamp: 100}}, int64(0), nil)
-		// Larger scan fails.
-		eventsStore.On("GetShardEvents", mock.Anything, uint64(1), int64(0), uint64(10000)).
-			Return([]*egopb.Event(nil), int64(0), errors.New("scan down"))
-
-		offsetStore := new(mockoffsetstore.OffsetStore)
-		offsetStore.On("GetCurrentOffset", mock.Anything, mock.AnythingOfType("*egopb.ProjectionId")).
-			Return(&egopb.Offset{Value: 0}, nil)
-
-		engine := synthEngineWithStores(eventsStore, nil, offsetStore)
-		lags, err := engine.ProjectionLag(ctx, "any")
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "failed to get events for shard")
-		require.Nil(t, lags)
-	})
 }
 
-// TestEngineProjectionLagShardContinueBranches drives the two
-// "empty-events -> zero-lag, continue" branches inside ProjectionLag.
-//
-// Branch 1 (probe empty): GetShardEvents at limit=1 returns no events;
-// the loop records 0 and continues without doing the larger scan.
-//
-// Branch 2 (probe sees events but the larger scan returns none): the
-// defensive `if len(allEvents) == 0` short-circuit also records 0 and
-// continues. This second branch is unreachable from the real testkit
-// store but is exercised here with a mock to lock the behavior in.
-func TestEngineProjectionLagShardContinueBranches(t *testing.T) {
+// TestEngineProjectionLagComputation drives the lag arithmetic directly:
+// lag is the difference between the shard's latest event timestamp (as
+// reported by ShardOffsets) and the projection's committed offset.
+func TestEngineProjectionLagComputation(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("probe returns no events", func(t *testing.T) {
-		eventsStore := new(mockpersistence.EventsStore)
-		eventsStore.On("ShardNumbers", mock.Anything).Return([]uint64{1}, nil)
-		eventsStore.On("GetShardEvents", mock.Anything, uint64(1), int64(0), uint64(1)).
-			Return([]*egopb.Event{}, int64(0), nil)
+	eventsStore := new(mockpersistence.EventsStore)
+	eventsStore.On("ShardOffsets", mock.Anything).Return(map[uint64]int64{7: 1500}, nil)
 
-		offsetStore := new(mockoffsetstore.OffsetStore)
-		offsetStore.On("GetCurrentOffset", mock.Anything, mock.AnythingOfType("*egopb.ProjectionId")).
-			Return(&egopb.Offset{Value: 0}, nil)
+	offsetStore := new(mockoffsetstore.OffsetStore)
+	offsetStore.On("GetCurrentOffset", mock.Anything, mock.AnythingOfType("*egopb.ProjectionId")).
+		Return(&egopb.Offset{Value: 500}, nil)
 
-		engine := synthEngineWithStores(eventsStore, nil, offsetStore)
-		lags, err := engine.ProjectionLag(ctx, "any")
-		require.NoError(t, err)
-		require.Equal(t, time.Duration(0), lags[1])
-	})
-
-	t.Run("larger scan returns no events", func(t *testing.T) {
-		eventsStore := new(mockpersistence.EventsStore)
-		eventsStore.On("ShardNumbers", mock.Anything).Return([]uint64{2}, nil)
-		eventsStore.On("GetShardEvents", mock.Anything, uint64(2), int64(0), uint64(1)).
-			Return([]*egopb.Event{{Timestamp: 100}}, int64(0), nil)
-		eventsStore.On("GetShardEvents", mock.Anything, uint64(2), int64(0), uint64(10000)).
-			Return([]*egopb.Event{}, int64(0), nil)
-
-		offsetStore := new(mockoffsetstore.OffsetStore)
-		offsetStore.On("GetCurrentOffset", mock.Anything, mock.AnythingOfType("*egopb.ProjectionId")).
-			Return(&egopb.Offset{Value: 0}, nil)
-
-		engine := synthEngineWithStores(eventsStore, nil, offsetStore)
-		lags, err := engine.ProjectionLag(ctx, "any")
-		require.NoError(t, err)
-		require.Equal(t, time.Duration(0), lags[2])
-	})
+	engine := synthEngineWithStores(eventsStore, nil, offsetStore)
+	lags, err := engine.ProjectionLag(ctx, "any")
+	require.NoError(t, err)
+	require.Equal(t, time.Duration(1000), lags[7])
 }
 
 // TestEngineSagaSpawnError covers the Spawn-failure wrap in Engine.Saga

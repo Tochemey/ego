@@ -43,6 +43,7 @@ import (
 	"github.com/tochemey/ego/v4/egopb"
 	"github.com/tochemey/ego/v4/encryption"
 	"github.com/tochemey/ego/v4/eventadapter"
+	"github.com/tochemey/ego/v4/eventstream"
 	"github.com/tochemey/ego/v4/internal/ticker"
 	"github.com/tochemey/ego/v4/offsetstore"
 	"github.com/tochemey/ego/v4/persistence"
@@ -119,6 +120,31 @@ type projectionRunner struct {
 
 	// encryptor decrypts event payloads before handing them to the handler.
 	encryptor encryption.Encryptor
+
+	// committedOffsets caches the last committed offset per shard, sparing a
+	// GetCurrentOffset round trip on every pull. The projection runs as a
+	// cluster singleton, so this runner is the sole writer of its offsets
+	// and the cache cannot go stale.
+	committedOffsetsMu sync.RWMutex
+	committedOffsets   map[uint64]int64
+
+	// pendingBuf is reused across pull passes to collect pending shards.
+	// Passes are serialized by processingLoop, so no locking is needed.
+	pendingBuf []uint64
+
+	// eventsStream, when set, triggers an immediate pull whenever events are
+	// persisted on this node. Events persisted on peer nodes are picked up
+	// by the interval-based pull.
+	eventsStream     eventstream.Stream
+	streamSubscriber eventstream.Subscriber
+
+	// nudge triggers an immediate pull pass. Capacity one so sends coalesce.
+	nudge chan struct{}
+
+	// sawFullBatch reports that a shard returned a full buffer during the
+	// current pass, in which case the loop re-pulls without waiting for the
+	// next tick.
+	sawFullBatch atomic.Bool
 }
 
 // newProjectionRunner create an instance of projectionRunner given the name of the projection, the underlying and the offsets store
@@ -129,18 +155,20 @@ func newProjectionRunner(name string,
 	offsetStore offsetstore.OffsetStore,
 	opts ...runnerOption) *projectionRunner {
 	runner := &projectionRunner{
-		name:           name,
-		logger:         log.NewZap(log.ErrorLevel, os.Stderr),
-		handler:        handler,
-		eventsStore:    eventsStore,
-		offsetsStore:   offsetStore,
-		recovery:       projection.NewRecovery(),
-		stopSignal:     make(chan struct{}, 1),
-		running:        atomic.NewBool(false),
-		pullInterval:   time.Second,
-		maxBufferSize:  500,
-		startingOffset: ZeroTime,
-		resetOffsetTo:  ZeroTime,
+		name:             name,
+		logger:           log.NewZap(log.ErrorLevel, os.Stderr),
+		handler:          handler,
+		eventsStore:      eventsStore,
+		offsetsStore:     offsetStore,
+		recovery:         projection.NewRecovery(),
+		stopSignal:       make(chan struct{}, 1),
+		running:          atomic.NewBool(false),
+		pullInterval:     time.Second,
+		maxBufferSize:    500,
+		startingOffset:   ZeroTime,
+		resetOffsetTo:    ZeroTime,
+		committedOffsets: make(map[uint64]int64),
+		nudge:            make(chan struct{}, 1),
 	}
 
 	for _, opt := range opts {
@@ -217,6 +245,14 @@ func (x *projectionRunner) Start(ctx context.Context) error {
 	x.ticker = ticker.New(x.pullInterval)
 	x.running.Store(true)
 
+	// Subscribe to the in-process events stream so locally persisted events
+	// trigger an immediate pull instead of waiting for the next tick.
+	if x.eventsStream != nil {
+		x.streamSubscriber = x.eventsStream.AddSubscriber()
+		x.eventsStream.Subscribe(x.streamSubscriber, eventsTopic)
+		go x.nudgeLoop(x.workerCtx)
+	}
+
 	for range numWorkers {
 		go x.worker(x.workerCtx)
 	}
@@ -234,6 +270,10 @@ func (x *projectionRunner) Stop() error {
 	x.stopSignal <- struct{}{}
 	x.ticker.Stop()
 	x.workerCancel()
+	if x.eventsStream != nil && x.streamSubscriber != nil {
+		x.eventsStream.RemoveSubscriber(x.streamSubscriber)
+		x.streamSubscriber.Shutdown()
+	}
 	return nil
 }
 
@@ -251,10 +291,11 @@ func (x *projectionRunner) Run(_ context.Context) {
 }
 
 // processingLoop is a loop that continuously runs to process events persisted onto the journal store until the projection is stopped.
-// It drives the persistent worker pool: on each tick it fetches all shard
-// numbers, dispatches them to workers, and waits for the batch to complete
-// before moving to the next tick.  No goroutines or channels are allocated
-// per tick.
+// It drives the persistent worker pool: on each pull it resolves the shards
+// that are behind, dispatches them to workers, and waits for the batch to
+// complete before the next pull.  No goroutines or channels are allocated per
+// pull.  A pull is triggered by the ticker, by a nudge from the local events
+// stream, or by a full-buffer read reporting that more events are pending.
 func (x *projectionRunner) processingLoop(ctx context.Context) {
 	for {
 		select {
@@ -263,54 +304,146 @@ func (x *projectionRunner) processingLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-x.ticker.Ticks:
-			if !x.running.Load() {
-				continue
+		case <-x.nudge:
+		}
+
+		if !x.running.Load() {
+			continue
+		}
+
+		if !x.runPass(ctx) {
+			return
+		}
+	}
+}
+
+// runPass executes one full pull pass. It returns false when the projection
+// must stop (context cancelled or a store/handler error surfaced).
+func (x *projectionRunner) runPass(ctx context.Context) bool {
+	shards, err := x.pendingShards(ctx)
+	if err != nil {
+		x.logger.Error(fmt.Errorf("failed to fetch the list of shards: %w", err))
+		x.ticker.Stop()
+		_ = x.Stop()
+		return false
+	}
+
+	if len(shards) == 0 {
+		return true
+	}
+
+	// Obtain a WaitGroup from the pool to track this batch.
+	wg := x.wgPool.Get().(*sync.WaitGroup)
+	wg.Add(len(shards))
+
+	dispatched := 0
+	for _, shard := range shards {
+		select {
+		case x.workCh <- shardItem{shard: shard, wg: wg}:
+			dispatched++
+		case <-ctx.Done():
+			// Account for shards that were counted in wg.Add but
+			// never dispatched so that wg.Wait() does not deadlock.
+			for i := dispatched; i < len(shards); i++ {
+				wg.Done()
 			}
-
-			shards, err := x.eventsStore.ShardNumbers(ctx)
-			if err != nil {
-				x.logger.Error(fmt.Errorf("failed to fetch the list of shards: %w", err))
-				x.ticker.Stop()
-				_ = x.Stop()
-				return
-			}
-
-			if len(shards) == 0 {
-				continue
-			}
-
-			// Obtain a WaitGroup from the pool to track this batch.
-			wg := x.wgPool.Get().(*sync.WaitGroup)
-			wg.Add(len(shards))
-
-			dispatched := 0
-			for _, shard := range shards {
-				select {
-				case x.workCh <- shardItem{shard: shard, wg: wg}:
-					dispatched++
-				case <-ctx.Done():
-					// Account for shards that were counted in wg.Add but
-					// never dispatched so that wg.Wait() does not deadlock.
-					for i := dispatched; i < len(shards); i++ {
-						wg.Done()
-					}
-					wg.Wait()
-					x.wgPool.Put(wg)
-					return
-				}
-			}
-
 			wg.Wait()
 			x.wgPool.Put(wg)
+			return false
+		}
+	}
 
-			// Surface the first worker error for this batch, if any.
-			select {
-			case err := <-x.workerErrCh:
-				x.logger.Error(err)
-				x.ticker.Stop()
-				_ = x.Stop()
+	wg.Wait()
+	x.wgPool.Put(wg)
+
+	// Surface the first worker error for this batch, if any.
+	select {
+	case err := <-x.workerErrCh:
+		x.logger.Error(err)
+		x.ticker.Stop()
+		_ = x.Stop()
+		return false
+	default:
+	}
+
+	// A full buffer means more events are pending on some shard: re-pull
+	// immediately instead of waiting for the next tick.
+	if x.sawFullBatch.Swap(false) {
+		x.requestPull()
+	}
+
+	return true
+}
+
+// pendingShards returns the shards whose latest event offset, reported by a
+// single ShardOffsets round trip, is past their committed offset. Shards not
+// yet in the committed-offset cache are returned unconditionally: doProcess
+// resolves their offset on first encounter and an empty read is harmless.
+// The returned slice is backed by pendingBuf and only valid until the next
+// pass.
+func (x *projectionRunner) pendingShards(ctx context.Context) ([]uint64, error) {
+	shardOffsets, err := x.eventsStore.ShardOffsets(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(shardOffsets) == 0 {
+		return nil, nil
+	}
+
+	shards := x.pendingBuf[:0]
+
+	// A configured starting offset overrides committed offsets on every
+	// pull (see currentOffset), so the pending decision must mirror it.
+	if !x.startingOffset.IsZero() {
+		startOffset := x.startingOffset.UnixMilli()
+		for shard, latest := range shardOffsets {
+			if latest > startOffset {
+				shards = append(shards, shard)
+			}
+		}
+		x.pendingBuf = shards
+		return shards, nil
+	}
+
+	x.committedOffsetsMu.RLock()
+	for shard, latest := range shardOffsets {
+		committed, known := x.committedOffsets[shard]
+		if !known || latest > committed {
+			shards = append(shards, shard)
+		}
+	}
+	x.committedOffsetsMu.RUnlock()
+
+	x.pendingBuf = shards
+	return shards, nil
+}
+
+// requestPull triggers an immediate pull pass. Safe to call from any
+// goroutine; sends coalesce because the nudge channel has capacity one.
+func (x *projectionRunner) requestPull() {
+	select {
+	case x.nudge <- struct{}{}:
+	default:
+	}
+}
+
+// nudgeLoop requests a pull pass whenever events are persisted on this node.
+// The pull pass reads events from the journal, so the subscriber queue is
+// drained purely for its wake-up signal and the payloads are discarded.
+func (x *projectionRunner) nudgeLoop(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-x.streamSubscriber.Ready():
+			if !x.streamSubscriber.Active() {
 				return
-			default:
+			}
+			// Iterator drains the subscriber queue into a snapshot channel;
+			// the payloads themselves are discarded.
+			if len(x.streamSubscriber.Iterator()) > 0 {
+				x.requestPull()
 			}
 		}
 	}
@@ -346,10 +479,7 @@ func (x *projectionRunner) doProcess(ctx context.Context, shard uint64) error {
 		return nil
 	}
 
-	currOffset, err := x.currentOffset(ctx, &egopb.ProjectionId{
-		ProjectionName: x.name,
-		ShardNumber:    shard,
-	})
+	currOffset, err := x.currentOffset(ctx, shard)
 	if err != nil {
 		return err
 	}
@@ -359,13 +489,22 @@ func (x *projectionRunner) doProcess(ctx context.Context, shard uint64) error {
 		return err
 	}
 
+	if len(events) >= x.maxBufferSize {
+		// A full buffer means more events are pending on this shard.
+		x.sawFullBatch.Store(true)
+	}
+
+	var attrs attribute.Set
+	if x.metrics != nil {
+		attrs = attribute.NewSet(
+			attribute.String("projection_name", x.name),
+			attribute.Int64("shard", int64(shard)),
+		)
+	}
+
 	if len(events) == 0 {
 		// Projection is caught up — reset gauges so Grafana doesn't show stale values.
 		if x.metrics != nil {
-			attrs := attribute.NewSet(
-				attribute.String("projection_name", x.name),
-				attribute.Int64("shard", int64(shard)),
-			)
 			x.metrics.projectionLag.Record(ctx, 0, metric.WithAttributeSet(attrs))
 			x.metrics.projectionOffset.Record(ctx, currOffset, metric.WithAttributeSet(attrs))
 			x.metrics.projectionBehind.Record(ctx, 0, metric.WithAttributeSet(attrs))
@@ -375,10 +514,6 @@ func (x *projectionRunner) doProcess(ctx context.Context, shard uint64) error {
 
 	// Record projection lag metrics when telemetry is enabled.
 	if x.metrics != nil {
-		attrs := attribute.NewSet(
-			attribute.String("projection_name", x.name),
-			attribute.Int64("shard", int64(shard)),
-		)
 		// Use wall-clock lag: how far behind real time the projection is.
 		// Event timestamps use time.UnixNano(), so compute lag in nanoseconds
 		// and convert to milliseconds for the gauge.
@@ -391,17 +526,44 @@ func (x *projectionRunner) doProcess(ctx context.Context, shard uint64) error {
 		x.metrics.projectionBehind.Record(ctx, int64(len(events)), metric.WithAttributeSet(attrs))
 	}
 
-	return x.processEvents(ctx, shard, events, nextOffset)
-}
-
-// currentOffset resolves the starting offset for a projection shard.
-func (x *projectionRunner) currentOffset(ctx context.Context, projectionID *egopb.ProjectionId) (int64, error) {
-	offset, err := x.offsetsStore.GetCurrentOffset(ctx, projectionID)
-	if err != nil {
-		return 0, err
+	if err := x.processEvents(ctx, shard, events, nextOffset); err != nil {
+		return err
 	}
 
-	currOffset := offset.GetValue()
+	// A partial buffer means the shard is now caught up. Record that here:
+	// caught-up shards are skipped by subsequent pulls, so the gauges would
+	// otherwise retain the pre-processing values.
+	if x.metrics != nil && len(events) < x.maxBufferSize {
+		x.metrics.projectionLag.Record(ctx, 0, metric.WithAttributeSet(attrs))
+		x.metrics.projectionOffset.Record(ctx, nextOffset, metric.WithAttributeSet(attrs))
+		x.metrics.projectionBehind.Record(ctx, 0, metric.WithAttributeSet(attrs))
+	}
+
+	return nil
+}
+
+// currentOffset returns the committed offset for a projection shard,
+// consulting the offset store only on the first encounter of the shard and
+// the in-memory cache afterwards.
+func (x *projectionRunner) currentOffset(ctx context.Context, shard uint64) (int64, error) {
+	x.committedOffsetsMu.RLock()
+	currOffset, cached := x.committedOffsets[shard]
+	x.committedOffsetsMu.RUnlock()
+
+	if !cached {
+		offset, err := x.offsetsStore.GetCurrentOffset(ctx, &egopb.ProjectionId{
+			ProjectionName: x.name,
+			ShardNumber:    shard,
+		})
+		if err != nil {
+			return 0, err
+		}
+		currOffset = offset.GetValue()
+		x.committedOffsetsMu.Lock()
+		x.committedOffsets[shard] = currOffset
+		x.committedOffsetsMu.Unlock()
+	}
+
 	if !x.startingOffset.IsZero() {
 		currOffset = x.startingOffset.UnixMilli()
 	}
@@ -409,18 +571,20 @@ func (x *projectionRunner) currentOffset(ctx context.Context, projectionID *egop
 	return currOffset, nil
 }
 
-// processEvents iterates over events and applies the projection handler.
+// processEvents applies the projection handler to every event of the batch,
+// then commits the batch offset once. A failure mid-batch commits nothing, so
+// the whole batch is re-pulled on the next pass (at-least-once delivery).
 func (x *projectionRunner) processEvents(ctx context.Context, shard uint64, events []*egopb.Event, nextOffset int64) error {
 	for _, envelope := range events {
-		if err := x.processEnvelope(ctx, shard, envelope, nextOffset); err != nil {
+		if err := x.processEnvelope(ctx, envelope); err != nil {
 			return err
 		}
 	}
-	return nil
+	return x.commitOffset(ctx, shard, nextOffset, events[len(events)-1].GetPersistenceId())
 }
 
-// processEnvelope handles a single event and commits its offset.
-func (x *projectionRunner) processEnvelope(ctx context.Context, shard uint64, envelope *egopb.Event, nextOffset int64) error {
+// processEnvelope handles a single event.
+func (x *projectionRunner) processEnvelope(ctx context.Context, envelope *egopb.Event) error {
 	event := envelope.GetEvent()
 	seqNr := envelope.GetSequenceNumber()
 	persistenceID := envelope.GetPersistenceId()
@@ -455,7 +619,7 @@ func (x *projectionRunner) processEnvelope(ctx context.Context, shard uint64, en
 		x.metrics.projectionHandled.Add(ctx, 1)
 	}
 
-	return x.commitOffset(ctx, shard, nextOffset, persistenceID)
+	return nil
 }
 
 // handleWithPolicy executes the handler with the configured recovery policy.
@@ -547,6 +711,13 @@ func (x *projectionRunner) commitOffset(ctx context.Context, shard uint64, nextO
 	if err := x.offsetsStore.WriteOffset(ctx, offset); err != nil {
 		return fmt.Errorf("failed to persist offset for persistence id=%s: %w", persistenceID, err)
 	}
+
+	// Keep the committed-offset cache in sync so subsequent pulls skip
+	// shards that are already caught up.
+	x.committedOffsetsMu.Lock()
+	x.committedOffsets[shard] = nextOffset
+	x.committedOffsetsMu.Unlock()
+
 	return nil
 }
 

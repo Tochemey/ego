@@ -215,22 +215,25 @@ func (s *PostgresEventStore) GetShardEvents(ctx context.Context, shardNumber uin
 	return events, nextOffset, nil
 }
 
-func (s *PostgresEventStore) ShardNumbers(ctx context.Context) ([]uint64, error) {
-	rows, err := s.pool.Query(ctx, `SELECT DISTINCT shard_number FROM events_store ORDER BY shard_number`)
+func (s *PostgresEventStore) ShardOffsets(ctx context.Context) (map[uint64]int64, error) {
+	rows, err := s.pool.Query(ctx, `SELECT shard_number, MAX(timestamp) FROM events_store GROUP BY shard_number`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var shards []uint64
+	offsets := make(map[uint64]int64)
 	for rows.Next() {
-		var shard uint64
-		if err := rows.Scan(&shard); err != nil {
+		var (
+			shard  uint64
+			offset int64
+		)
+		if err := rows.Scan(&shard, &offset); err != nil {
 			return nil, err
 		}
-		shards = append(shards, shard)
+		offsets[shard] = offset
 	}
-	return shards, rows.Err()
+	return offsets, rows.Err()
 }
 
 // scanEvents reads rows into egopb.Event slices.
