@@ -313,6 +313,8 @@ The engine also supports:
 - `ProjectionLag` to report lag by shard
 - Recovery policies and dead-letter handlers for processing failures
 
+`Engine.Stop` does not stop projection actors because they belong to the caller-owned Go-Akt actor system. In the normal shutdown sequence, call `engine.Stop(ctx)` and then `sys.Stop(ctx)`; stopping the actor system terminates all projections. If the actor system must remain running, call `engine.StopProjection(ctx, name)` for each projection before stopping the engine.
+
 In a cluster, a projection runs as a singleton. Every node must register the same named projections because the hosting node resolves each handler from its local `Config`.
 
 ## Publishers
