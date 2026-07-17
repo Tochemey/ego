@@ -2,28 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v4.4.0] - 2026-07-16
+
+This release makes projections first-class named components: each projection is registered under its own name with its **own handler** and runtime options, aligning eGo with how Akka/Pekko Projections and Axon event processors bind one handler per projection. It removes two footguns of the previous engine-wide design — a single handler silently shared by every projection, and a second `WithProjection` call silently overwriting the first — and renames the projection lifecycle methods to match what they actually do.
 
 ### 💥 Breaking Changes
 
-- **Each projection now has its own handler: `WithProjection` takes a name and is repeatable.**
-  Previously the engine held a single engine-wide `projection.Options`, so every projection started with
-  `AddProjection` shared the same handler (and calling `WithProjection` twice silently overwrote the first
-  configuration). `WithProjection` now registers a *named* projection with its own handler and runtime
-  options, and can be called once per projection:
+- **Each projection now has its own handler: `WithProjection` takes a name and is repeatable.** Previously the engine held a single engine-wide `projection.Options`, so every projection started with `AddProjection` shared the same handler instance — forcing a multiplexing handler that branched on event type, and silently requiring goroutine-safety the moment a second projection was added. Calling `WithProjection` twice simply overwrote the earlier configuration. `WithProjection` now registers a *named* projection with its own handler and runtime options, and is called once per projection:
 
   ```go
-  // before
+  // before — one handler shared by every projection
   cfg := ego.NewConfig(eventsStore,
+      ego.WithOffsetStore(offsetStore),
       ego.WithProjection(&projection.Options{Handler: handler, ...}),
   )
   engine.AddProjection(ctx, "account-balances")
+  engine.AddProjection(ctx, "audit-log") // same handler as above
 
-  // after
+  // after — one handler per projection
   cfg := ego.NewConfig(eventsStore,
+      ego.WithOffsetStore(offsetStore),
       ego.WithProjection("account-balances", &projection.Options{Handler: balanceHandler, ...}),
       ego.WithProjection("audit-log", &projection.Options{Handler: auditHandler, ...}),
   )
@@ -31,33 +31,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   engine.StartProjection(ctx, "audit-log")
   ```
 
-  The name passed to `WithProjection` is the projection's unique identifier: the same name is passed to
-  `Engine.StartProjection`, and it keys the projection's committed offsets in the offset store. Starting a
-  name that was never registered fails fast with the new `ego.ErrProjectionNotRegistered` sentinel error.
+  The name passed to `WithProjection` is the projection's unique identifier: the same name is passed to `Engine.StartProjection`, and it keys the projection's committed offsets in the offset store. Each projection still gets its own runner, its own offsets, and its own recovery/dead-letter configuration — those are now simply carried per name instead of engine-wide. Registering the same name twice keeps the last registration; a nil options pointer is ignored.
 
-  In cluster mode every node must register the same projections: a projection runs as a cluster singleton
-  that can be (re)spawned on any node, and the hosting node resolves the handler from its own
-  registration — the same contract `WithEntityKinds` establishes for entity behaviors.
+  In cluster mode every node must register the same projections: a projection runs as a cluster singleton that can be (re)spawned on any node, and the hosting node resolves the handler from its **own** registration — the same contract `WithEntityKinds` establishes for entity behaviors. This is also why registration stays on the `Config` rather than moving to `StartProjection`: handlers are not serializable, so a handler passed at start time on one node could never reach the peer that ends up hosting the singleton.
 
-- **`Engine.AddProjection` is renamed to `StartProjection`; `Engine.RemoveProjection` is renamed to
-  `StopProjection`.** With registration moved to `WithProjection`, these methods purely start and stop a
-  previously registered projection, and the new names mirror `Engine.Start`/`Engine.Stop`. Their behavior
-  is unchanged apart from the fail-fast unknown-name check described above.
+- **`Engine.AddProjection` is renamed to `StartProjection`; `Engine.RemoveProjection` is renamed to `StopProjection`.** With registration moved to `WithProjection`, these methods purely start and stop a previously registered projection, and the new names mirror `Engine.Start`/`Engine.Stop`. `Engine.RebuildProjection` and `Engine.IsProjectionRunning` keep their names; `RebuildProjection` now performs the `StopProjection` → reset offset → `StartProjection` sequence under the new names. Behavior is unchanged apart from the fail-fast unknown-name check described below.
+
+### ✨ Features
+
+- **Multiple projections per engine.** Registering N projections and starting them all is now a first-class flow: each polls the events store independently on its own `PullInterval`, commits its own offsets, and invokes only its own handler. A handler is still invoked sequentially per projection; it only needs to be goroutine-safe if the *same instance* is deliberately registered under several names.
+
+- **`ego.ErrProjectionNotRegistered`.** `StartProjection` on a name that was never registered fails immediately with this sentinel error (wrapped with the offending name), instead of spawning a projection actor whose `PreStart` would fail and be retried five times by the actor system:
+
+  ```go
+  if err := engine.StartProjection(ctx, "typo-name"); errors.Is(err, ego.ErrProjectionNotRegistered) {
+      // registration and start-up are out of sync
+  }
+  ```
+
+### 🛠 Improvements
+
+- **Clear errors instead of panics on projection misconfiguration.** The projection actor's `PreStart` previously type-asserted the projection extension unconditionally and would panic if a projection actor was spawned on a system without one. It now returns descriptive errors — one when the registry extension is absent on the node, and one naming the projection when its registration is missing (pointing at `ego.WithProjection` as the fix).
+
+- **Recovery defaulting no longer touches caller-owned options.** When `Options.Recovery` is nil, the default recovery strategy is applied to an internal copy of the options rather than the struct the caller passed in.
+
+### 📖 Migration
+
+1. **Name every `WithProjection` call** — use the same string you already pass to `AddProjection`/`StartProjection`. Offsets are keyed by that name, so existing committed offsets carry over unchanged; no store migration is needed.
+2. **Rename the lifecycle calls** — `AddProjection` → `StartProjection`, `RemoveProjection` → `StopProjection`. Signatures are unchanged.
+3. **Split multiplexing handlers (optional but recommended)** — a handler that branched on event type to serve several logical read models can now be split into one focused handler per named projection.
+4. **Cluster deployments** — make sure every node's `Config` registers the same set of projections, just as every node already lists the same `WithEntityKinds`.
 
 ## [v4.3.0] - 2026-07-16
 
 ### 💥 Breaking Changes
 
-- **`EventsStore.ShardNumbers` is replaced by `ShardOffsets`.**
-  `ShardNumbers(ctx) ([]uint64, error)` returned only the distinct shard numbers, forcing the projection
-  runner to interrogate every shard on every pull to find out which ones had new events. The new method
+- **`EventsStore.ShardNumbers` is replaced by `ShardOffsets`.** `ShardNumbers(ctx) ([]uint64, error)` returned only the distinct shard numbers, forcing the projection runner to interrogate every shard on every pull to find out which ones had new events. The new method
 
   ```go
   ShardOffsets(ctx context.Context) (map[uint64]int64, error)
   ```
 
-  returns every distinct shard mapped to the offset (timestamp) of its most recent event, so a single
-  round trip answers both "which shards exist" and "which shards are behind".
+  returns every distinct shard mapped to the offset (timestamp) of its most recent event, so a single round trip answers both "which shards exist" and "which shards are behind".
 
   **Migration for store implementors** — replace the `ShardNumbers` query with an aggregate:
 
@@ -72,53 +87,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ⚡ Performance Improvements
 
-- **Projection pulls are now O(active shards) instead of O(all shards × 2 + events).**
-  Previously each pull issued one `ShardNumbers` query, then one `GetCurrentOffset` **and** one
-  `GetShardEvents` per shard in the journal — even for shards with nothing new — plus one `WriteOffset`
-  per event. With hundreds of shards over a few milliseconds of database round-trip time, a single pull
-  stretched into hundreds of milliseconds and compounded into multi-second projection latency under
-  write bursts. Each pull now costs one `ShardOffsets` query when the projection is caught up, plus one
-  `GetShardEvents` and one `WriteOffset` per shard that actually has pending events:
+- **Projection pulls are now O(active shards) instead of O(all shards × 2 + events).** Previously each pull issued one `ShardNumbers` query, then one `GetCurrentOffset` **and** one `GetShardEvents` per shard in the journal — even for shards with nothing new — plus one `WriteOffset` per event. With hundreds of shards over a few milliseconds of database round-trip time, a single pull stretched into hundreds of milliseconds and compounded into multi-second projection latency under write bursts. Each pull now costs one `ShardOffsets` query when the projection is caught up, plus one `GetShardEvents` and one `WriteOffset` per shard that actually has pending events:
 
-  - committed offsets are cached in memory (the projection runs as a cluster singleton, so the runner is
-    the sole writer of its offsets) and compared against `ShardOffsets` to skip caught-up shards;
+  - committed offsets are cached in memory (the projection runs as a cluster singleton, so the runner is the sole writer of its offsets) and compared against `ShardOffsets` to skip caught-up shards;
   - the offset is committed once per processed batch instead of once per event;
-  - events persisted on the projection's node trigger an immediate pull through the in-process events
-    stream instead of waiting for the next `pullInterval` tick (peer-node writes still ride the ticker);
-  - a full event buffer triggers an immediate follow-up pull, draining backlogs without idling between
-    ticks.
+  - events persisted on the projection's node trigger an immediate pull through the in-process events stream instead of waiting for the next `pullInterval` tick (peer-node writes still ride the ticker);
+  - a full event buffer triggers an immediate follow-up pull, draining backlogs without idling between ticks.
 
-  `Engine.ProjectionLag` benefits as well: it previously scanned up to 10,000 events per shard to locate
-  the newest timestamp; it now reads it straight from `ShardOffsets`.
+  `Engine.ProjectionLag` benefits as well: it previously scanned up to 10,000 events per shard to locate the newest timestamp; it now reads it straight from `ShardOffsets`.
 
 ### 🐛 Bug Fixes
 
-- **A projection crash mid-batch no longer skips the rest of the batch.** The runner committed the
-  batch's `nextOffset` after **each** event, so the very first commit already pointed past every event in
-  the batch; a crash between two events of the same batch silently dropped the remaining ones on restart.
-  The offset is now committed once, after the whole batch has been handled, restoring at-least-once
-  delivery within a batch.
+- **A projection crash mid-batch no longer skips the rest of the batch.** The runner committed the batch's `nextOffset` after **each** event, so the very first commit already pointed past every event in the batch; a crash between two events of the same batch silently dropped the remaining ones on restart. The offset is now committed once, after the whole batch has been handled, restoring at-least-once delivery within a batch.
 
-- **Remote entity spawns no longer fail with `dependency type is not registered` in cluster mode.**
-  `Engine.Entity`, `Engine.DurableStateEntity`, and `Engine.Saga` registered the behavior's dependency type
-  only on the calling node, at spawn time. With the default `RoundRobin` placement, `SpawnOn` routes most
-  spawns to a peer, and the receiving node deserializes the spawn request's dependencies (the behavior plus
-  eGo's internal spawn-configuration types) against **its own** registry — failing unless that node had
-  already spawned the same kind itself. On a fresh N-node cluster, the first spawn of any entity kind failed
-  roughly (N−1)/N of the time.
+- **Remote entity spawns no longer fail with `dependency type is not registered` in cluster mode.** `Engine.Entity`, `Engine.DurableStateEntity`, and `Engine.Saga` registered the behavior's dependency type only on the calling node, at spawn time. With the default `RoundRobin` placement, `SpawnOn` routes most spawns to a peer, and the receiving node deserializes the spawn request's dependencies (the behavior plus eGo's internal spawn-configuration types) against **its own** registry — failing unless that node had already spawned the same kind itself. On a fresh N-node cluster, the first spawn of any entity kind failed roughly (N−1)/N of the time.
 
-  `NewEngine` now registers eGo's internal spawn-configuration dependency types (which application code
-  cannot reach) on every node, together with the behavior kinds supplied via the new `WithEntityKinds`
-  option:
+  `NewEngine` now registers eGo's internal spawn-configuration dependency types (which application code cannot reach) on every node, together with the behavior kinds supplied via the new `WithEntityKinds` option:
 
-  - `ego.EntityKind` — alias for goakt's `extension.Dependency`; every `EventSourcedBehavior`,
-    `DurableStateBehavior`, and `SagaBehavior` value is an `EntityKind`.
-  - `ego.WithEntityKinds(kinds ...EntityKind) Option` — lists the behavior types this node can host.
-    Pass one value per behavior type (a zero value is fine; only the concrete type is registered).
+  - `ego.EntityKind` — alias for goakt's `extension.Dependency`; every `EventSourcedBehavior`, `DurableStateBehavior`, and `SagaBehavior` value is an `EntityKind`.
+  - `ego.WithEntityKinds(kinds ...EntityKind) Option` — lists the behavior types this node can host. Pass one value per behavior type (a zero value is fine; only the concrete type is registered).
 
-  **Cluster deployments must now build every node's `Config` with `WithEntityKinds`, listing every entity,
-  durable-state, and saga behavior the cluster hosts** — the same contract `ClusterKinds()` already
-  establishes for actor kinds:
+  **Cluster deployments must now build every node's `Config` with `WithEntityKinds`, listing every entity, durable-state, and saga behavior the cluster hosts** — the same contract `ClusterKinds()` already establishes for actor kinds:
 
   ```go
   cfg := ego.NewConfig(eventsStore,
@@ -127,55 +116,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   )
   ```
 
-  Single-node deployments are unaffected and may omit the option: the lazy registration done by
-  `Entity`, `DurableStateEntity`, and `Saga` remains as a local-node fallback.
+  Single-node deployments are unaffected and may omit the option: the lazy registration done by `Entity`, `DurableStateEntity`, and `Saga` remains as a local-node fallback.
 
 ## [v4.2.1] - 2026-06-20
 
 ### 🐛 Bug Fixes
 
-- **Publisher and saga event-stream loops no longer busy-spin a CPU core when idle** (`6789f66`, #292).
-  `eventstream.Subscriber.Iterator()` returns a closed snapshot channel whenever the queue is empty, so the
-  engine's `sendEvent`/`sendState` publisher loops and the saga actor's receive loop — which `select`ed on
-  `Iterator()` directly — spun at 100% CPU per loop while waiting for messages. The `Subscriber` interface
-  gained a `Ready() <-chan struct{}` signal that fires when messages are enqueued or the subscriber shuts
-  down; the loops now block on `Ready()` while idle and only drain the `Iterator()` snapshot once woken.
-  If you implement `eventstream.Subscriber` yourself, you must add the `Ready()` method.
+- **Publisher and saga event-stream loops no longer busy-spin a CPU core when idle** (`6789f66`, #292). `eventstream.Subscriber.Iterator()` returns a closed snapshot channel whenever the queue is empty, so the engine's `sendEvent`/`sendState` publisher loops and the saga actor's receive loop — which `select`ed on `Iterator()` directly — spun at 100% CPU per loop while waiting for messages. The `Subscriber` interface gained a `Ready() <-chan struct{}` signal that fires when messages are enqueued or the subscriber shuts down; the loops now block on `Ready()` while idle and only drain the `Iterator()` snapshot once woken. If you implement `eventstream.Subscriber` yourself, you must add the `Ready()` method.
 
 ### 🧹 Improvements
 
-- **Logger adapter refactor** (`8f0a73d`, `491c480`). The goakt logger adapter avoids `fmt.Sprint`
-  reflection on the common single-string-message path, delegates the `*Context` variants to their
-  non-context counterparts instead of duplicating their bodies, and replaces ad-hoc level strings with
-  named constants. Dead code and redundant tests were removed alongside.
+- **Logger adapter refactor** (`8f0a73d`, `491c480`). The goakt logger adapter avoids `fmt.Sprint` reflection on the common single-string-message path, delegates the `*Context` variants to their non-context counterparts instead of duplicating their bodies, and replaces ad-hoc level strings with named constants. Dead code and redundant tests were removed alongside.
 
 ## [v4.2.0] - 2026-05-17
 
 ### 💥 Breaking Changes
 
-- **eGo Is Now a Meta-Framework on Top of Go-Akt** — eGo no longer constructs, starts, or stops the underlying
-  `goakt.ActorSystem`. Cluster discovery, TLS, remoting, partitioning, supervisors, and any other actor-runtime
-  concern are now configured directly through Go-Akt's APIs. eGo contributes its event-sourcing, durable-state,
-  projection, and saga primitives as Go-Akt extensions and plugs into an actor system the developer has built.
+- **eGo Is Now a Meta-Framework on Top of Go-Akt** — eGo no longer constructs, starts, or stops the underlying `goakt.ActorSystem`. Cluster discovery, TLS, remoting, partitioning, supervisors, and any other actor-runtime concern are now configured directly through Go-Akt's APIs. eGo contributes its event-sourcing, durable-state, projection, and saga primitives as Go-Akt extensions and plugs into an actor system the developer has built.
 
   **New surface:**
 
-  - `ego.Config` — captures every option an engine needs (events store, plus state store, offset store,
-    projection, snapshot store, event adapters, telemetry, encryptor, logger). Built once with `ego.NewConfig`
-    and reused twice: once to build the actor system, once to plug in the engine.
-  - `ego.NewConfig(eventsStore, opts ...Option) *Config` — constructs the config. Pass `nil` for `eventsStore`
-    in durable-state-only deployments.
-  - `(*Config).GoaktOptions() []goakt.Option` — returns the Go-Akt options eGo needs at actor-system
-    construction: engine extensions (events store, event stream, plus state store, offset store, projection,
-    snapshot store, event adapters, telemetry, encryptor whenever those are configured), pubsub, the logger
-    adapter, and the default supervisor. Pass to `goakt.NewActorSystem(...)`.
-  - `ego.ClusterKinds() []goakt.Actor` — returns the four actor kinds eGo needs registered in the cluster config
-    (`EventSourcedActor`, `DurableStateActor`, `SagaActor`, `ProjectionActor`). Pass to
-    `goakt.NewClusterConfig().WithKinds(...)` for relocation to work in cluster mode.
-  - `ego.NewEngine(sys goakt.ActorSystem, cfg *Config) (*Engine, error)` — plugs eGo into an already-running
-    actor system. Returns an error if `sys` is not running or if a required extension is missing from `sys`.
-    The engine name is taken from `sys.Name()` — there is no separate name parameter. `Engine.Stop` does not
-    call `sys.Stop`; the caller owns the actor-system lifecycle.
+  - `ego.Config` — captures every option an engine needs (events store, plus state store, offset store, projection, snapshot store, event adapters, telemetry, encryptor, logger). Built once with `ego.NewConfig` and reused twice: once to build the actor system, once to plug in the engine.
+  - `ego.NewConfig(eventsStore, opts ...Option) *Config` — constructs the config. Pass `nil` for `eventsStore` in durable-state-only deployments.
+  - `(*Config).GoaktOptions() []goakt.Option` — returns the Go-Akt options eGo needs at actor-system construction: engine extensions (events store, event stream, plus state store, offset store, projection, snapshot store, event adapters, telemetry, encryptor whenever those are configured), pubsub, the logger adapter, and the default supervisor. Pass to `goakt.NewActorSystem(...)`.
+  - `ego.ClusterKinds() []goakt.Actor` — returns the four actor kinds eGo needs registered in the cluster config (`EventSourcedActor`, `DurableStateActor`, `SagaActor`, `ProjectionActor`). Pass to `goakt.NewClusterConfig().WithKinds(...)` for relocation to work in cluster mode.
+  - `ego.NewEngine(sys goakt.ActorSystem, cfg *Config) (*Engine, error)` — plugs eGo into an already-running actor system. Returns an error if `sys` is not running or if a required extension is missing from `sys`. The engine name is taken from `sys.Name()` — there is no separate name parameter. `Engine.Stop` does not call `sys.Stop`; the caller owns the actor-system lifecycle.
 
   **Typical bootstrap (any deployment shape):**
 
@@ -191,32 +156,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   defer engine.Stop(ctx)
   ```
 
-  The same four-line shape works for local development and cluster mode; cluster users append Go-Akt's
-  `WithCluster(...)` (with `ego.ClusterKinds()` registered) and `WithRemote(...)` to `cfg.GoaktOptions()`
-  when calling `NewActorSystem`.
+  The same four-line shape works for local development and cluster mode; cluster users append Go-Akt's `WithCluster(...)` (with `ego.ClusterKinds()` registered) and `WithRemote(...)` to `cfg.GoaktOptions()` when calling `NewActorSystem`.
 
   **Removed:**
 
-  - `WithCluster`, `WithClusterOption`, `ClusterOption`, `WithClusterConfigurator`, `ClusterProvider` (cluster
-    configuration is now done directly with `goakt.NewClusterConfig(...)`).
+  - `WithCluster`, `WithClusterOption`, `ClusterOption`, `WithClusterConfigurator`, `ClusterProvider` (cluster configuration is now done directly with `goakt.NewClusterConfig(...)`).
   - `WithTLS`, `TLS` (use `goakt.WithTLS(...)` directly).
   - `WithRoles` (use `goakt.NewClusterConfig().WithRoles(...)` directly).
-  - `WithRemoteOptions`, `WithActorSystemOptions` (compose Go-Akt options directly when calling
-    `goakt.NewActorSystem`).
-  - `WithActorSystemBuilder`, `ActorSystemBuilder`, `BuildActorSystem` (no longer needed — the actor system is
-    always built by the caller).
-  - `Engine` constructor argument: the `name string` parameter is removed; the engine name is derived from
-    `sys.Name()`.
+  - `WithRemoteOptions`, `WithActorSystemOptions` (compose Go-Akt options directly when calling `goakt.NewActorSystem`).
+  - `WithActorSystemBuilder`, `ActorSystemBuilder`, `BuildActorSystem` (no longer needed — the actor system is always built by the caller).
+  - `Engine` constructor argument: the `name string` parameter is removed; the engine name is derived from `sys.Name()`.
 
-  **Why the change.** The previous design tried to be both a Go-Akt wrapper and a Go-Akt collaborator at the
-  same time. That created precedence and cluster-coordination problems whenever a caller needed control over
-  the runtime, and it hid Go-Akt capabilities developers legitimately need (custom cluster config, custom
-  discovery, additional actors on the same system, TLS specifics). Treating eGo as a meta-framework on top of
-  Go-Akt — analogous to how `database/sql` sits on top of a driver, or `net/http` sits on top of a `Listener` —
-  resolves both concerns by exposing the primitives eGo needs and letting the developer compose the runtime.
+  **Why the change.** The previous design tried to be both a Go-Akt wrapper and a Go-Akt collaborator at the same time. That created precedence and cluster-coordination problems whenever a caller needed control over the runtime, and it hid Go-Akt capabilities developers legitimately need (custom cluster config, custom discovery, additional actors on the same system, TLS specifics). Treating eGo as a meta-framework on top of Go-Akt — analogous to how `database/sql` sits on top of a driver, or `net/http` sits on top of a `Listener` — resolves both concerns by exposing the primitives eGo needs and letting the developer compose the runtime.
 
-  See [option.go](option.go), [engine.go](engine.go), and the rewritten [readme.md](./readme.md) for the full
-  bootstrap pattern.
+  See [option.go](option.go), [engine.go](engine.go), and the rewritten [readme.md](./readme.md) for the full bootstrap pattern.
 
 ### 📝 Migration Notes
 
@@ -230,104 +183,50 @@ Upgrading from `v4.1.x` to this release requires reshaping the engine bootstrap:
    engine, _ := ego.NewEngine(sys, cfg)
    engine.Start(ctx)
    ```
-2. Move cluster configuration from `ego.WithClusterOption(...)` to a direct
-   `goakt.NewClusterConfig(...).WithKinds(ego.ClusterKinds()...)` call passed to
-   `goakt.NewActorSystem` via `goakt.WithCluster(...)`. Discovery providers come from the `discovery` packages
-   of Go-Akt.
+2. Move cluster configuration from `ego.WithClusterOption(...)` to a direct `goakt.NewClusterConfig(...).WithKinds(ego.ClusterKinds()...)` call passed to `goakt.NewActorSystem` via `goakt.WithCluster(...)`. Discovery providers come from the `discovery` packages of Go-Akt.
 3. Move TLS from `ego.WithTLS(...)` to `goakt.WithTLS(...)`.
 4. Drop `ego.WithRoles(...)`; use `goakt.NewClusterConfig(...).WithRoles(...)` instead.
 5. Stop calling `Engine.Stop` for actor-system shutdown — call `sys.Stop(ctx)` yourself after `engine.Stop(ctx)`.
-6. Check the `error` returned by the new `ego.NewEngine` signature; it now reports missing required extensions
-   and unstarted actor systems instead of deferring those errors to `Engine.Start`.
+6. Check the `error` returned by the new `ego.NewEngine` signature; it now reports missing required extensions and unstarted actor systems instead of deferring those errors to `Engine.Start`.
 
 ### 🐛 Bug Fixes & Internal Changes
 
-- **Event timestamps now use nanosecond resolution (was: seconds).** The `Timestamp` field on
-  `egopb.Event`, `egopb.DurableState`, `egopb.Snapshot`, and `egopb.StateReply` is now populated via
-  `time.Now().UnixNano()` instead of `time.Now().Unix()`. The underlying type stays `int64`, so wire
-  compatibility is preserved, but the **semantic units change**.
-  - Anything that interprets these timestamps as seconds (custom event publishers, external dashboards
-    reading the raw column, ad-hoc SQL using `to_timestamp(timestamp / 1.0)`, etc.) must be updated to
-    treat them as nanoseconds — e.g. `to_timestamp(timestamp / 1e9)` in Postgres.
-  - `Engine.ProjectionLag(...)` continues to return a `time.Duration`; the value is now correct at
-    nanosecond resolution instead of being quantised to whole seconds.
-  - **Why.** Pre-fix, the projection runner's offset cursor was an event timestamp at 1-second
-    resolution, and the poll predicate (`WHERE timestamp > committed_offset`) would silently skip any
-    event written with the same second as the previously committed offset between two polls. Under
-    sub-second burst load, events at the second boundary were dropped (reproduced by `make test` in
-    `example/cluster`: 1000 + 30×10 − 10×5 expected = 1250, observed = 1270 because four debits were
-    skipped). Bumping the timestamp to nanoseconds makes co-timestamp collisions across polls
-    astronomically improbable and eliminates the race for any realistic workload.
+- **Event timestamps now use nanosecond resolution (was: seconds).** The `Timestamp` field on `egopb.Event`, `egopb.DurableState`, `egopb.Snapshot`, and `egopb.StateReply` is now populated via `time.Now().UnixNano()` instead of `time.Now().Unix()`. The underlying type stays `int64`, so wire compatibility is preserved, but the **semantic units change**.
+  - Anything that interprets these timestamps as seconds (custom event publishers, external dashboards reading the raw column, ad-hoc SQL using `to_timestamp(timestamp / 1.0)`, etc.) must be updated to treat them as nanoseconds — e.g. `to_timestamp(timestamp / 1e9)` in Postgres.
+  - `Engine.ProjectionLag(...)` continues to return a `time.Duration`; the value is now correct at nanosecond resolution instead of being quantised to whole seconds.
+  - **Why.** Pre-fix, the projection runner's offset cursor was an event timestamp at 1-second resolution, and the poll predicate (`WHERE timestamp > committed_offset`) would silently skip any event written with the same second as the previously committed offset between two polls. Under sub-second burst load, events at the second boundary were dropped (reproduced by `make test` in `example/cluster`: 1000 + 30×10 − 10×5 expected = 1250, observed = 1270 because four debits were skipped). Bumping the timestamp to nanoseconds makes co-timestamp collisions across polls astronomically improbable and eliminates the race for any realistic workload.
 
-- **In-process pub/sub topics collapsed to a single events topic and a single states topic.** Entity
-  actors previously published to `topic.events.<shard>` / `topic.states.<shard>` and subscribers
-  (engine publishers, sagas, `Engine.Subscribe()` consumers) had to enumerate every per-shard topic.
-  With goakt's default 271 partitions hardcoded into the subscribe loop, any deployment configured
-  with `goakt.NewClusterConfig().WithPartitionCount(N)` where `N > 271` would silently drop events
-  for entities mapped to shards ≥ 271.
-  - Now all entity events publish to a single `topic.events` (and durable state to `topic.states`).
-    The shard each event belongs to travels in the payload (`egopb.Event.Shard`,
-    `egopb.DurableState.Shard`), so downstream consumers can still filter by shard.
-  - The internal `Engine.publisherTopicsPartitionCount` helper and the per-shard `generateTopics`
-    helper have been removed. This is internal-only, but anyone who reached into the eventstream
-    extension directly and subscribed to `topic.events.<n>` should switch to the single topic.
+- **In-process pub/sub topics collapsed to a single events topic and a single states topic.** Entity actors previously published to `topic.events.<shard>` / `topic.states.<shard>` and subscribers (engine publishers, sagas, `Engine.Subscribe()` consumers) had to enumerate every per-shard topic. With goakt's default 271 partitions hardcoded into the subscribe loop, any deployment configured with `goakt.NewClusterConfig().WithPartitionCount(N)` where `N > 271` would silently drop events for entities mapped to shards ≥ 271.
+  - Now all entity events publish to a single `topic.events` (and durable state to `topic.states`). The shard each event belongs to travels in the payload (`egopb.Event.Shard`, `egopb.DurableState.Shard`), so downstream consumers can still filter by shard.
+  - The internal `Engine.publisherTopicsPartitionCount` helper and the per-shard `generateTopics` helper have been removed. This is internal-only, but anyone who reached into the eventstream extension directly and subscribed to `topic.events.<n>` should switch to the single topic.
 
-- **Sagas now observe events from every shard.** `SagaActor.PreStart` previously subscribed to
-  topics `topic.events.0` … `topic.events.<ownShard>` (only as many topics as the saga's own shard
-  index), so a saga placed in shard 5 missed events from shards 6 and above. Folded into the
-  single-topic change above: sagas now subscribe to `topic.events` once and see every event.
+- **Sagas now observe events from every shard.** `SagaActor.PreStart` previously subscribed to topics `topic.events.0` … `topic.events.<ownShard>` (only as many topics as the saga's own shard index), so a saga placed in shard 5 missed events from shards 6 and above. Folded into the single-topic change above: sagas now subscribe to `topic.events` once and see every event.
 
-- **`example/cluster/projection.go`** — fixed `AccountDebited` upsert that emitted `VALUES ($1, -$2, $3)`,
-  which Postgres rejected with "operator is not unique: - unknown (SQLSTATE 42725)" because the prefix
-  `-` could not pick an overload against an untyped placeholder. The handler now pre-negates the delta
-  in Go and uses `EXCLUDED.balance` symmetrically with the credit branch.
+- **`example/cluster/projection.go`** — fixed `AccountDebited` upsert that emitted `VALUES ($1, -$2, $3)`, which Postgres rejected with "operator is not unique: - unknown (SQLSTATE 42725)" because the prefix `-` could not pick an overload against an untyped placeholder. The handler now pre-negates the delta in Go and uses `EXCLUDED.balance` symmetrically with the credit branch.
 
-- **`example/cluster/Makefile`** — the load-distribution probe now hits `/accounts/{id}` instead of
-  `/healthz`. Kind's NGINX Ingress Controller exposes its own `/healthz` on the data port (80) and
-  answers it before the request reaches the app, so the previous probe never received the app's
-  `X-Served-By` header and the assertion was a no-op.
+- **`example/cluster/Makefile`** — the load-distribution probe now hits `/accounts/{id}` instead of `/healthz`. Kind's NGINX Ingress Controller exposes its own `/healthz` on the data port (80) and answers it before the request reaches the app, so the previous probe never received the app's `X-Served-By` header and the assertion was a no-op.
 
 ## [v4.1.2] - 2026-04-26
 
 ### 🚀 New Features
 
-- **`Engine.ActorSystem()` Accessor** — Added `Engine.ActorSystem()` to expose the underlying `goakt.ActorSystem`
-  powering the engine. Returns `nil` before `Start` and after `Stop`. Intended for callers that need direct access to
-  actor-system primitives — for example, spawning auxiliary actors alongside ego entities or inspecting cluster
-  topology — without having to wire the actor system separately. The returned reference is a snapshot and should not
-  be retained across engine restarts. See [engine.go](engine.go).
+- **`Engine.ActorSystem()` Accessor** — Added `Engine.ActorSystem()` to expose the underlying `goakt.ActorSystem` powering the engine. Returns `nil` before `Start` and after `Stop`. Intended for callers that need direct access to actor-system primitives — for example, spawning auxiliary actors alongside ego entities or inspecting cluster topology — without having to wire the actor system separately. The returned reference is a snapshot and should not be retained across engine restarts. See [engine.go](engine.go).
 
 ### 🧹 Improvements
 
-- **Lock-Free Hot Read Paths** — To make the new accessor safe for concurrent use, the underlying `goakt.ActorSystem`
-  and its `NoSender` PID are now bundled in a single `atomic.Pointer[actorSystemRef]` and published atomically by
-  `Start`. All hot read paths (`AddProjection`, `RemoveProjection`, `IsProjectionRunning`, `Entity`, `EntityExists`,
-  `DurableStateEntity`, `SendCommand`, `Saga`, `SagaStatus`) now load the reference with a single atomic load instead
-  of taking a mutex. `Stop` swaps the reference to `nil` so callers racing with shutdown fail fast with
-  `ErrEngineNotStarted` rather than operating on a system in mid-teardown.
-- **`RWMutex` for Remaining Snapshot Reads** — The engine mutex has been promoted from `sync.Mutex` to `sync.RWMutex`.
-  The remaining field-snapshot reads (`offsetStore`, `eventStream`, `stateStore`, `eventsStore`, `snapshotStore`)
-  acquire it via `RLock`, allowing concurrent readers. Writers (`AddEventPublishers`, `AddStatePublishers`) keep the
-  exclusive `Lock`.
-- **Test Coverage** — Added `TestActorSystem` covering the unstarted, started, stopped, and concurrent-reader cases
-  (the latter exercised under `-race`), and `TestActorSystemRefGuard` exercising the defensive `ErrEngineNotStarted`
-  branch on every hot read path.
+- **Lock-Free Hot Read Paths** — To make the new accessor safe for concurrent use, the underlying `goakt.ActorSystem` and its `NoSender` PID are now bundled in a single `atomic.Pointer[actorSystemRef]` and published atomically by `Start`. All hot read paths (`AddProjection`, `RemoveProjection`, `IsProjectionRunning`, `Entity`, `EntityExists`, `DurableStateEntity`, `SendCommand`, `Saga`, `SagaStatus`) now load the reference with a single atomic load instead of taking a mutex. `Stop` swaps the reference to `nil` so callers racing with shutdown fail fast with `ErrEngineNotStarted` rather than operating on a system in mid-teardown.
+- **`RWMutex` for Remaining Snapshot Reads** — The engine mutex has been promoted from `sync.Mutex` to `sync.RWMutex`. The remaining field-snapshot reads (`offsetStore`, `eventStream`, `stateStore`, `eventsStore`, `snapshotStore`) acquire it via `RLock`, allowing concurrent readers. Writers (`AddEventPublishers`, `AddStatePublishers`) keep the exclusive `Lock`.
+- **Test Coverage** — Added `TestActorSystem` covering the unstarted, started, stopped, and concurrent-reader cases (the latter exercised under `-race`), and `TestActorSystemRefGuard` exercising the defensive `ErrEngineNotStarted` branch on every hot read path.
 
 ## [v4.1.1] - 2026-04-18
 
 ### 🚀 New Features
 
-- **Entity Existence Probe** — Added `Engine.EntityExists(ctx, entityID)` to check whether an entity is currently alive
-  in the cluster without spawning it or replaying its journal. Works for both event-sourced and durable state entities,
-  and is intended as a lightweight liveness check for callers that need to branch on entity presence without paying the
-  cost of materialization. See [engine.go](engine.go).
+- **Entity Existence Probe** — Added `Engine.EntityExists(ctx, entityID)` to check whether an entity is currently alive in the cluster without spawning it or replaying its journal. Works for both event-sourced and durable state entities, and is intended as a lightweight liveness check for callers that need to branch on entity presence without paying the cost of materialization. See [engine.go](engine.go).
 
 ### 🐛 Bug Fixes
 
-- **Projection Lag Computation** — Fixed `Engine.ProjectionLag` to correctly compute the per-shard delta between the
-  newest persisted event and the projection's committed offset. The result is now clamped at zero so a projection
-  running ahead of the probe window is no longer reported as negative, and the implementation documents the
-  unit (seconds) and bounded-scan trade-off used to locate the latest event in a shard. See [engine.go](engine.go).
+- **Projection Lag Computation** — Fixed `Engine.ProjectionLag` to correctly compute the per-shard delta between the newest persisted event and the projection's committed offset. The result is now clamped at zero so a projection running ahead of the probe window is no longer reported as negative, and the implementation documents the unit (seconds) and bounded-scan trade-off used to locate the latest event in a shard. See [engine.go](engine.go).
 
 ### 🧹 Improvements
 
@@ -337,33 +236,25 @@ Upgrading from `v4.1.x` to this release requires reshaping the engine bootstrap:
 
 ### 🚀 New Features
 
-- **Event Batching** — Accumulate events from multiple commands and flush them in a single store write, amortizing
-  persistence cost under concurrent load. Two new spawn options control batching:
+- **Event Batching** — Accumulate events from multiple commands and flush them in a single store write, amortizing persistence cost under concurrent load. Two new spawn options control batching:
   - `WithBatchThreshold(n)` — flush after `n` accumulated events (0 disables batching, which is the default)
-  - `WithBatchFlushWindow(d)` — flush after duration `d`, whichever comes first
-  While a batch is being written, the actor stashes incoming commands and replays them after the write completes.
+  - `WithBatchFlushWindow(d)` — flush after duration `d`, whichever comes first While a batch is being written, the actor stashes incoming commands and replays them after the write completes.
 
-- **Benchmark Suite** — Added a comprehensive benchmark suite (`benchmark/`) measuring throughput, latency percentiles
-  (p50/p90/p95/p99), heap usage, and GC cycles across sequential, parallel, batched, and unbatched workloads with
-  simulated I/O latencies.
+- **Benchmark Suite** — Added a comprehensive benchmark suite (`benchmark/`) measuring throughput, latency percentiles (p50/p90/p95/p99), heap usage, and GC cycles across sequential, parallel, batched, and unbatched workloads with simulated I/O latencies.
 
 ### ⚡ Performance Improvements
 
 - **Async Persistence Pipeline** — Restructured event-sourced entity persistence into three specialized child actors:
   - `EventsWriterActor` — synchronous (Ask) event persistence and publishing; correctness requires write confirmation
   - `SnapshotsWriterActor` — asynchronous (Tell) snapshot persistence with encryption and exponential-backoff retry
-  - `EventsJanitorActor` — asynchronous (Tell) retention policy enforcement after snapshot writes
-  Snapshots and retention no longer block command processing, eliminating the primary synchronous bottleneck.
+  - `EventsJanitorActor` — asynchronous (Tell) retention policy enforcement after snapshot writes Snapshots and retention no longer block command processing, eliminating the primary synchronous bottleneck.
 
-- **Batch Event Tracking** — Batch threshold now counts accumulated events rather than commands, correctly handling
-  commands that produce multiple events.
+- **Batch Event Tracking** — Batch threshold now counts accumulated events rather than commands, correctly handling commands that produce multiple events.
 
 ### 🧹 Improvements
 
-- Added retry utility (`retry.go`) with exponential backoff and jitter (up to 3 retries, capped at 2s) for async
-  persistence operations
-- Added Performance Tuning section to README covering batch threshold selection, snapshot configuration, retention
-  policies, allocation optimization, and horizontal scaling guidance
+- Added retry utility (`retry.go`) with exponential backoff and jitter (up to 3 retries, capped at 2s) for async persistence operations
+- Added Performance Tuning section to README covering batch threshold selection, snapshot configuration, retention policies, allocation optimization, and horizontal scaling guidance
 - Added Persistence Stores section to README documenting ego-contrib store implementations (Postgres, MongoDB)
 - Refreshed README header layout and removed emojis from section headings
 - Comprehensive test coverage for events writer, snapshots writer, and events janitor actors
@@ -385,18 +276,11 @@ Upgrading from `v4.1.x` to this release requires reshaping the engine bootstrap:
 
 ### 🚀 New Features
 
-- **📸 Snapshot Store** — Introduced a dedicated `SnapshotStore` interface (`persistence/snapshot_store.go`) for
-  persisting entity state snapshots independently from events. This decouples state recovery from event replay,
-  significantly improving recovery performance for entities with long event histories. Configurable via
-  `WithSnapshotStore()` engine option and `WithSnapshotInterval()` spawn option.
+- **📸 Snapshot Store** — Introduced a dedicated `SnapshotStore` interface (`persistence/snapshot_store.go`) for persisting entity state snapshots independently from events. This decouples state recovery from event replay, significantly improving recovery performance for entities with long event histories. Configurable via `WithSnapshotStore()` engine option and `WithSnapshotInterval()` spawn option.
 
-- **🔄 Event Adapters (Schema Evolution)** — Added the `eventadapter` package with an `EventAdapter` interface and a
-  `Chain()` function for composing adapters. Event adapters transform persisted events from older schema versions into
-  the current shape during replay and projection consumption, enabling seamless event schema evolution without rewriting
-  stored data.
+- **🔄 Event Adapters (Schema Evolution)** — Added the `eventadapter` package with an `EventAdapter` interface and a `Chain()` function for composing adapters. Event adapters transform persisted events from older schema versions into the current shape during replay and projection consumption, enabling seamless event schema evolution without rewriting stored data.
 
-- **📊 OpenTelemetry Integration** — First-class observability via the new `Telemetry` struct and `WithTelemetry()`
-  engine option. Includes:
+- **📊 OpenTelemetry Integration** — First-class observability via the new `Telemetry` struct and `WithTelemetry()` engine option. Includes:
   - Trace spans on command processing (`ego.command`) with `ego.persistence_id` and `ego.command_type` attributes
   - Metrics:
     - `ego.commands.total` (counter) — total number of commands processed
@@ -406,39 +290,29 @@ Upgrading from `v4.1.x` to this release requires reshaping the engine bootstrap:
     - `ego.entities.active` (up/down counter) — number of currently active entities
     - `ego.projections.active` (up/down counter) — number of currently active projections
 
-- **💀 Dead Letter Handler** — Added the `DeadLetterHandler` interface (`projection/deadletter.go`) for receiving events
-  that a projection failed to process after exhausting its recovery policy. Includes a `DiscardDeadLetterHandler` as the
-  default no-op implementation. Configurable via `WithProjection()`.
+- **💀 Dead Letter Handler** — Added the `DeadLetterHandler` interface (`projection/deadletter.go`) for receiving events that a projection failed to process after exhausting its recovery policy. Includes a `DiscardDeadLetterHandler` as the default no-op implementation. Configurable via `WithProjection()`.
 
-- **🔁 Projection Rebuild** — New `Engine.RebuildProjection(ctx, name, from)` API method that stops a running projection,
-  resets its offset to a given timestamp, and restarts it. Enables re-processing events from any point in time.
+- **🔁 Projection Rebuild** — New `Engine.RebuildProjection(ctx, name, from)` API method that stops a running projection, resets its offset to a given timestamp, and restarts it. Enables re-processing events from any point in time.
 
 - **🧪 Testkit Scenarios** — Fluent Given/When/Then API for testing behaviors without starting an engine:
-  - `EventSourcedScenario` — `Given(events...)`, `When(command)`, then assert with `ThenEvents()`, `ThenState()`,
-      `ThenError()`, or `ThenNoEvents()`
-  - `DurableStateScenario` — `Given(state, version)`, `When(command)`, then assert with `ThenState()`,
-      `ThenVersion()`, or `ThenError()`
+  - `EventSourcedScenario` — `Given(events...)`, `When(command)`, then assert with `ThenEvents()`, `ThenState()`, `ThenError()`, or `ThenNoEvents()`
+  - `DurableStateScenario` — `Given(state, version)`, `When(command)`, then assert with `ThenState()`, `ThenVersion()`, or `ThenError()`
 
-- **🔀 Migration Utility** — One-time `Migrator` (`migration/`) that reads legacy events (which embedded
-  `resulting_state` at proto field 5) and extracts that state into the new `SnapshotStore`. Supports configurable page
-  size and logging. Idempotent and safe to run multiple times.
+- **🔀 Migration Utility** — One-time `Migrator` (`migration/`) that reads legacy events (which embedded `resulting_state` at proto field 5) and extracts that state into the new `SnapshotStore`. Supports configurable page size and logging. Idempotent and safe to run multiple times.
 
-- **📈 Projection Lag Monitoring** — Operators can now observe how far behind each projection is relative to the latest
-  events in the store. Includes:
+- **📈 Projection Lag Monitoring** — Operators can now observe how far behind each projection is relative to the latest events in the store. Includes:
   - New metrics:
     - `ego.projection.lag_ms` (gauge, ms) — per-projection, per-shard lag
     - `ego.projection.latest_offset` (gauge, ms) — current projection offset timestamp per shard
     - `ego.projection.events_behind` (gauge) — approximate number of unprocessed events per shard
   - New `Engine.ProjectionLag(ctx, projectionName)` API returning per-shard lag as `map[uint64]time.Duration`
 
-- **🗑️ Snapshot/Event Retention Policies** — Automatic cleanup of old events and snapshots after a snapshot has been
-  successfully written, preventing unbounded storage growth. Configurable via `WithRetentionPolicy()` spawn option with:
+- **🗑️ Snapshot/Event Retention Policies** — Automatic cleanup of old events and snapshots after a snapshot has been successfully written, preventing unbounded storage growth. Configurable via `WithRetentionPolicy()` spawn option with:
   - `DeleteEventsOnSnapshot` — delete events up to the snapshot sequence number
   - `DeleteSnapshotsOnSnapshot` — delete older snapshots, keeping only the latest
   - `EventsRetentionCount` — number of events to retain before the snapshot point as a safety margin
 
-- **🔐 Event Encryption / GDPR Support** — Transparent encryption of event and snapshot payloads at rest with
-  crypto-shredding support for GDPR "right to erasure". Includes:
+- **🔐 Event Encryption / GDPR Support** — Transparent encryption of event and snapshot payloads at rest with crypto-shredding support for GDPR "right to erasure". Includes:
   - New `encryption` package with `Encryptor` and `KeyStore` interfaces
   - Default AES-256-GCM implementation (`encryption.AESEncryptor`)
   - New `encryption_key_id` and `is_encrypted` fields on `Event` and `Snapshot` protobuf messages
@@ -447,18 +321,14 @@ Upgrading from `v4.1.x` to this release requires reshaping the engine bootstrap:
   - `WithEncryptor()` engine option to enable encryption
   - In-memory `testkit.KeyStore` for testing
 
-- **📝 Pluggable Logger Interface** — Introduced a minimal `Logger` interface (`logger.go`) that lets developers plug in
-  any logging backend (zap, zerolog, slog, logrus, etc.). Methods follow the slog convention with structured key-value
-  pairs. The engine now stores `Logger` directly and wraps it via `loggerAdapter` when passing to the underlying actor
-  system. Includes:
+- **📝 Pluggable Logger Interface** — Introduced a minimal `Logger` interface (`logger.go`) that lets developers plug in any logging backend (zap, zerolog, slog, logrus, etc.). Methods follow the slog convention with structured key-value pairs. The engine now stores `Logger` directly and wraps it via `loggerAdapter` when passing to the underlying actor system. Includes:
   - `Logger` interface with `Debug`, `Info`, `Warn`, `Error` methods
   - Optional `LeveledLogger` interface for engine-side log gating
   - `DiscardLogger` — exported no-op logger for tests or silent operation
   - Default `slog`-based logger used when no logger is explicitly configured
   - `WithLogger()` engine option now accepts `Logger` instead of `log.Logger`
 
-- **🔄 Saga/Process Manager** — First-class abstraction for long-running business processes that coordinate multiple
-  entities with compensation logic for rollback on failures. Includes:
+- **🔄 Saga/Process Manager** — First-class abstraction for long-running business processes that coordinate multiple entities with compensation logic for rollback on failures. Includes:
   - `SagaBehavior` interface with `HandleEvent`, `HandleResult`, `HandleError`, `ApplyEvent`, and `Compensate` methods
   - `SagaAction` type for declaring commands to send, events to persist, and completion/compensation signals
   - `SagaCommand` type for targeting commands to specific entities with configurable timeouts
@@ -469,42 +339,27 @@ Upgrading from `v4.1.x` to this release requires reshaping the engine bootstrap:
 
 ### 💥 Breaking Changes
 
-- **📦 Module Path** — Module path changed from `github.com/tochemey/ego/v3` to `github.com/tochemey/ego/v4`. All import
-  paths must be updated.
+- **📦 Module Path** — Module path changed from `github.com/tochemey/ego/v3` to `github.com/tochemey/ego/v4`. All import paths must be updated.
 
-- **🗃️ Event Proto Schema** — The `resulting_state` field (field 5) has been **removed** from the `Event` protobuf
-  message and marked as reserved. Events are now "pure" — they no longer carry inline entity state. State is managed
-  separately via the new Snapshot Store.
+- **🗃️ Event Proto Schema** — The `resulting_state` field (field 5) has been **removed** from the `Event` protobuf message and marked as reserved. Events are now "pure" — they no longer carry inline entity state. State is managed separately via the new Snapshot Store.
 
-- **📐 Projection Handler Signature** — `projection.Handler.Handle()` signature changed: the `state *anypb.Any` parameter
-  has been removed.
+- **📐 Projection Handler Signature** — `projection.Handler.Handle()` signature changed: the `state *anypb.Any` parameter has been removed.
   - **Before:** `Handle(ctx, persistenceID, event, state, revision)`
   - **After:** `Handle(ctx, persistenceID, event, revision)`
 
-- **🔧 Event-Sourced Recovery Rewrite** — Entity recovery no longer reads state from the latest event's
-  `resulting_state`. Recovery now loads the latest snapshot (if available) and replays only subsequent events, applying
-  event adapters in the chain.
+- **🔧 Event-Sourced Recovery Rewrite** — Entity recovery no longer reads state from the latest event's `resulting_state`. Recovery now loads the latest snapshot (if available) and replays only subsequent events, applying event adapters in the chain.
 
-- **📝 Logger Interface** — `WithLogger()` now accepts `ego.Logger` instead of `goakt/log.Logger`. Callers that
-  previously passed a GoAkt logger (e.g. `log.DiscardLogger`) must switch to the new `ego.Logger` interface (e.g.
-  `ego.DiscardLogger`). The engine's internal logging calls use `Logger.Debug/Info/Warn/Error` instead of `Debugf/Infof`.
+- **📝 Logger Interface** — `WithLogger()` now accepts `ego.Logger` instead of `goakt/log.Logger`. Callers that previously passed a GoAkt logger (e.g. `log.DiscardLogger`) must switch to the new `ego.Logger` interface (e.g. `ego.DiscardLogger`). The engine's internal logging calls use `Logger.Debug/Info/Warn/Error` instead of `Debugf/Infof`.
 
-- **🏗️ Internal Extension Constructors** — `extensions.NewProjectionExtension()` now requires an additional
-  `DeadLetterHandler` parameter.
+- **🏗️ Internal Extension Constructors** — `extensions.NewProjectionExtension()` now requires an additional `DeadLetterHandler` parameter.
 
-- **🏗️ EventSourcedActor Constructor** — `newEventSourcedActor()` no longer accepts arguments. Per-entity
-  configuration (snapshot interval, retention policy) is now passed via the `extensions.EntityConfig` dependency,
-  ensuring correct behavior during cluster relocation.
+- **🏗️ EventSourcedActor Constructor** — `newEventSourcedActor()` no longer accepts arguments. Per-entity configuration (snapshot interval, retention policy) is now passed via the `extensions.EntityConfig` dependency, ensuring correct behavior during cluster relocation.
 
-- **🌐 Cluster discovery API** — `WithCluster()` now accepts `ego.ClusterProvider` instead of GoAkt’s
-  `discovery.Provider`. The engine wraps your implementation when wiring the actor system, so application code no longer
-  depends on GoAkt’s discovery package for this option. Implement `ClusterProvider` (`ID`, `Start`, `DiscoverPeers`,
-  `Stop`) or add a thin adapter around a GoAkt discovery implementation if you still use one.
+- **🌐 Cluster discovery API** — `WithCluster()` now accepts `ego.ClusterProvider` instead of GoAkt’s `discovery.Provider`. The engine wraps your implementation when wiring the actor system, so application code no longer depends on GoAkt’s discovery package for this option. Implement `ClusterProvider` (`ID`, `Start`, `DiscoverPeers`, `Stop`) or add a thin adapter around a GoAkt discovery implementation if you still use one.
 
 ### ⬆️ Dependencies
 
-- **Go OpenTelemetry** — `go.opentelemetry.io/otel`, `go.opentelemetry.io/otel/metric`, and
-  `go.opentelemetry.io/otel/trace` v1.42.0 promoted from indirect to direct dependencies
+- **Go OpenTelemetry** — `go.opentelemetry.io/otel`, `go.opentelemetry.io/otel/metric`, and `go.opentelemetry.io/otel/trace` v1.42.0 promoted from indirect to direct dependencies
 - **Publisher modules** (Kafka, NATS, Pulsar, WebSocket) — Import paths updated to v4; no functional changes
 
 ### 🧹 Improvements
@@ -513,16 +368,14 @@ Upgrading from `v4.1.x` to this release requires reshaping the engine bootstrap:
 - **Event-sourced actor** — Snapshot-based recovery with configurable intervals reduces event replay overhead
 - **Event-sourced actor** — Retention policy cleanup runs after snapshot write, deleting old events and snapshots
 - **Event-sourced actor** — Transparent encrypt/decrypt of event and snapshot payloads when an encryptor is configured
-- **Projection runner** — Event adapters applied during projection consumption; dead letter forwarding on `RetryAndSkip`
-  and `Skip` recovery policies
+- **Projection runner** — Event adapters applied during projection consumption; dead letter forwarding on `RetryAndSkip` and `Skip` recovery policies
 - **Durable state actor** — Added OpenTelemetry tracing and metrics on command processing
 - **Test coverage** — Added `internal/extensions/extensions_test.go` and comprehensive tests for all new packages
 - **Testkit** — Added in-memory `SnapshotStore` implementation (`testkit/snapshotstore.go`) for testing
 - **Testkit** — Added in-memory `KeyStore` implementation (`testkit/keystore.go`) for encryption testing
 - **Projection runner** — Decrypts encrypted events before handing them to the handler and event adapters
 - **Projection runner** — Records per-shard lag, offset, and events-behind metrics when telemetry is enabled
-- **Clustering** — `ClusterProvider` documentation aligned with engine lifecycle; peer discovery is configured only
-  through ego’s `ClusterProvider` surface (no direct `discovery.Provider` on `WithCluster`)
+- **Clustering** — `ClusterProvider` documentation aligned with engine lifecycle; peer discovery is configured only through ego’s `ClusterProvider` surface (no direct `discovery.Provider` on `WithCluster`)
 
 ### 📖 Migration Guide
 
@@ -530,14 +383,8 @@ To upgrade from v3 to v4:
 
 1. **Update import paths** — Replace all `github.com/tochemey/ego/v3` imports with `github.com/tochemey/ego/v4`
 2. **Update projection handlers** — Remove the `state *anypb.Any` parameter from your `Handle()` implementations
-3. **Run the migration utility** — Use `migration.NewMigrator()` to extract inline state from legacy events into the new
-   snapshot store
-4. **Configure a snapshot store** — Pass a `SnapshotStore` implementation via `WithSnapshotStore()` for optimal recovery
-   performance
-5. **Update logger usage** — Replace `WithLogger(log.DiscardLogger)` or any `goakt/log.Logger` value with an
-   `ego.Logger` implementation (e.g. `ego.DiscardLogger`). If you have a custom GoAkt logger, wrap it in the new
-   `Logger` interface instead
+3. **Run the migration utility** — Use `migration.NewMigrator()` to extract inline state from legacy events into the new snapshot store
+4. **Configure a snapshot store** — Pass a `SnapshotStore` implementation via `WithSnapshotStore()` for optimal recovery performance
+5. **Update logger usage** — Replace `WithLogger(log.DiscardLogger)` or any `goakt/log.Logger` value with an `ego.Logger` implementation (e.g. `ego.DiscardLogger`). If you have a custom GoAkt logger, wrap it in the new `Logger` interface instead
 6. **Regenerate protobuf** — If you depend on the `Event` message directly, regenerate from the updated `.proto` files
-7. **Cluster mode** — Replace `WithCluster(goaktDiscoveryProvider, ...)` with `WithCluster(ego.ClusterProvider, ...)`.
-   Map GoAkt’s `Initialize`/`Close` to `Start`/`Stop`, and `DiscoverPeers()` to `DiscoverPeers(ctx)`; `Register`/`Deregister`
-   can be no-ops if your backend folds them into start/stop
+7. **Cluster mode** — Replace `WithCluster(goaktDiscoveryProvider, ...)` with `WithCluster(ego.ClusterProvider, ...)`. Map GoAkt’s `Initialize`/`Close` to `Start`/`Stop`, and `DiscoverPeers()` to `DiscoverPeers(ctx)`; `Register`/`Deregister` can be no-ops if your backend folds them into start/stop
