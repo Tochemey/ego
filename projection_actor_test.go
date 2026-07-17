@@ -78,7 +78,9 @@ func TestProjection(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(journalStore),
 				extensions.NewOffsetStore(offsetStore),
-				extensions.NewProjectionExtension(handler, 500, ZeroTime, ZeroTime, time.Second, projection.NewRecovery(), nil)),
+				extensions.NewProjectionExtension(map[string]*projection.Options{
+					"db-writer": {Handler: handler, BufferSize: 500, PullInterval: time.Second, Recovery: projection.NewRecovery()},
+				})),
 			goakt.WithActorInitMaxRetries(3))
 
 		require.NoError(t, err)
@@ -164,7 +166,9 @@ func TestProjection(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(journalStore),
 				extensions.NewOffsetStore(offsetStore),
-				extensions.NewProjectionExtension(handler, 500, time.Time{}, time.Time{}, time.Second, projection.NewRecovery(), nil)),
+				extensions.NewProjectionExtension(map[string]*projection.Options{
+					"db-writer": {Handler: handler, BufferSize: 500, PullInterval: time.Second, Recovery: projection.NewRecovery()},
+				})),
 			goakt.WithActorInitMaxRetries(3))
 
 		require.NoError(t, err)
@@ -223,7 +227,9 @@ func TestProjection(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(journalStore),
 				extensions.NewOffsetStore(offsetStore),
-				extensions.NewProjectionExtension(handler, 500, ZeroTime, ZeroTime, time.Second, projection.NewRecovery(), deadLetterHandler)),
+				extensions.NewProjectionExtension(map[string]*projection.Options{
+					"db-writer": {Handler: handler, BufferSize: 500, PullInterval: time.Second, Recovery: projection.NewRecovery(), DeadLetterHandler: deadLetterHandler},
+				})),
 			goakt.WithActorInitMaxRetries(3))
 
 		require.NoError(t, err)
@@ -293,7 +299,9 @@ func TestProjection(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(journalStore),
 				extensions.NewOffsetStore(offsetStore),
-				extensions.NewProjectionExtension(handler, 500, ZeroTime, ZeroTime, time.Second, projection.NewRecovery(), nil),
+				extensions.NewProjectionExtension(map[string]*projection.Options{
+					"db-writer": {Handler: handler, BufferSize: 500, PullInterval: time.Second, Recovery: projection.NewRecovery()},
+				}),
 				extensions.NewEventAdapters([]eventadapter.EventAdapter{adapter})),
 			goakt.WithActorInitMaxRetries(3))
 
@@ -361,7 +369,9 @@ func TestProjection(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(journalStore),
 				extensions.NewOffsetStore(offsetStore),
-				extensions.NewProjectionExtension(handler, 500, ZeroTime, ZeroTime, time.Second, projection.NewRecovery(), nil),
+				extensions.NewProjectionExtension(map[string]*projection.Options{
+					"db-writer": {Handler: handler, BufferSize: 500, PullInterval: time.Second, Recovery: projection.NewRecovery()},
+				}),
 				extensions.NewEncryptor(encryption.NewAESEncryptor(testkit.NewKeyStore()))),
 			goakt.WithActorInitMaxRetries(3))
 
@@ -432,7 +442,9 @@ func TestProjection(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(journalStore),
 				extensions.NewOffsetStore(offsetStore),
-				extensions.NewProjectionExtension(handler, 500, ZeroTime, ZeroTime, time.Second, projection.NewRecovery(), nil),
+				extensions.NewProjectionExtension(map[string]*projection.Options{
+					"db-writer": {Handler: handler, BufferSize: 500, PullInterval: time.Second, Recovery: projection.NewRecovery()},
+				}),
 				extensions.NewTelemetryExtension(noopTracer, noopMeter)),
 			goakt.WithActorInitMaxRetries(3))
 
@@ -505,7 +517,9 @@ func TestProjectionActorPreStartFailure(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventsStore),
 				extensions.NewOffsetStore(offsetStore),
-				extensions.NewProjectionExtension(handler, 500, ZeroTime, resetAt, time.Second, projection.NewRecovery(), nil)),
+				extensions.NewProjectionExtension(map[string]*projection.Options{
+					"db-writer": {Handler: handler, BufferSize: 500, ResetOffset: resetAt, PullInterval: time.Second, Recovery: projection.NewRecovery()},
+				})),
 			goakt.WithActorInitMaxRetries(1))
 
 		require.NoError(t, err)

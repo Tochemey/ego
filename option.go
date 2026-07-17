@@ -48,7 +48,7 @@ type Config struct {
 	offsetStore   offsetstore.OffsetStore
 	snapshotStore persistence.SnapshotStore
 	logger        Logger
-	projection    *projection.Options
+	projections   map[string]*projection.Options
 	eventAdapters []eventadapter.EventAdapter
 	telemetry     *Telemetry
 	encryptor     encryption.Encryptor
@@ -124,21 +124,18 @@ func (c *Config) GoaktOptions() []goakt.Option {
 		opts = append(opts, goakt.WithExtensions(extensions.NewOffsetStore(c.offsetStore)))
 	}
 
-	if c.projection != nil {
-		recovery := c.projection.Recovery
-		if recovery == nil {
-			recovery = projection.NewRecovery()
+	if len(c.projections) > 0 {
+		// Normalize into copies so defaulting Recovery never mutates the
+		// caller-owned Options values.
+		projections := make(map[string]*projection.Options, len(c.projections))
+		for name, options := range c.projections {
+			normalized := *options
+			if normalized.Recovery == nil {
+				normalized.Recovery = projection.NewRecovery()
+			}
+			projections[name] = &normalized
 		}
-
-		opts = append(opts, goakt.WithExtensions(extensions.NewProjectionExtension(
-			c.projection.Handler,
-			c.projection.BufferSize,
-			c.projection.StartOffset,
-			c.projection.ResetOffset,
-			c.projection.PullInterval,
-			recovery,
-			c.projection.DeadLetterHandler,
-		)))
+		opts = append(opts, goakt.WithExtensions(extensions.NewProjectionExtension(projections)))
 	}
 
 	if c.snapshotStore != nil {
@@ -231,12 +228,19 @@ func WithOffsetStore(offsetStore offsetstore.OffsetStore) Option {
 	})
 }
 
-// WithProjection enables and configures the engine's projection runner.
+// WithProjection registers a named projection with its own handler and
+// runtime options. The option is repeatable: call it once per projection the
+// engine hosts, each with a distinct name and its own projection.Options.
+//
+// The name is the projection's unique identifier — the same name is later
+// passed to Engine.StartProjection to start it, and it keys the projection's
+// committed offsets in the offset store. Registering the same name twice
+// overwrites the earlier registration.
 //
 // The supplied projection.Options carries the projection handler and
 // runtime knobs:
 //
-//   - Handler is required; it processes each event the projection observes.
+//   - Handler is required; it processes each event this projection observes.
 //   - BufferSize bounds the in-flight event window.
 //   - StartOffset is the timestamp from which a new projection begins reading.
 //   - ResetOffset is the fallback offset used when recovery rewinds the projection.
@@ -246,9 +250,20 @@ func WithOffsetStore(offsetStore offsetstore.OffsetStore) Option {
 //
 // A nil options pointer is ignored. Projections also require an offset store
 // (WithOffsetStore) to track progress durably.
-func WithProjection(options *projection.Options) Option {
+//
+// In cluster mode every node must register the same projections: the
+// projection runs as a cluster singleton that can be (re)spawned on any node,
+// and the hosting node resolves the handler from its own registration — the
+// same contract WithEntityKinds establishes for entity behaviors.
+func WithProjection(name string, options *projection.Options) Option {
 	return OptionFunc(func(c *Config) {
-		c.projection = options
+		if options == nil {
+			return
+		}
+		if c.projections == nil {
+			c.projections = make(map[string]*projection.Options)
+		}
+		c.projections[name] = options
 	})
 }
 

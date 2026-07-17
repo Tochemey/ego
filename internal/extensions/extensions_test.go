@@ -75,33 +75,29 @@ func TestOffsetStore(t *testing.T) {
 }
 
 func TestProjectionExtension(t *testing.T) {
-	handler := projection.NewDiscardHandler()
-	bufferSize := 100
-	startOffset := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	resetOffset := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
-	pullInterval := 500 * time.Millisecond
-	recovery := projection.NewRecovery()
-	deadLetterHandler := projection.NewDiscardDeadLetterHandler()
+	accounts := &projection.Options{
+		Handler:           projection.NewDiscardHandler(),
+		BufferSize:        100,
+		StartOffset:       time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+		ResetOffset:       time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC),
+		PullInterval:      500 * time.Millisecond,
+		Recovery:          projection.NewRecovery(),
+		DeadLetterHandler: projection.NewDiscardDeadLetterHandler(),
+	}
+	audit := &projection.Options{
+		Handler: projection.NewDiscardHandler(),
+	}
 
-	ext := NewProjectionExtension(
-		handler,
-		bufferSize,
-		startOffset,
-		resetOffset,
-		pullInterval,
-		recovery,
-		deadLetterHandler,
-	)
+	ext := NewProjectionExtension(map[string]*projection.Options{
+		"accounts": accounts,
+		"audit":    audit,
+	})
 
 	require.NotNil(t, ext)
 	assert.Equal(t, ProjectionExtensionID, ext.ID())
-	assert.Equal(t, handler, ext.Handler())
-	assert.Equal(t, bufferSize, ext.BufferSize())
-	assert.Equal(t, startOffset, ext.StartOffset())
-	assert.Equal(t, resetOffset, ext.ResetOffset())
-	assert.Equal(t, recovery, ext.Recovery())
-	assert.Equal(t, pullInterval, ext.PullInterval())
-	assert.Equal(t, deadLetterHandler, ext.DeadLetterHandler())
+	assert.Same(t, accounts, ext.Get("accounts"))
+	assert.Same(t, audit, ext.Get("audit"))
+	assert.Nil(t, ext.Get("unknown"))
 }
 
 func TestEventAdapters(t *testing.T) {

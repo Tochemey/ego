@@ -61,6 +61,9 @@ var (
 	ErrCommandReplyUnmarshalling = errors.New("failed to parse command reply")
 	// ErrDurableStateStoreRequired is returned when the eGo engine durable store is not set
 	ErrDurableStateStoreRequired = errors.New("durable state store is required")
+	// ErrProjectionNotRegistered is returned by StartProjection when the given
+	// name was never registered on the engine's Config via WithProjection.
+	ErrProjectionNotRegistered = errors.New("projection is not registered; register it with ego.WithProjection")
 	// ErrActorSystemRequired is returned when NewEngine is called with a nil
 	// actor system. The caller must construct and start the actor system
 	// themselves before plugging eGo in.
@@ -221,7 +224,7 @@ func validateActorSystemExtensions(sys goakt.ActorSystem, cfg *Config) error {
 		{extensions.EventsStreamExtensionID, true},
 		{extensions.DurableStateStoreExtensionID, cfg.stateStore != nil},
 		{extensions.OffsetStoreExtensionID, cfg.offsetStore != nil},
-		{extensions.ProjectionExtensionID, cfg.projection != nil},
+		{extensions.ProjectionExtensionID, len(cfg.projections) > 0},
 		{extensions.SnapshotStoreExtensionID, cfg.snapshotStore != nil},
 		{extensions.EventAdaptersExtensionID, len(cfg.eventAdapters) > 0},
 		{extensions.TelemetryExtensionID, cfg.telemetry != nil},
@@ -345,11 +348,13 @@ func (engine *Engine) ActorSystem() goakt.ActorSystem {
 	return ref.sys
 }
 
-// AddProjection registers a new projection with the eGo engine and starts its execution.
+// StartProjection starts the named projection previously registered on the
+// engine's Config via WithProjection.
 //
-// The projection processes events from the events store applying the specified handler to manage state updates
-// based on incoming events. The provided offset store ensures the projection maintains its processing position
-// across restarts.
+// The projection processes events from the events store applying its own
+// registered handler to manage state updates based on incoming events. The
+// provided offset store ensures the projection maintains its processing
+// position across restarts.
 //
 // Key behavior:
 //   - Projections once created, will persist for the entire lifespan of the running eGo system.
@@ -359,10 +364,11 @@ func (engine *Engine) ActorSystem() goakt.ActorSystem {
 //
 // Parameters:
 //   - ctx: Execution context used for cancellation and deadlines.
-//   - name: A unique identifier for the projection.
+//   - name: The unique identifier the projection was registered under via WithProjection.
 //
-// Returns an error if the projection fails to start due to misconfiguration or underlying system issues.
-func (engine *Engine) AddProjection(ctx context.Context, name string) error {
+// Returns ErrProjectionNotRegistered when the name is unknown, or an error if
+// the projection fails to start due to misconfiguration or underlying system issues.
+func (engine *Engine) StartProjection(ctx context.Context, name string) error {
 	if !engine.Started() {
 		return ErrEngineNotStarted
 	}
@@ -375,6 +381,14 @@ func (engine *Engine) AddProjection(ctx context.Context, name string) error {
 	}
 	actorSystem := ref.sys
 
+	// Fail fast on unknown names instead of letting the actor's PreStart
+	// (and its retries) discover the missing registration. When the registry
+	// extension cannot be resolved (e.g. the actor system is already stopped),
+	// fall through and let the spawn surface the actual failure.
+	if registry, ok := actorSystem.Extension(extensions.ProjectionExtensionID).(*extensions.ProjectionExtension); ok && registry.Get(name) == nil {
+		return fmt.Errorf("%w: %s", ErrProjectionNotRegistered, name)
+	}
+
 	if actorSystem.InCluster() {
 		// In cluster mode, run the projection as a singleton to avoid
 		// duplicate event processing across nodes. The singleton is placed
@@ -384,7 +398,7 @@ func (engine *Engine) AddProjection(ctx context.Context, name string) error {
 			if errors.Is(err, gerrors.ErrSingletonAlreadyExists) {
 				return nil
 			}
-			return fmt.Errorf("failed to register the projection=(%s): %w", name, err)
+			return fmt.Errorf("failed to start the projection=(%s): %w", name, err)
 		}
 		return nil
 	}
@@ -396,13 +410,13 @@ func (engine *Engine) AddProjection(ctx context.Context, name string) error {
 		goakt.WithLongLived(),
 		goakt.WithRelocationDisabled(),
 		goakt.WithSupervisor(sup)); err != nil {
-		return fmt.Errorf("failed to register the projection=(%s): %w", name, err)
+		return fmt.Errorf("failed to start the projection=(%s): %w", name, err)
 	}
 
 	return nil
 }
 
-// RemoveProjection stops and removes the specified projection from the engine.
+// StopProjection stops and removes the specified projection from the engine.
 //
 // This function gracefully shuts down the projection identified by `name` and removes it from the system.
 // Any in-progress processing will be stopped, and the projection will no longer receive events.
@@ -413,7 +427,7 @@ func (engine *Engine) AddProjection(ctx context.Context, name string) error {
 //
 // Returns:
 //   - An error if the projection fails to stop or does not exist; otherwise, nil.
-func (engine *Engine) RemoveProjection(ctx context.Context, name string) error {
+func (engine *Engine) StopProjection(ctx context.Context, name string) error {
 	if !engine.Started() {
 		return ErrEngineNotStarted
 	}
@@ -487,7 +501,7 @@ func (engine *Engine) RebuildProjection(ctx context.Context, name string, from t
 	}
 
 	// stop the running projection
-	if err := engine.RemoveProjection(ctx, name); err != nil {
+	if err := engine.StopProjection(ctx, name); err != nil {
 		return fmt.Errorf("failed to stop projection %s for rebuild: %w", name, err)
 	}
 
@@ -497,7 +511,7 @@ func (engine *Engine) RebuildProjection(ctx context.Context, name string, from t
 	}
 
 	// restart the projection
-	if err := engine.AddProjection(ctx, name); err != nil {
+	if err := engine.StartProjection(ctx, name); err != nil {
 		return fmt.Errorf("failed to restart projection %s after rebuild: %w", name, err)
 	}
 
