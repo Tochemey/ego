@@ -28,9 +28,32 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
-// Handler is used to handle events consumed from the event store
+// Handler processes the events a projection consumes from the events store,
+// typically by materializing them into a read model (a database table, a
+// cache, a search index, …).
+//
+// Concurrency: Handle may be invoked concurrently for events belonging to
+// different shards, so implementations must be safe for concurrent use.
+// Events of the same shard — and therefore of the same persistence ID — are
+// always delivered sequentially, in order of their revision. In practice a
+// handler whose only state is a concurrency-safe client (e.g. *pgxpool.Pool,
+// *sql.DB) needs no extra synchronization; only mutable state held on the
+// handler struct itself (in-memory maps, counters, batch buffers) must be
+// guarded.
+//
+// Delivery: the projection commits its offset once per processed batch, so
+// delivery is at-least-once — a crash mid-batch re-delivers the whole batch
+// on restart. Handlers should therefore be idempotent.
+//
+// Errors: a non-nil error triggers the projection's Recovery policy (fail,
+// retry, or skip, optionally routing the event to the DeadLetterHandler).
+// Panics raised by Handle are recovered by the runner and treated as errors.
 type Handler interface {
-	// Handle handles the event that is consumed by the projection
+	// Handle processes a single event consumed by the projection.
+	//
+	// persistenceID identifies the entity that emitted the event, event is the
+	// (decrypted and schema-adapted) payload, and revision is the event's
+	// sequence number within that entity's journal.
 	Handle(ctx context.Context, persistenceID string, event *anypb.Any, revision uint64) error
 }
 

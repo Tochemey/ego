@@ -4,13 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [v4.4.0] - 2026-07-16
+## [v4.4.0] - 2026-07-17
 
 This release makes projections first-class named components: each projection is registered under its own name with its **own handler** and runtime options, aligning eGo with how Akka/Pekko Projections and Axon event processors bind one handler per projection. It removes two footguns of the previous engine-wide design — a single handler silently shared by every projection, and a second `WithProjection` call silently overwriting the first — and renames the projection lifecycle methods to match what they actually do.
 
 ### 💥 Breaking Changes
 
-- **Each projection now has its own handler: `WithProjection` takes a name and is repeatable.** Previously the engine held a single engine-wide `projection.Options`, so every projection started with `AddProjection` shared the same handler instance — forcing a multiplexing handler that branched on event type, and silently requiring goroutine-safety the moment a second projection was added. Calling `WithProjection` twice simply overwrote the earlier configuration. `WithProjection` now registers a *named* projection with its own handler and runtime options, and is called once per projection:
+- **Each projection now has its own handler: `WithProjection` takes a name and is repeatable.** Previously the engine held a single engine-wide `projection.Options`, so every projection started with `AddProjection` shared the same handler instance — forcing a multiplexing handler that branched on event type. Calling `WithProjection` twice simply overwrote the earlier configuration. `WithProjection` now registers a *named* projection with its own handler and runtime options, and is called once per projection:
 
   ```go
   // before — one handler shared by every projection
@@ -39,7 +39,7 @@ This release makes projections first-class named components: each projection is 
 
 ### ✨ Features
 
-- **Multiple projections per engine.** Registering N projections and starting them all is now a first-class flow: each polls the events store independently on its own `PullInterval`, commits its own offsets, and invokes only its own handler. A handler is still invoked sequentially per projection; it only needs to be goroutine-safe if the *same instance* is deliberately registered under several names.
+- **Multiple projections per engine.** Registering N projections and starting them all is now a first-class flow: each polls the events store independently on its own `PullInterval`, commits its own offsets, and invokes only its own handler. As before, handlers must be goroutine-safe: even within a single projection, pending shards are processed concurrently by the runner's worker pool, so `Handle` can be invoked from several goroutines at once — only events belonging to the same shard are handled sequentially, in order.
 
 - **`ego.ErrProjectionNotRegistered`.** `StartProjection` on a name that was never registered fails immediately with this sentinel error (wrapped with the offending name), instead of spawning a projection actor whose `PreStart` would fail and be retried five times by the actor system:
 
