@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 💥 Breaking Changes
+
+- **Each projection now has its own handler: `WithProjection` takes a name and is repeatable.**
+  Previously the engine held a single engine-wide `projection.Options`, so every projection started with
+  `AddProjection` shared the same handler (and calling `WithProjection` twice silently overwrote the first
+  configuration). `WithProjection` now registers a *named* projection with its own handler and runtime
+  options, and can be called once per projection:
+
+  ```go
+  // before
+  cfg := ego.NewConfig(eventsStore,
+      ego.WithProjection(&projection.Options{Handler: handler, ...}),
+  )
+  engine.AddProjection(ctx, "account-balances")
+
+  // after
+  cfg := ego.NewConfig(eventsStore,
+      ego.WithProjection("account-balances", &projection.Options{Handler: balanceHandler, ...}),
+      ego.WithProjection("audit-log", &projection.Options{Handler: auditHandler, ...}),
+  )
+  engine.StartProjection(ctx, "account-balances")
+  engine.StartProjection(ctx, "audit-log")
+  ```
+
+  The name passed to `WithProjection` is the projection's unique identifier: the same name is passed to
+  `Engine.StartProjection`, and it keys the projection's committed offsets in the offset store. Starting a
+  name that was never registered fails fast with the new `ego.ErrProjectionNotRegistered` sentinel error.
+
+  In cluster mode every node must register the same projections: a projection runs as a cluster singleton
+  that can be (re)spawned on any node, and the hosting node resolves the handler from its own
+  registration — the same contract `WithEntityKinds` establishes for entity behaviors.
+
+- **`Engine.AddProjection` is renamed to `StartProjection`; `Engine.RemoveProjection` is renamed to
+  `StopProjection`.** With registration moved to `WithProjection`, these methods purely start and stop a
+  previously registered projection, and the new names mirror `Engine.Start`/`Engine.Stop`. Their behavior
+  is unchanged apart from the fail-fast unknown-name check described above.
+
 ## [v4.3.0] - 2026-07-16
 
 ### 💥 Breaking Changes

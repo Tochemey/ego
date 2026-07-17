@@ -114,7 +114,7 @@ func main() {
 	cfg := ego.NewConfig(eventStore,
 		ego.WithOffsetStore(offsetStore),
 		ego.WithTelemetry(tel),
-		ego.WithProjection(&projection.Options{
+		ego.WithProjection(projectionName, &projection.Options{
 			Handler:      projectionHandler,
 			BufferSize:   500,
 			StartOffset:  time.Time{},
@@ -164,9 +164,9 @@ func main() {
 	}
 
 	// Start the projection runner.
-	// In cluster mode, AddProjection automatically runs it as a singleton on the
+	// In cluster mode, StartProjection automatically runs it as a singleton on the
 	// oldest node. If that node leaves, it migrates to the new oldest node.
-	if err := engine.AddProjection(ctx, projectionName); err != nil {
+	if err := engine.StartProjection(ctx, projectionName); err != nil {
 		slog.Error("failed to add projection", "err", err)
 		os.Exit(1)
 	}

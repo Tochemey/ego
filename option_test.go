@@ -92,14 +92,26 @@ func TestOptionWithProjection(t *testing.T) {
 		PullInterval: time.Second,
 		Recovery:     recovery,
 	}
-	c := NewConfig(nil, WithProjection(o))
-	require.NotNil(t, c.projection)
-	assert.Same(t, o, c.projection)
+	c := NewConfig(nil, WithProjection("accounts", o))
+	require.NotNil(t, c.projections)
+	assert.Same(t, o, c.projections["accounts"])
+}
+
+func TestOptionWithProjectionMultiple(t *testing.T) {
+	accounts := &projection.Options{Handler: projection.NewDiscardHandler()}
+	audit := &projection.Options{Handler: projection.NewDiscardHandler()}
+	c := NewConfig(nil,
+		WithProjection("accounts", accounts),
+		WithProjection("audit", audit),
+	)
+	require.Len(t, c.projections, 2)
+	assert.Same(t, accounts, c.projections["accounts"])
+	assert.Same(t, audit, c.projections["audit"])
 }
 
 func TestOptionWithProjectionNil(t *testing.T) {
-	c := NewConfig(nil, WithProjection(nil))
-	assert.Nil(t, c.projection)
+	c := NewConfig(nil, WithProjection("accounts", nil))
+	assert.Nil(t, c.projections)
 }
 
 func TestOptionWithTelemetry(t *testing.T) {
@@ -165,7 +177,7 @@ func TestConfigGoaktOptionsProjectionDefaultsRecovery(t *testing.T) {
 	// should still register the extension by falling back to a default
 	// recovery strategy.
 	cfg := NewConfig(testkit.NewEventsStore(),
-		WithProjection(&projection.Options{
+		WithProjection("accounts", &projection.Options{
 			Handler:      projection.NewDiscardHandler(),
 			BufferSize:   10,
 			PullInterval: time.Second,

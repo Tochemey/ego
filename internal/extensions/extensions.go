@@ -176,35 +176,21 @@ func (x *OffsetStore) Underlying() offsetstore.OffsetStore {
 	return x.underlying
 }
 
+// ProjectionExtension is the registry of named projections configured on the
+// engine. Each projection carries its own handler and runtime options; the
+// projection actor looks its configuration up by name at PreStart time.
 type ProjectionExtension struct {
-	handler           projection.Handler
-	bufferSize        int
-	startOffset       time.Time
-	resetOffset       time.Time
-	recovery          *projection.Recovery
-	pullInterval      time.Duration
-	deadLetterHandler projection.DeadLetterHandler
+	projections map[string]*projection.Options
 }
 
 // enforce compliance with the extension.Extension interface
 var _ extension.Extension = (*ProjectionExtension)(nil)
 
-// NewProjectionExtension creates a new projection handler extension
-func NewProjectionExtension(handler projection.Handler,
-	bufferSize int,
-	startOffset,
-	resetOffset time.Time,
-	pullInterval time.Duration,
-	recovery *projection.Recovery,
-	deadLetterHandler projection.DeadLetterHandler) *ProjectionExtension {
+// NewProjectionExtension creates a new projection registry extension keyed by
+// projection name.
+func NewProjectionExtension(projections map[string]*projection.Options) *ProjectionExtension {
 	return &ProjectionExtension{
-		handler:           handler,
-		bufferSize:        bufferSize,
-		startOffset:       startOffset,
-		resetOffset:       resetOffset,
-		recovery:          recovery,
-		pullInterval:      pullInterval,
-		deadLetterHandler: deadLetterHandler,
+		projections: projections,
 	}
 }
 
@@ -213,34 +199,10 @@ func (x *ProjectionExtension) ID() string {
 	return ProjectionExtensionID
 }
 
-// Handler returns the projection handler handler
-func (x *ProjectionExtension) Handler() projection.Handler {
-	return x.handler
-}
-
-func (x *ProjectionExtension) BufferSize() int {
-	return x.bufferSize
-}
-
-func (x *ProjectionExtension) StartOffset() time.Time {
-	return x.startOffset
-}
-
-func (x *ProjectionExtension) ResetOffset() time.Time {
-	return x.resetOffset
-}
-
-func (x *ProjectionExtension) Recovery() *projection.Recovery {
-	return x.recovery
-}
-
-func (x *ProjectionExtension) PullInterval() time.Duration {
-	return x.pullInterval
-}
-
-// DeadLetterHandler returns the dead letter handler
-func (x *ProjectionExtension) DeadLetterHandler() projection.DeadLetterHandler {
-	return x.deadLetterHandler
+// Get returns the options registered under the given projection name, or nil
+// when no projection with that name was registered.
+func (x *ProjectionExtension) Get(name string) *projection.Options {
+	return x.projections[name]
 }
 
 // SnapshotStoreExt wraps a persistence.SnapshotStore for use as an extension.

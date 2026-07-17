@@ -24,6 +24,7 @@ package ego
 
 import (
 	"context"
+	"fmt"
 
 	goakt "github.com/tochemey/goakt/v4/actor"
 
@@ -49,19 +50,29 @@ func NewProjectionActor() *ProjectionActor {
 func (x *ProjectionActor) PreStart(ctx *goakt.Context) error {
 	offsetStore := ctx.Extension(extensions.OffsetStoreExtensionID).(*extensions.OffsetStore).Underlying()
 	eventsStore := ctx.Extension(extensions.EventsStoreExtensionID).(*extensions.EventsStore).Underlying()
-	projection := ctx.Extension(extensions.ProjectionExtensionID).(*extensions.ProjectionExtension)
+	registry, ok := ctx.Extension(extensions.ProjectionExtensionID).(*extensions.ProjectionExtension)
+	if !ok {
+		return fmt.Errorf("projection registry extension is not available on this node")
+	}
+
+	// The actor name is the projection name: resolve this projection's own
+	// handler and options from the registry built by WithProjection.
+	options := registry.Get(ctx.ActorName())
+	if options == nil {
+		return fmt.Errorf("projection %q is not registered: register it with ego.WithProjection on every node", ctx.ActorName())
+	}
 
 	opts := []runnerOption{
 		withLogger(ctx.ActorSystem().Logger()),
-		withRecoveryStrategy(projection.Recovery()),
-		withStartOffset(projection.StartOffset()),
-		withResetOffset(projection.ResetOffset()),
-		withMaxBufferSize(projection.BufferSize()),
-		withPullInterval(projection.PullInterval()),
+		withRecoveryStrategy(options.Recovery),
+		withStartOffset(options.StartOffset),
+		withResetOffset(options.ResetOffset),
+		withMaxBufferSize(options.BufferSize),
+		withPullInterval(options.PullInterval),
 	}
 
-	if dlh := projection.DeadLetterHandler(); dlh != nil {
-		opts = append(opts, withDeadLetterHandler(dlh))
+	if options.DeadLetterHandler != nil {
+		opts = append(opts, withDeadLetterHandler(options.DeadLetterHandler))
 	}
 
 	if ext := ctx.Extension(extensions.EventAdaptersExtensionID); ext != nil {
@@ -86,7 +97,7 @@ func (x *ProjectionActor) PreStart(ctx *goakt.Context) error {
 		}
 	}
 
-	x.runner = newProjectionRunner(ctx.ActorName(), projection.Handler(), eventsStore, offsetStore, opts...)
+	x.runner = newProjectionRunner(ctx.ActorName(), options.Handler, eventsStore, offsetStore, opts...)
 
 	// Use context.Background() instead of ctx.Context() because PreStart's
 	// context is ephemeral — goakt wraps it in context.WithTimeout and cancels
