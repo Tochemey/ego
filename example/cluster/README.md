@@ -1,7 +1,6 @@
 # eGo Cluster Example
 
-A production-ready example that runs a 3-node eGo cluster on Kubernetes using [Kind](https://kind.sigs.k8s.io/).
-It demonstrates event sourcing, CQRS with a projection read side, Kubernetes-native peer discovery, PostgreSQL persistence, and full observability with OpenTelemetry, Jaeger, Prometheus, and Grafana.
+A production-ready example that runs a 3-node eGo cluster on Kubernetes using [Kind](https://kind.sigs.k8s.io/). It demonstrates event sourcing, CQRS with a projection read side, Kubernetes-native peer discovery, PostgreSQL persistence, and full observability with OpenTelemetry, Jaeger, Prometheus, and Grafana.
 
 ## What This Example Shows
 
@@ -16,7 +15,7 @@ It demonstrates event sourcing, CQRS with a projection read side, Kubernetes-nat
 
 ## Architecture
 
-```
+```text
                           ┌──────────────────────┐
                           │     HTTP Client      │
                           │  (curl / make test)  │
@@ -144,13 +143,14 @@ make deploy
 ```
 
 This applies the manifests in order:
+
 - NGINX Ingress Controller — installed from the official Kind-compatible manifest
 - `k8s/namespace.yaml` — creates the `ego-example` namespace
 - `k8s/postgres.yaml` — deploys PostgreSQL with init SQL (events, offsets, and account_balances tables)
 - `k8s/rbac.yaml` — creates ServiceAccount, Role, and RoleBinding for pod discovery
 - `k8s/grafana-dashboard.yaml` — pre-built Grafana dashboard for eGo metrics
 - `k8s/observability.yaml` — OTel Collector, Jaeger, Prometheus, and Grafana
-- `k8s/app.yaml` — 3-replica Deployment + headless Service (gossip) + ClusterIP Service (HTTP) + Ingress
+- `k8s/app.yaml` — 3-replica StatefulSet + headless Service (gossip) + ClusterIP Service (HTTP) + Ingress
 
 ### 4. Wait for pods to be ready
 
@@ -165,6 +165,7 @@ make test
 ```
 
 The test hits `http://localhost` through the NGINX Ingress (requests are round-robin distributed across pods):
+
 1. Health check
 2. Creates an account with balance **1000**
 3. Sends **30 credit requests** of 10 each (load-balanced across pods)
@@ -180,6 +181,7 @@ make load-test
 ```
 
 Creates **1000 accounts** sequentially via NGINX Ingress, distributed round-robin across pods. Reports:
+
 - Pass / fail counts
 - Total duration and throughput (~accounts/s)
 - Pod distribution via `X-Served-By` headers (shows how load was spread across pods)
@@ -192,11 +194,11 @@ make db
 
 Runs `psql` inside the PostgreSQL pod and prints snapshots of all three tables — no local `psql` installation needed:
 
-| Table               | Contents                                                  |
-|---------------------|-----------------------------------------------------------|
-| `account_balances`  | Projection read model — current balance per account       |
-| `events_store`      | Raw event log — last 20 events with sequence and manifest |
-| `offsets_store`     | Projection progress — current offset per shard            |
+| Table | Contents |
+| --- | --- |
+| `account_balances` | Projection read model — current balance per account |
+| `events_store` | Raw event log — last 20 events with sequence and manifest |
+| `offsets_store` | Projection progress — current offset per shard |
 
 Row counts for all three tables are shown at the end.
 
@@ -212,18 +214,18 @@ Opens Grafana at [http://localhost:3000](http://localhost:3000) (login: `admin` 
 
 The pre-built **eGo Cluster** dashboard is automatically provisioned and includes:
 
-| Panel                                | Description                                   |
-|--------------------------------------|-----------------------------------------------|
-| Commands Processed (rate/s)          | Throughput of commands per second             |
-| Command Duration (p50/p95/p99)       | Latency histogram percentiles in milliseconds |
-| Events Persisted (rate/s)            | Rate of events written to the event store     |
-| Projection Events Processed (rate/s) | Rate of events consumed by the projection     |
-| Active Entities                      | Current number of live entity actors          |
-| Active Projections                   | Current number of running projection actors   |
-| Commands Total                       | Cumulative command count                      |
-| Events Persisted Total               | Cumulative event count                        |
-| Projection Lag (ms)                  | How far behind each projection shard is       |
-| Projection Events Behind             | Approximate unprocessed event count per shard |
+| Panel | Description |
+| --- | --- |
+| Commands Processed (rate/s) | Throughput of commands per second |
+| Command Duration (p50/p95/p99) | Latency histogram percentiles in milliseconds |
+| Events Persisted (rate/s) | Rate of events written to the event store |
+| Projection Events Processed (rate/s) | Rate of events consumed by the projection |
+| Active Entities | Current number of live entity actors |
+| Active Projections | Current number of running projection actors |
+| Commands Total | Cumulative command count |
+| Events Persisted Total | Cumulative event count |
+| Projection Lag (ms) | How far behind each projection shard is |
+| Projection Events Behind | Approximate unprocessed event count per shard |
 
 Direct link: [http://localhost:3000/d/ego-cluster-dashboard](http://localhost:3000/d/ego-cluster-dashboard)
 
@@ -234,6 +236,7 @@ make jaeger
 ```
 
 Opens Jaeger at [http://localhost:16686](http://localhost:16686). Select service `ego-cluster` to see traces for command processing, including:
+
 - Span name: `ego.command`
 - Attributes: `ego.persistence_id`, `ego.command_type`
 
@@ -245,17 +248,19 @@ make prometheus
 
 Opens Prometheus at [http://localhost:9090](http://localhost:9090). Available metrics:
 
-| Metric                            | Type          | Description                         |
-|-----------------------------------|---------------|-------------------------------------|
-| `ego_commands_total`              | Counter       | Total commands processed            |
-| `ego_commands_duration`           | Histogram     | Command processing duration (ms)    |
-| `ego_events_persisted`            | Counter       | Total events persisted              |
-| `ego_projection_events_processed` | Counter       | Total projection events processed   |
-| `ego_entities_active`             | UpDownCounter | Currently active entities           |
-| `ego_projections_active`          | UpDownCounter | Currently active projections        |
-| `ego_projection_lag_ms`           | Gauge         | Projection lag per shard (ms)       |
-| `ego_projection_latest_offset`    | Gauge         | Current projection offset per shard |
-| `ego_projection_events_behind`    | Gauge         | Unprocessed events per shard        |
+eGo defines OpenTelemetry instruments with dotted names; the OpenTelemetry Collector exposes them to Prometheus with underscores.
+
+| Metric | Type | Description |
+| --- | --- | --- |
+| `ego_commands_total` | Counter | Total commands processed |
+| `ego_commands_duration` | Histogram | Command processing duration (ms) |
+| `ego_events_persisted` | Counter | Total events persisted |
+| `ego_projection_events_processed` | Counter | Total projection events processed |
+| `ego_entities_active` | UpDownCounter | Currently active entities |
+| `ego_projections_active` | UpDownCounter | Currently active projections |
+| `ego_projection_lag_ms` | Gauge | Projection lag per shard (ms) |
+| `ego_projection_latest_offset` | Gauge | Current projection offset per shard |
+| `ego_projection_events_behind` | Gauge | Unprocessed events per shard |
 
 ### Kubernetes Dashboard
 
@@ -267,44 +272,43 @@ Installs and opens the Kubernetes Dashboard. A token is printed to the terminal 
 
 ## All Make Targets
 
-| Target              | Description                                                        |
-|---------------------|--------------------------------------------------------------------|
-| `make all`          | Full flow: create cluster, build, deploy, wait, test               |
-| `make kind-create`  | Create the Kind cluster with ingress port mappings                 |
-| `make docker-build` | Build the Docker image and load it into Kind                       |
-| `make deploy`       | Apply all Kubernetes manifests                                     |
-| `make wait`         | Wait for StatefulSet rollout and ingress readiness                 |
-| `make test`         | Run integration tests via ingress (balance check + pod spread)     |
-| `make load-test`    | Create 1000 accounts (sequential); report throughput + pod dist    |
-| `make db`           | Snapshot PostgreSQL tables (events, offsets, balances) in-cluster  |
-| `make grafana`      | Port-forward Grafana to localhost:3000 (admin / admin)             |
-| `make jaeger`       | Port-forward Jaeger to localhost:16686                             |
-| `make prometheus`   | Port-forward Prometheus to localhost:9090                          |
-| `make dashboard`    | Install and open the Kubernetes dashboard at https://localhost:8443 |
-| `make reset`        | Truncate all tables for a clean re-run (no teardown needed)        |
-| `make status`       | Show all Kubernetes resources in the ego-example namespace         |
-| `make logs`         | Tail logs from all app pods                                        |
-| `make teardown`     | Delete the Kind cluster and all resources                          |
-| `make clean`        | Alias for `teardown`                                               |
+| Target | Description |
+| --- | --- |
+| `make all` | Full flow: create cluster, build, deploy, wait, test |
+| `make kind-create` | Create the Kind cluster with ingress port mappings |
+| `make docker-build` | Build the Docker image and load it into Kind |
+| `make deploy` | Apply all Kubernetes manifests |
+| `make wait` | Wait for StatefulSet rollout and ingress readiness |
+| `make test` | Run integration tests via ingress (balance check + pod spread) |
+| `make load-test` | Create 1000 accounts (sequential); report throughput + pod dist |
+| `make db` | Snapshot PostgreSQL tables (events, offsets, balances) in-cluster |
+| `make grafana` | Port-forward Grafana to localhost:3000 (admin / admin) |
+| `make jaeger` | Port-forward Jaeger to localhost:16686 |
+| `make prometheus` | Port-forward Prometheus to localhost:9090 |
+| `make dashboard` | Install and open the Kubernetes dashboard at `https://localhost:8443` |
+| `make reset` | Truncate all tables for a clean re-run (no teardown needed) |
+| `make status` | Show all Kubernetes resources in the ego-example namespace |
+| `make logs` | Tail logs from all app pods |
+| `make teardown` | Delete the Kind cluster and all resources |
+| `make clean` | Alias for `teardown` |
 
 ## HTTP API
 
 The app exposes the following endpoints on port `8080`:
 
-| Method | Path                    | Description                                              |
-|--------|-------------------------|----------------------------------------------------------|
-| `GET`  | `/healthz`              | Health and readiness probe                               |
-| `POST` | `/accounts/{id}`        | Create an account (body: `{"balance": 1000}`)            |
-| `POST` | `/accounts/{id}/credit` | Credit an account (body: `{"amount": 250}`)              |
-| `POST` | `/accounts/{id}/debit`  | Debit an account (body: `{"amount": 100}`)               |
-| `GET`  | `/accounts/{id}`        | Query account balance from the **projection read table** |
+| Method | Path | Description |
+| --- | --- | --- |
+| `GET` | `/healthz` | Health and readiness probe |
+| `POST` | `/accounts/{id}` | Create an account (body: `{"balance": 1000}`) |
+| `POST` | `/accounts/{id}/credit` | Credit an account (body: `{"amount": 250}`) |
+| `POST` | `/accounts/{id}/debit` | Debit an account (body: `{"amount": 100}`) |
+| `GET` | `/accounts/{id}` | Query account balance from the **projection read table** |
 
-The write-side endpoints (`POST`) send commands to event-sourced entities.
-The read-side endpoint (`GET /accounts/{id}`) queries the `account_balances` table, which is populated by the projection handler as it consumes events.
+The write-side endpoints (`POST`) send commands to event-sourced entities. The read-side endpoint (`GET /accounts/{id}`) queries the `account_balances` table, which is populated by the projection handler as it consumes events.
 
 ## Project Structure
 
-```
+```text
 example/cluster/
 ├── main.go                  # Engine setup, HTTP API, graceful shutdown
 ├── behavior.go              # AccountBehavior (event-sourced entity)
@@ -324,7 +328,7 @@ example/cluster/
     ├── rbac.yaml            # ServiceAccount + Role + RoleBinding
     ├── observability.yaml   # OTel Collector, Jaeger, Prometheus, Grafana
     ├── grafana-dashboard.yaml # Pre-built Grafana dashboard for eGo metrics
-    └── app.yaml             # 3-replica Deployment + headless Service
+    └── app.yaml             # 3-replica StatefulSet + headless Service
 ```
 
 ## Load Balancing
@@ -337,8 +341,7 @@ A separate headless service (`ego-cluster-headless`) is kept for gossip-based pe
 
 ## Dependency Isolation
 
-This example is a **separate Go module** (`github.com/tochemey/ego/v4/example/cluster`) with its own `go.mod`.
-Heavy dependencies like `k8s.io/client-go`, `github.com/jackc/pgx/v5`, and the OpenTelemetry SDK are confined to this module and do not affect the core eGo library.
+This example is a **separate Go module** (`github.com/tochemey/ego/v4/example/cluster`) with its own `go.mod`. Heavy dependencies like `k8s.io/client-go`, `github.com/jackc/pgx/v5`, and the OpenTelemetry SDK are confined to this module and do not affect the core eGo library.
 
 ## Cleanup
 
