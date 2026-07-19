@@ -182,16 +182,8 @@ An event-sourced behavior implements `ego.EventSourcedBehavior`:
 ```go
 type EventSourcedBehavior interface {
     InitialState() ego.State
-    HandleCommand(
-        context.Context,
-        ego.Command,
-        ego.State,
-    ) ([]ego.Event, error)
-    HandleEvent(
-        context.Context,
-        ego.Event,
-        ego.State,
-    ) (ego.State, error)
+    HandleCommand(context.Context, ego.Command, ego.State) ([]ego.Event, error)
+    HandleEvent(context.Context, ego.Event, ego.State) (ego.State, error)
 }
 ```
 
@@ -202,12 +194,7 @@ A durable-state behavior implements `ego.DurableStateBehavior`:
 ```go
 type DurableStateBehavior interface {
     InitialState() ego.State
-    HandleCommand(
-        context.Context,
-        ego.Command,
-        uint64,
-        ego.State,
-    ) (newState ego.State, newVersion uint64, err error)
+    HandleCommand(context.Context, ego.Command, uint64, ego.State) (newState ego.State, newVersion uint64, err error)
 }
 ```
 
