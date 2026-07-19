@@ -124,6 +124,7 @@ func main() {
     if err != nil {
         log.Fatal(err)
     }
+
     if err := sys.Start(ctx); err != nil {
         log.Fatal(err)
     }
@@ -133,6 +134,7 @@ func main() {
     if err != nil {
         log.Fatal(err)
     }
+
     if err := engine.Start(ctx); err != nil {
         log.Fatal(err)
     }
@@ -141,6 +143,7 @@ func main() {
     if err := engine.StartProjection(ctx, "account-balances"); err != nil {
         log.Fatal(err)
     }
+    
     if err := engine.StartProjection(ctx, "account-audit"); err != nil {
         log.Fatal(err)
     }
