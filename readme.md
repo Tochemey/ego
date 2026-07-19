@@ -42,7 +42,6 @@ eGo deliberately does not hide the actor runtime. Your application creates and o
 - [Examples](#examples)
 - [Upgrading](#upgrading)
 - [Contributing](#contributing)
-- [License](#license)
 
 ## Features
 
