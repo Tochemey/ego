@@ -10,12 +10,39 @@
   <a href="https://go.dev/doc/install"><img src="https://img.shields.io/github/go-mod/go-version/Tochemey/ego" alt="Go version"></a>
   <a href="https://codecov.io/gh/Tochemey/ego"><img src="https://codecov.io/gh/Tochemey/ego/branch/main/graph/badge.svg?token=Z5b9gM6Mnt" alt="Code coverage"></a>
   <a href="https://github.com/Tochemey/ego/releases/latest"><img src="https://img.shields.io/github/v/release/Tochemey/ego?label=release" alt="Latest release"></a>
+  <a href="https://github.com/Tochemey/ego/tags"><img src="https://img.shields.io/github/v/tag/Tochemey/ego?label=tag" alt="Pre-release"></a>
   <a href="https://human-oss.dev"><img src="https://human-oss.dev/badge.svg" alt="Open Source AI Manifesto"></a>
 </p>
 
 eGo is a protobuf-first framework for building event-sourced and durable-state CQRS applications in Go. It runs on [Go-Akt](https://github.com/Tochemey/goakt) and adds persistence, projections, publishers, sagas, encryption, and observability to an actor system that your application owns.
 
 eGo deliberately does not hide the actor runtime. Your application creates and operates the Go-Akt actor system, including clustering, discovery, remoting, TLS, supervision, and non-eGo actors. eGo contributes the extensions and actor kinds needed for its persistence model.
+
+## Table of contents
+
+- [Features](#features)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Quick start](#quick-start)
+- [Modeling entities](#modeling-entities)
+    - [Event-sourced vs durable-state](#event-sourced-vs-durable-state)
+- [Configuration](#configuration)
+- [Snapshots and retention](#snapshots-and-retention)
+- [Event batching](#event-batching)
+- [Performance tuning](#performance-tuning)
+- [Projections](#projections)
+- [Publishers](#publishers)
+- [Sagas and process managers](#sagas-and-process-managers)
+- [Clustering](#clustering)
+- [Persistence](#persistence)
+- [Encryption and schema evolution](#encryption-and-schema-evolution)
+- [Observability](#observability)
+- [Reliability and operations](#reliability-and-operations)
+- [Testing](#testing)
+- [Examples](#examples)
+- [Upgrading](#upgrading)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Features
 
@@ -195,6 +222,16 @@ if err := engine.DurableStateEntity(ctx, behavior); err != nil {
 
 Behavior values are Go-Akt dependencies. In addition to the methods above, they provide an `ID` and binary marshalling methods so they can travel with cluster spawn requests. See the [event-sourced](./example/eventssourced), [durable-state](./example/durablestate), and [saga](./example/saga) examples for complete implementations.
 
+### Event-sourced vs durable-state
+
+| Aspect            | `EventSourcedBehavior`                    | `DurableStateBehavior`       |
+|-------------------|-------------------------------------------|------------------------------|
+| Persistence model | Persists domain events                    | Persists the latest state    |
+| Recovery          | Replays events, optionally from snapshots | Loads the latest state       |
+| History           | Full audit trail                          | No historical log            |
+| Complexity        | Higher                                    | Lower                        |
+| Best fit          | Traceable, business-critical workflows    | Simpler CRUD-like aggregates |
+
 ## Configuration
 
 Engine-wide options are passed to `ego.NewConfig`:
@@ -261,6 +298,40 @@ err := engine.Entity(ctx, behavior,
 ```
 
 The threshold or flush window, whichever is reached first, triggers the write. If batching is enabled without a flush window, eGo uses a 5 ms default. Benchmark the settings with your command pattern and persistence backend; batching trades additional latency for fewer writes and does not have one ideal threshold.
+
+## Performance tuning
+
+eGo can sustain hundreds of thousands of commands per second on a single node with an in-memory store, and tens of thousands with durable backends like Postgres. This section outlines the recommended approach to maximize throughput and minimize memory cost.
+
+### Enable event batching under concurrent load
+
+Batching amortizes the cost of a single store write across multiple commands. It is most effective when:
+
+- The entity receives commands concurrently (multiple goroutines or upstream services)
+- The persistence store has non-trivial write latency (e.g. database round-trip > 100us)
+
+Sequential command streams do not benefit from batching because each command waits for the flush window before the batch is written. For purely sequential workloads, leave batching disabled (the default).
+
+### Choose the right batch threshold
+
+| Write latency       | Recommended threshold | Rationale                                        |
+|---------------------|-----------------------|--------------------------------------------------|
+| < 100us (in-memory) | Disabled (0)          | Batching adds overhead with no I/O to amortize   |
+| 100us - 1ms         | 5 - 10                | Small batches reduce flush window wait           |
+| 1ms - 10ms          | 10 - 50               | Larger batches amortize the I/O cost well        |
+| > 10ms              | 50 - 100              | Maximize events per write to offset high latency |
+
+### Minimize allocations for high throughput
+
+eGo's hot path is optimized for low allocation overhead (~22 heap allocations per command round-trip). The dominant allocation cost comes from Protocol Buffers serialization, which is inherent to the persistence model. To keep allocation pressure low:
+
+- **Keep command and event protos small.** Smaller messages reduce marshal/unmarshal cost.
+- **Use snapshots.** They reduce recovery replay length and the number of events held in the store.
+- **Avoid large state protos.** The state is serialized on every reply; smaller states mean fewer bytes and less GC pressure.
+
+### Scale horizontally with clustering
+
+For workloads beyond what a single node can handle, build a clustered Go-Akt actor system and plug eGo into it as described in [Clustering](#clustering).
 
 ## Projections
 
@@ -336,6 +407,17 @@ eGo includes connector modules for:
 
 You can also implement `ego.EventPublisher` or `ego.StatePublisher`. Publisher payload timestamps are Unix nanoseconds, and each payload includes its source shard.
 
+## Sagas and process managers
+
+eGo includes first-class saga support for long-running business processes that coordinate multiple entities. You can:
+
+- Start a saga with `Engine.Saga(...)`
+- Inspect it with `Engine.SagaStatus(...)`
+- Model compensation logic for timeouts and failures
+- Persist saga state using the same event-sourced foundations
+
+See the [fund-transfer saga example](./example/saga) for a complete implementation.
+
 ## Clustering
 
 Cluster, discovery, remoting, and TLS are configured with Go-Akt. Register eGo's actor kinds in the cluster configuration:
@@ -343,7 +425,12 @@ Cluster, discovery, remoting, and TLS are configured with Go-Akt. Register eGo's
 ```go
 clusterConfig := goakt.NewClusterConfig().
     WithDiscovery(discoveryProvider).
-    WithKinds(ego.ClusterKinds()...)
+    WithDiscoveryPort(gossipPort).
+    WithPeersPort(peersPort).
+    WithPartitionCount(partitions).
+    WithMinimumPeersQuorum(quorum).
+    WithReplicaCount(replicas).
+    WithKinds(ego.ClusterKinds()...) // eGo's actor kinds, required for relocation
 ```
 
 Also register every event-sourced, durable-state, and saga behavior type on every node:
@@ -358,7 +445,22 @@ cfg := ego.NewConfig(eventsStore,
 )
 ```
 
-Then compose `cfg.GoaktOptions()` with Go-Akt's cluster, remote, TLS, and application-specific options when constructing the actor system. Single-node deployments do not need `ClusterKinds` or `WithEntityKinds`.
+Then compose `cfg.GoaktOptions()` with Go-Akt's cluster, remote, TLS, and application-specific options when constructing the actor system:
+
+```go
+sys, err := goakt.NewActorSystem("accounts",
+    append(
+        cfg.GoaktOptions(),
+        goakt.WithCluster(clusterConfig),
+        goakt.WithRemote(remote.NewConfig(host, remotingPort)),
+        goakt.WithTLS(&tlsInfo),
+    )...,
+)
+```
+
+You retain full control over discovery, partitioning, quorum, replicas, TLS, remoting, and any additional cluster knobs Go-Akt exposes. eGo derives cluster behavior (e.g. running projections as singletons) directly from `sys.InCluster()` at runtime — no separate cluster flag to keep in sync.
+
+Single-node deployments do not need `ClusterKinds` or `WithEntityKinds`.
 
 The [Kubernetes cluster example](./example/cluster) demonstrates a three-node deployment with PostgreSQL, Kubernetes discovery, a singleton projection, OpenTelemetry, Prometheus, Jaeger, and Grafana.
 
@@ -371,7 +473,20 @@ eGo defines small interfaces for:
 - [`persistence.StateStore`](./persistence/state_store.go)
 - [`offsetstore.OffsetStore`](./offsetstore/offset_store.go)
 
-Applications may implement these interfaces directly. The [ego-contrib](https://github.com/Tochemey/ego-contrib) project provides PostgreSQL and MongoDB implementations.
+Applications may implement these interfaces directly. The [ego-contrib](https://github.com/Tochemey/ego-contrib) project provides ready-to-use implementations:
+
+- **Postgres** event store, snapshot store, offset store, and durable state store
+- **MongoDB** event store, snapshot store, offset store, and durable state store
+
+To use a contrib store, import the relevant module alongside eGo:
+
+```go
+import (
+    "github.com/tochemey/ego-contrib/eventstore/postgres"
+    "github.com/tochemey/ego-contrib/snapshotstore/postgres"
+    "github.com/tochemey/ego-contrib/offsetstore/postgres"
+)
+```
 
 Applications own store connectivity: connect stores before starting the actor system and disconnect them after the engine and actor system have stopped.
 
@@ -395,6 +510,16 @@ cfg := ego.NewConfig(eventsStore,
 ```
 
 Instrumentation covers command dispatch and handling, event persistence, active entities and projections, projection processing, offsets, lag, and approximate events behind.
+
+## Reliability and operations
+
+eGo includes several production-focused capabilities:
+
+- Faster recovery through [snapshots](#snapshots-and-retention)
+- Storage cleanup through [retention policies](#snapshots-and-retention)
+- At-rest [encryption](#encryption-and-schema-evolution) for events and snapshots
+- GDPR-style erasure with `Engine.EraseEntity(...)`
+- Pluggable structured logging via `ego.WithLogger(...)`
 
 ## Testing
 
@@ -433,7 +558,3 @@ See the [changelog](./CHANGELOG.md) for breaking changes and version-specific mi
 ## Contributing
 
 Contributions are welcome. Read the [contribution guide](./contributing.md) before opening a pull request.
-
-## License
-
-eGo is released under the [MIT License](./LICENSE).
