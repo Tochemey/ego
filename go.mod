@@ -32,7 +32,7 @@ require (
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/deckarep/golang-set/v2 v2.9.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.2 // indirect
-	github.com/go-logr/logr v1.4.3 // indirect
+	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
@@ -44,7 +44,7 @@ require (
 	github.com/hashicorp/golang-lru v1.0.2 // indirect
 	github.com/hashicorp/logutils v1.0.0 // indirect
 	github.com/hashicorp/memberlist v0.6.0 // indirect
-	github.com/klauspost/compress v1.19.0 // indirect
+	github.com/klauspost/compress v1.19.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/miekg/dns v1.1.72 // indirect
 	github.com/mschoch/smat v0.2.0 // indirect
