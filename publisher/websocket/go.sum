@@ -85,8 +85,8 @@ github.com/go-kit/kit v0.9.0/go.mod h1:xBxKIO96dXMWWy0MnWVtmwkA9/13aqxPnvrjFYMA2
 github.com/go-logfmt/logfmt v0.3.0/go.mod h1:Qt1PoO58o5twSAckw1HlFXLmHsOX5/0LbT9GBnD5lWE=
 github.com/go-logfmt/logfmt v0.4.0/go.mod h1:3RMwSq7FuexP4Kalkev3ejPJsZTpXXBr9+V4qmtdjCk=
 github.com/go-logr/logr v1.2.2/go.mod h1:jdQByPbusPIv2/zmleS9BjJVeZ6kBagPoEUsqbVz/1A=
-github.com/go-logr/logr v1.4.3 h1:CjnDlHq8ikf6E492q6eKboGOC0T8CDaOvkHCIg8idEI=
-github.com/go-logr/logr v1.4.3/go.mod h1:9T104GzyrTigFIr8wt5mBrctHMim0Nb2HLGrmQ40KvY=
+github.com/go-logr/logr v1.4.4 h1:tG4xh9yMsRCAiodLVTxyrkzSZ9+o0L1Kg/+cPVcbP/8=
+github.com/go-logr/logr v1.4.4/go.mod h1:9T104GzyrTigFIr8wt5mBrctHMim0Nb2HLGrmQ40KvY=
 github.com/go-logr/stdr v1.2.2 h1:hSWxHoqTgW2S2qGc0LTAI563KZ5YKYRhT3MFKZMbjag=
 github.com/go-logr/stdr v1.2.2/go.mod h1:mMo/vtBO5dYbehREoey6XUKy/eSumjCCveDpRre4VKE=
 github.com/go-ole/go-ole v1.3.0 h1:Dt6ye7+vXGIKZ7Xtk4s6/xVdGDQynvom7xCFEdWr6uE=
@@ -155,8 +155,8 @@ github.com/json-iterator/go v1.1.9/go.mod h1:KdQUCv79m/52Kvf8AW2vK1V8akMuk1QjK/u
 github.com/julienschmidt/httprouter v1.2.0/go.mod h1:SYymIcj16QtmaHHD7aYtjjsJG7VTCxuUUipMqKk8s4w=
 github.com/kapetan-io/tackle v0.15.0 h1:J+D04RuxEKtybzCjuzgcmQuFBiEpYa+5vPU2mAgAxTs=
 github.com/kapetan-io/tackle v0.15.0/go.mod h1:pDr4mjpo2RQO/q/je1dGuGwnBVwZcsRp60wgDV2hA3c=
-github.com/klauspost/compress v1.19.0 h1:sXLILfc9jV2QYWkzFOPWStmcUVH2RHEB1JCdY2oVvCQ=
-github.com/klauspost/compress v1.19.0/go.mod h1:cwPg85FWrGar70rWktvGQj8/hthj3wpl0PGDogxkrSQ=
+github.com/klauspost/compress v1.19.1 h1:VsB4HPswih7mmZ8WleSFQ75c/Ui1M4trX5oAsJnhSlk=
+github.com/klauspost/compress v1.19.1/go.mod h1:cwPg85FWrGar70rWktvGQj8/hthj3wpl0PGDogxkrSQ=
 github.com/klauspost/cpuid/v2 v2.4.0 h1:S6Hrbc7+ywsr0r+RLapfGBHfyefhCTwEh3A0tV913Dw=
 github.com/klauspost/cpuid/v2 v2.4.0/go.mod h1:19jmZ9mjzoF//ddRSUsv0zfBTJWh3QJh9FNxZTMrGxU=
 github.com/konsorten/go-windows-terminal-sequences v1.0.1/go.mod h1:T0+1ngSBFLxvqU3pZ+m/2kptfBszLMUkC4ZK/EgS/cQ=
@@ -289,10 +289,10 @@ github.com/tklauser/go-sysconf v0.4.0 h1:7H0uAN+7RkwWRaxhYXDLqa5V3LPrJeV8wmD9dRU
 github.com/tklauser/go-sysconf v0.4.0/go.mod h1:8mTNWyog7H+MpKijp4VmKJAd2bbYQ2zuUwkYRbUArPI=
 github.com/tklauser/numcpus v0.12.0 h1:NR85qdvHA9pFse3x3weVZ0r0ST8R6l5RHbZrlRaqob4=
 github.com/tklauser/numcpus v0.12.0/go.mod h1:ABHeXzJnr/qqwguhClkZKT1/8VABcYrsyUiUGobwWJg=
-github.com/tochemey/ego/v4 v4.4.0 h1:DIrPOqNQEqqREFw8jYc+1JQ/7jXggAHxIhvEu0ioDzw=
-github.com/tochemey/ego/v4 v4.4.0/go.mod h1:b+QgfnEdmI54sYwbmdEPthu5SddVG11Np6YdmKvAUWk=
-github.com/tochemey/goakt/v4 v4.4.0 h1:byT18KjvwAqGJdB7RSAcOvHGX3VbjusYh+RPwS/oKFM=
-github.com/tochemey/goakt/v4 v4.4.0/go.mod h1:Iiv8UrNAis+paqMfIiZvU3ImzHXpljV9XqNdqZzmM5g=
+github.com/tochemey/ego/v4 v4.4.1 h1:f0JOoGpIfs3KqO3HZOPfcVIGni0zhFCujzbHdDyov5w=
+github.com/tochemey/ego/v4 v4.4.1/go.mod h1:P1qAlgxTiDCBSuqB1vPOclsdMBb5YMo5pgcXN7Zeah4=
+github.com/tochemey/goakt/v4 v4.4.1 h1:LSuWrcOac1SOGMynEjJF1ZILcozrgGVqlyCE6SoPNjM=
+github.com/tochemey/goakt/v4 v4.4.1/go.mod h1:Iiv8UrNAis+paqMfIiZvU3ImzHXpljV9XqNdqZzmM5g=
 github.com/tochemey/gopack v0.2.1 h1:WWXVwAE53Wt4yzY51fk0t+BrLn5ihnKCriG3zhmgYQ8=
 github.com/tochemey/gopack v0.2.1/go.mod h1:jqSr6gmih+Ne4PSbStMoeRkzsIQh58bt2JujufBXdms=
 github.com/tochemey/olric v0.3.17 h1:GBgeaiINVDCgutmN3SVLdiXSMMb/+yYH2BNR1HfHK8A=
