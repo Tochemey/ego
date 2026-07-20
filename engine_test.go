@@ -518,6 +518,11 @@ func TestEngineClusterMode(t *testing.T) {
 			BufferSize:   100,
 			PullInterval: time.Second,
 		}),
+		WithProjection("discard-too", &projection.Options{
+			Handler:      projection.NewDiscardHandler(),
+			BufferSize:   100,
+			PullInterval: time.Second,
+		}),
 	)
 
 	goaktOpts := append(cfg.GoaktOptions(),
@@ -539,12 +544,19 @@ func TestEngineClusterMode(t *testing.T) {
 	require.NoError(t, engine.Start(ctx))
 	t.Cleanup(func() { _ = engine.Stop(ctx) })
 
+	// Singleton uniqueness is keyed by actor name (goakt >= v4.4.1), so every
+	// registered projection gets its own singleton. Before that goakt release
+	// the kind-keyed reservation made the second StartProjection a silent
+	// no-op.
 	require.NoError(t, engine.StartProjection(ctx, "discard"))
+	require.NoError(t, engine.StartProjection(ctx, "discard-too"))
 	pause.For(time.Second)
 
-	running, err := engine.IsProjectionRunning(ctx, "discard")
-	require.NoError(t, err)
-	require.True(t, running, "projection should be running as a cluster singleton")
+	for _, name := range []string{"discard", "discard-too"} {
+		running, err := engine.IsProjectionRunning(ctx, name)
+		require.NoError(t, err)
+		require.True(t, running, "projection %s should be running as a cluster singleton", name)
+	}
 
 	// entity flow in cluster mode
 	entityID := uuid.NewString()
