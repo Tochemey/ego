@@ -31,7 +31,6 @@ import (
 	"time"
 
 	goakt "github.com/tochemey/goakt/v4/actor"
-	gerrors "github.com/tochemey/goakt/v4/errors"
 	"github.com/tochemey/goakt/v4/extension"
 	"github.com/tochemey/goakt/v4/passivation"
 	"github.com/tochemey/goakt/v4/supervisor"
@@ -391,13 +390,12 @@ func (engine *Engine) StartProjection(ctx context.Context, name string) error {
 
 	if actorSystem.InCluster() {
 		// In cluster mode, run the projection as a singleton to avoid
-		// duplicate event processing across nodes. The singleton is placed
-		// on the oldest node; other nodes that call SpawnSingleton receive
-		// ErrSingletonAlreadyExists which is expected and safe to ignore.
+		// duplicate event processing across nodes. The singleton is keyed by
+		// the projection name and placed on the oldest node. SpawnSingleton
+		// is idempotent when the name is already bound to this singleton, so
+		// concurrent StartProjection calls across nodes all succeed; any
+		// error it returns is a genuine failure worth surfacing.
 		if _, err := actorSystem.SpawnSingleton(ctx, name, actor); err != nil {
-			if errors.Is(err, gerrors.ErrSingletonAlreadyExists) {
-				return nil
-			}
 			return fmt.Errorf("failed to start the projection=(%s): %w", name, err)
 		}
 		return nil

@@ -1985,9 +1985,9 @@ func TestEngineRebuildProjectionRestartError(t *testing.T) {
 }
 
 // TestEngineClusterModeStartProjectionAlreadyExists exercises the cluster
-// singleton branch in StartProjection where the second registration of the
-// same projection name surfaces gerrors.ErrSingletonAlreadyExists, which
-// the engine swallows (lines 363-369).
+// singleton branch in StartProjection where a second start of the same
+// projection name is a clean no-op: SpawnSingleton is idempotent when the
+// name is already bound to the same singleton, so no error surfaces.
 func TestEngineClusterModeStartProjectionAlreadyExists(t *testing.T) {
 	ctx := context.Background()
 	store := testkit.NewEventsStore()
