@@ -32,6 +32,7 @@ import (
 	"time"
 
 	"github.com/flowchartsman/retry"
+	goakt "github.com/tochemey/goakt/v4/actor"
 	"github.com/tochemey/goakt/v4/log"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -52,6 +53,15 @@ import (
 
 // numWorkers is the fixed size of the persistent shard-processing goroutine pool.
 const numWorkers = 5
+
+const (
+	// storeRetryInitialDelay is the backoff delay applied after the first
+	// failed store round trip before the pull pass is retried.
+	storeRetryInitialDelay = time.Second
+	// storeRetryMaxDelay caps the exponential backoff delay between
+	// consecutive store retry attempts.
+	storeRetryMaxDelay = 30 * time.Second
+)
 
 // shardItem is a unit of work dispatched to the persistent worker pool.
 // The embedded WaitGroup pointer lets processingLoop wait for a whole batch.
@@ -132,6 +142,11 @@ type projectionRunner struct {
 	// Passes are serialized by processingLoop, so no locking is needed.
 	pendingBuf []uint64
 
+	// storeFailures counts consecutive failed store round trips and drives the
+	// in-loop retry backoff. It resets to zero on the first clean pass.
+	// Passes are serialized by processingLoop, so no locking is needed.
+	storeFailures int
+
 	// eventsStream, when set, triggers an immediate pull whenever events are
 	// persisted on this node. Events persisted on peer nodes are picked up
 	// by the interval-based pull.
@@ -145,6 +160,13 @@ type projectionRunner struct {
 	// current pass, in which case the loop re-pulls without waiting for the
 	// next tick.
 	sawFullBatch atomic.Bool
+
+	// pid, when set, receives a *runnerFailed message after the
+	// processing loop stops permanently because an event cannot be processed,
+	// so the host projection actor can escalate the error through supervision.
+	// Failed store round trips never notify the host actor: they are retried
+	// in place with exponential backoff.
+	pid *goakt.PID
 }
 
 // newProjectionRunner create an instance of projectionRunner given the name of the projection, the underlying and the offsets store
@@ -318,17 +340,18 @@ func (x *projectionRunner) processingLoop(ctx context.Context) {
 }
 
 // runPass executes one full pull pass. It returns false when the projection
-// must stop (context cancelled or a store/handler error surfaced).
+// must stop (context cancelled or an unprocessable event surfaced). A failed
+// store round trip never stops the loop: offsets advance only after a
+// successful batch, so the pass is simply retried with exponential backoff
+// until the store recovers.
 func (x *projectionRunner) runPass(ctx context.Context) bool {
 	shards, err := x.pendingShards(ctx)
 	if err != nil {
-		x.logger.Error(fmt.Errorf("failed to fetch the list of shards: %w", err))
-		x.ticker.Stop()
-		_ = x.Stop()
-		return false
+		return x.retryAfterStoreFailure(ctx, fmt.Errorf("failed to fetch the list of shards: %w", err))
 	}
 
 	if len(shards) == 0 {
+		x.storeFailures = 0
 		return true
 	}
 
@@ -356,15 +379,48 @@ func (x *projectionRunner) runPass(ctx context.Context) bool {
 	wg.Wait()
 	x.wgPool.Put(wg)
 
-	// Surface the first worker error for this batch, if any.
-	select {
-	case err := <-x.workerErrCh:
-		x.logger.Error(err)
+	// Drain this batch's worker errors so a failed batch cannot leak stale
+	// errors into the next pass. An unprocessable event outranks store
+	// failures: it is deterministic, so retrying cannot advance past it.
+	var storeErr error
+	var eventErr *projectionRunnerError
+
+drain:
+	for {
+		select {
+		case err := <-x.workerErrCh:
+			if runnerErr, ok := errors.AsType[*projectionRunnerError](err); ok {
+				if eventErr == nil {
+					eventErr = runnerErr
+				}
+				continue
+			}
+			if storeErr == nil {
+				storeErr = err
+			}
+		default:
+			break drain
+		}
+	}
+
+	if eventErr != nil {
+		x.logger.Error(eventErr)
 		x.ticker.Stop()
 		_ = x.Stop()
+
+		// A failed delivery means the host actor is already stopping, in
+		// which case the projection is going down anyway.
+		if x.pid != nil {
+			_ = goakt.Tell(context.Background(), x.pid, &runnerFailed{err: eventErr})
+		}
 		return false
-	default:
 	}
+
+	if storeErr != nil {
+		return x.retryAfterStoreFailure(ctx, storeErr)
+	}
+
+	x.storeFailures = 0
 
 	// A full buffer means more events are pending on some shard: re-pull
 	// immediately instead of waiting for the next tick.
@@ -373,6 +429,37 @@ func (x *projectionRunner) runPass(ctx context.Context) bool {
 	}
 
 	return true
+}
+
+// retryAfterStoreFailure logs a failed store round trip and waits with
+// exponential backoff before the pass loop pulls again. It reports whether
+// the loop should keep running: the wait is cut short when the runner stops
+// or the context is cancelled.
+func (x *projectionRunner) retryAfterStoreFailure(ctx context.Context, err error) bool {
+	x.storeFailures++
+	delay := storeRetryDelay(x.storeFailures)
+	x.logger.Error(fmt.Errorf("projection=(%s) store round trip failed, attempt=%d, retrying in %s: %w", x.name, x.storeFailures, delay, err))
+
+	select {
+	case <-x.stopSignal:
+		return false
+	case <-ctx.Done():
+		return false
+	case <-time.After(delay):
+		return true
+	}
+}
+
+// storeRetryDelay computes the exponential backoff delay for the nth
+// consecutive store failure: min(storeRetryInitialDelay << (n-1),
+// storeRetryMaxDelay). Overflowed shifts clamp to the maximum delay.
+func storeRetryDelay(failures int) time.Duration {
+	delay := storeRetryInitialDelay << (failures - 1)
+	if delay <= 0 || delay > storeRetryMaxDelay {
+		return storeRetryMaxDelay
+	}
+
+	return delay
 }
 
 // pendingShards returns the shards whose latest event offset, reported by a
@@ -577,7 +664,7 @@ func (x *projectionRunner) currentOffset(ctx context.Context, shard uint64) (int
 func (x *projectionRunner) processEvents(ctx context.Context, shard uint64, events []*egopb.Event, nextOffset int64) error {
 	for _, envelope := range events {
 		if err := x.processEnvelope(ctx, envelope); err != nil {
-			return err
+			return &projectionRunnerError{err: err}
 		}
 	}
 	return x.commitOffset(ctx, shard, nextOffset, events[len(events)-1].GetPersistenceId())
@@ -719,6 +806,25 @@ func (x *projectionRunner) commitOffset(ctx context.Context, shard uint64, nextO
 	x.committedOffsetsMu.Unlock()
 
 	return nil
+}
+
+// projectionRunnerError reports an event that cannot be processed: a failed
+// decryption, a failed event adaptation, or a handler error under the Fail
+// and RetryAndFail recovery policies. Retrying would only replay the same
+// event, so the processing loop stops permanently and the host actor
+// escalates the error through supervision to make the failure visible.
+type projectionRunnerError struct {
+	err error
+}
+
+// Error returns the underlying runner error message.
+func (e *projectionRunnerError) Error() string {
+	return e.err.Error()
+}
+
+// Unwrap exposes the underlying runner error.
+func (e *projectionRunnerError) Unwrap() error {
+	return e.err
 }
 
 // handlerPanicError wraps panics from projection handlers with stack context.
