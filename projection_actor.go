@@ -25,11 +25,36 @@ package ego
 import (
 	"context"
 	"fmt"
+	"runtime"
 
 	goakt "github.com/tochemey/goakt/v4/actor"
+	gerrors "github.com/tochemey/goakt/v4/errors"
+	"github.com/tochemey/goakt/v4/supervisor"
 
 	"github.com/tochemey/ego/v4/internal/extensions"
 )
+
+// runnerFailed is the internal message the projection runner sends to its
+// host actor when the processing loop stops permanently on an unprocessable
+// event.
+type runnerFailed struct {
+	err error
+}
+
+// newProjectionSupervisor returns the supervisor applied to projection actors:
+// an escalated runner error stops the projection visibly. Only unprocessable
+// events escalate — the runner retries failed store round trips in place with
+// exponential backoff — and a restart would only replay the failing event.
+// Panics and internal errors keep the stop-on-failure semantics of goakt's
+// default singleton supervisor, which this supervisor replaces in cluster mode.
+func newProjectionSupervisor() *supervisor.Supervisor {
+	return supervisor.NewSupervisor(
+		supervisor.WithDirective(&projectionRunnerError{}, supervisor.StopDirective),
+		supervisor.WithDirective(&gerrors.PanicError{}, supervisor.StopDirective),
+		supervisor.WithDirective(&gerrors.InternalError{}, supervisor.StopDirective),
+		supervisor.WithDirective(&runtime.PanicNilError{}, supervisor.StopDirective),
+	)
+}
 
 // ProjectionActor defines the projection actor
 // Only a single instance of this will run throughout the cluster
@@ -116,9 +141,16 @@ func (x *ProjectionActor) PreStart(ctx *goakt.Context) error {
 
 // Receive handle the message sent to the projection actor
 func (x *ProjectionActor) Receive(ctx *goakt.ReceiveContext) {
-	switch ctx.Message().(type) {
+	switch msg := ctx.Message().(type) {
 	case *goakt.PostStart:
+		// Hand the actor PID to the runner before the processing loop starts:
+		// a loop that dies on an unprocessable event sends runnerFailed back
+		// so the actor fails through the normal supervision path instead of
+		// staying healthy-looking with a dead runner.
+		x.runner.pid = ctx.Self()
 		x.runner.Run(ctx.Context())
+	case *runnerFailed:
+		ctx.Err(msg.err)
 	default:
 		ctx.Unhandled()
 	}

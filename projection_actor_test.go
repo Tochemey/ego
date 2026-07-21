@@ -36,6 +36,7 @@ import (
 	"github.com/tochemey/goakt/v4/log"
 	"go.opentelemetry.io/otel/metric/noop"
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
+	"go.uber.org/atomic"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -46,6 +47,7 @@ import (
 	"github.com/tochemey/ego/v4/internal/pause"
 	mocksoffsetstore "github.com/tochemey/ego/v4/mocks/offsetstore"
 	mockseventstore "github.com/tochemey/ego/v4/mocks/persistence"
+	"github.com/tochemey/ego/v4/persistence"
 	"github.com/tochemey/ego/v4/projection"
 	testpb "github.com/tochemey/ego/v4/test/data/testpb"
 	"github.com/tochemey/ego/v4/testkit"
@@ -535,6 +537,176 @@ func TestProjectionActorPreStartFailure(t *testing.T) {
 
 		require.NoError(t, actorSystem.Stop(ctx))
 	})
+}
+
+func TestProjectionActorRunnerFailure(t *testing.T) {
+	t.Run("recovers from transient store failure without restarting", func(t *testing.T) {
+		ctx := context.TODO()
+		logger := log.DiscardLogger
+
+		projectionName := "db-writer"
+		persistenceID := uuid.NewString()
+		shardNumber := uint64(9)
+
+		journalStore := testkit.NewEventsStore()
+		require.NoError(t, journalStore.Connect(ctx))
+
+		// fail the first ShardOffsets round trip, then recover
+		eventsStore := &flakyEventsStore{EventsStore: journalStore, failures: atomic.NewInt32(1)}
+
+		offsetStore := testkit.NewOffsetStore()
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		handler := projection.NewDiscardHandler()
+
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(logger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventsStore),
+				extensions.NewOffsetStore(offsetStore),
+				extensions.NewProjectionExtension(map[string]*projection.Options{
+					projectionName: {Handler: handler, BufferSize: 500, PullInterval: 100 * time.Millisecond, Recovery: projection.NewRecovery()},
+				})),
+			goakt.WithActorInitMaxRetries(3))
+
+		require.NoError(t, err)
+		require.NotNil(t, actorSystem)
+
+		require.NoError(t, actorSystem.Start(ctx))
+
+		pause.For(time.Second)
+
+		// persist events before the projection pulls for the first time
+		event, err := anypb.New(&testpb.AccountCredited{})
+		require.NoError(t, err)
+
+		count := 10
+		timestamp := timestamppb.Now()
+		journals := make([]*egopb.Event, count)
+		for i := range count {
+			journals[i] = &egopb.Event{
+				PersistenceId:  persistenceID,
+				SequenceNumber: uint64(i + 1),
+				IsDeleted:      false,
+				Event:          event,
+				Timestamp:      timestamp.AsTime().Unix(),
+				Shard:          shardNumber,
+			}
+		}
+
+		require.NoError(t, journalStore.WriteEvents(ctx, journals))
+
+		// spawn the projection the way StartProjection does in standalone mode
+		actor := NewProjectionActor()
+		pid, err := actorSystem.Spawn(ctx, projectionName, actor,
+			goakt.WithLongLived(),
+			goakt.WithSupervisor(newProjectionSupervisor()))
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		// the first pull fails; the runner retries in place with backoff and
+		// replays the stalled backlog once the store recovers, with no actor
+		// restart involved
+		projectionID := &egopb.ProjectionId{
+			ProjectionName: projectionName,
+			ShardNumber:    shardNumber,
+		}
+
+		require.Eventually(t, func() bool {
+			actual, err := offsetStore.GetCurrentOffset(ctx, projectionID)
+			return err == nil && actual.GetValue() == journals[count-1].GetTimestamp()
+		}, 10*time.Second, 100*time.Millisecond)
+
+		require.True(t, pid.IsRunning())
+		require.Zero(t, pid.RestartCount())
+
+		// free resources
+		require.NoError(t, actorSystem.Stop(ctx))
+		require.NoError(t, journalStore.Disconnect(ctx))
+		require.NoError(t, offsetStore.Disconnect(ctx))
+	})
+	t.Run("stops on unprocessable event", func(t *testing.T) {
+		ctx := context.TODO()
+		logger := log.DiscardLogger
+
+		projectionName := "db-writer"
+		persistenceID := uuid.NewString()
+		shardNumber := uint64(9)
+
+		journalStore := testkit.NewEventsStore()
+		require.NoError(t, journalStore.Connect(ctx))
+
+		offsetStore := testkit.NewOffsetStore()
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		// testHandler1 always fails and the default recovery policy is Fail
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(logger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(journalStore),
+				extensions.NewOffsetStore(offsetStore),
+				extensions.NewProjectionExtension(map[string]*projection.Options{
+					projectionName: {Handler: testHandler1{}, BufferSize: 500, PullInterval: 100 * time.Millisecond, Recovery: projection.NewRecovery()},
+				})),
+			goakt.WithActorInitMaxRetries(3))
+
+		require.NoError(t, err)
+		require.NotNil(t, actorSystem)
+
+		require.NoError(t, actorSystem.Start(ctx))
+
+		pause.For(time.Second)
+
+		event, err := anypb.New(&testpb.AccountCredited{})
+		require.NoError(t, err)
+
+		journals := []*egopb.Event{
+			{
+				PersistenceId:  persistenceID,
+				SequenceNumber: 1,
+				IsDeleted:      false,
+				Event:          event,
+				Timestamp:      timestamppb.Now().AsTime().Unix(),
+				Shard:          shardNumber,
+			},
+		}
+
+		require.NoError(t, journalStore.WriteEvents(ctx, journals))
+
+		actor := NewProjectionActor()
+		pid, err := actorSystem.Spawn(ctx, projectionName, actor,
+			goakt.WithLongLived(),
+			goakt.WithSupervisor(newProjectionSupervisor()))
+		require.NoError(t, err)
+		require.NotNil(t, pid)
+
+		// the unprocessable event escalates to the actor and supervision
+		// stops it, making the failure visible instead of leaving a
+		// healthy-looking actor with a dead runner
+		require.Eventually(t, func() bool {
+			return !pid.IsRunning()
+		}, 10*time.Second, 100*time.Millisecond)
+
+		// free resources
+		require.NoError(t, actorSystem.Stop(ctx))
+		require.NoError(t, journalStore.Disconnect(ctx))
+		require.NoError(t, offsetStore.Disconnect(ctx))
+	})
+}
+
+// flakyEventsStore delegates to the wrapped events store but fails ShardOffsets
+// a configured number of times to simulate a transient store outage.
+type flakyEventsStore struct {
+	persistence.EventsStore
+	failures *atomic.Int32
+}
+
+func (x *flakyEventsStore) ShardOffsets(ctx context.Context) (map[uint64]int64, error) {
+	if x.failures.Sub(1) >= 0 {
+		return nil, errors.New("shard offsets round trip failed")
+	}
+
+	return x.EventsStore.ShardOffsets(ctx)
 }
 
 // passthroughEventAdapter is an event adapter that passes events through unchanged

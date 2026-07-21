@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 🐛 Bug Fixes
+
+- **Projections no longer freeze silently on store errors** ([#318](https://github.com/Tochemey/ego/issues/318)). A failed events/offsets store round trip used to stop the processing loop permanently while the projection actor stayed alive and healthy-looking, leaving the read model dead until a node restart. The runner now retries the pull pass in place with exponential backoff (1s doubling to a 30s cap, reset on the first clean pass) and resumes from committed offsets once the store recovers — in both standalone and cluster mode, with no actor restart involved.
+- **Unprocessable events now stop the projection visibly.** An event that cannot be processed — a handler error under the `Fail`/`RetryAndFail` recovery policies, a failed decryption, or a failed event adaptation — stops the runner and escalates to the projection actor, which fails through supervision with a stop directive instead of dying silently behind a healthy-looking actor. The failure is observable via `Engine.IsProjectionRunning`. The projection supervisor now also applies to cluster singletons via Go-Akt's `WithSingletonSupervisor`.
+
 ## [v4.4.0] - 2026-07-17
 
 This release makes projections first-class named components: each projection is registered under its own name with its **own handler** and runtime options, aligning eGo with how Akka/Pekko Projections and Axon event processors bind one handler per projection. It removes two footguns of the previous engine-wide design — a single handler silently shared by every projection, and a second `WithProjection` call silently overwriting the first — and renames the projection lifecycle methods to match what they actually do.

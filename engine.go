@@ -360,6 +360,11 @@ func (engine *Engine) ActorSystem() goakt.ActorSystem {
 //   - In cluster mode, the projection runs as a singleton on the oldest node. If that node
 //     leaves the cluster, the singleton is automatically restarted on the new oldest node.
 //   - In standalone (non-cluster) mode, the projection runs as a regular long-lived actor.
+//   - A failed store round trip never stops the projection: the runner retries the pull with
+//     exponential backoff until the store recovers and then resumes from committed offsets.
+//     An event that cannot be processed (a handler error under the Fail or RetryAndFail
+//     recovery policy, a failed decryption or event adaptation) stops the projection through
+//     supervision, so the failure is visible through IsProjectionRunning.
 //
 // Parameters:
 //   - ctx: Execution context used for cancellation and deadlines.
@@ -394,20 +399,22 @@ func (engine *Engine) StartProjection(ctx context.Context, name string) error {
 		// the projection name and placed on the oldest node. SpawnSingleton
 		// is idempotent when the name is already bound to this singleton, so
 		// concurrent StartProjection calls across nodes all succeed; any
-		// error it returns is a genuine failure worth surfacing.
-		if _, err := actorSystem.SpawnSingleton(ctx, name, actor); err != nil {
+		// error it returns is a genuine failure worth surfacing. The
+		// projection supervisor travels with the singleton wherever it is
+		// placed or relocated.
+		if _, err := actorSystem.SpawnSingleton(ctx, name, actor,
+			goakt.WithSingletonSupervisor(newProjectionSupervisor())); err != nil {
 			return fmt.Errorf("failed to start the projection=(%s): %w", name, err)
 		}
 		return nil
 	}
 
 	// In standalone mode, run as a regular long-lived actor.
-	sup := supervisor.NewSupervisor(supervisor.WithAnyErrorDirective(supervisor.ResumeDirective))
 	if _, err := actorSystem.Spawn(ctx, name,
 		actor,
 		goakt.WithLongLived(),
 		goakt.WithRelocationDisabled(),
-		goakt.WithSupervisor(sup)); err != nil {
+		goakt.WithSupervisor(newProjectionSupervisor())); err != nil {
 		return fmt.Errorf("failed to start the projection=(%s): %w", name, err)
 	}
 

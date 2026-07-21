@@ -296,6 +296,192 @@ func TestProjectionRunnerErrorPaths(t *testing.T) {
 	})
 }
 
+func TestStoreRetryDelay(t *testing.T) {
+	assert.Equal(t, storeRetryInitialDelay, storeRetryDelay(1))
+	assert.Equal(t, 2*storeRetryInitialDelay, storeRetryDelay(2))
+	assert.Equal(t, 16*storeRetryInitialDelay, storeRetryDelay(5))
+	// 1s << 5 = 32s exceeds the cap
+	assert.Equal(t, storeRetryMaxDelay, storeRetryDelay(6))
+	// large shift counts wrap or zero out and clamp to the cap
+	assert.Equal(t, storeRetryMaxDelay, storeRetryDelay(40))
+	assert.Equal(t, storeRetryMaxDelay, storeRetryDelay(100))
+}
+
+func TestProjectionRunnerFatalPaths(t *testing.T) {
+	t.Run("with store error the runner retries in place and stays running", func(t *testing.T) {
+		ctx := context.TODO()
+		projectionName := "db-writer"
+
+		offsetStore := new(mocksoffsetstore.OffsetStore)
+		offsetStore.EXPECT().Ping(mock.Anything).Return(nil)
+
+		// the first ShardOffsets round trip fails, subsequent ones succeed
+		eventsStore := new(mockseventstore.EventsStore)
+		eventsStore.EXPECT().Ping(mock.Anything).Return(nil)
+		eventsStore.EXPECT().ShardOffsets(mock.Anything).Return(nil, assert.AnError).Once()
+		eventsStore.EXPECT().ShardOffsets(mock.Anything).Return(nil, nil)
+
+		handler := projection.NewDiscardHandler()
+		runner := newProjectionRunner(projectionName, handler, eventsStore, offsetStore,
+			withPullInterval(time.Millisecond))
+
+		require.NoError(t, runner.Start(ctx))
+		runner.Run(ctx)
+
+		// wait past the first retry backoff so the failed pull is retried
+		pause.For(storeRetryInitialDelay + 500*time.Millisecond)
+
+		eventsStore.AssertExpectations(t)
+		offsetStore.AssertExpectations(t)
+
+		assert.True(t, runner.running.Load())
+		require.NoError(t, runner.Stop())
+	})
+	t.Run("with unprocessable event the projectionRunner stops", func(t *testing.T) {
+		ctx := context.TODO()
+		projectionName := "db-writer"
+		persistenceID := uuid.NewString()
+		shardNumber := uint64(9)
+		timestamp := timestamppb.Now()
+
+		projectionID := &egopb.ProjectionId{
+			ProjectionName: projectionName,
+			ShardNumber:    shardNumber,
+		}
+
+		offset := &egopb.Offset{
+			ShardNumber:    shardNumber,
+			ProjectionName: projectionName,
+			Value:          timestamp.AsTime().Unix(),
+			Timestamp:      0,
+		}
+
+		eventAny, err := anypb.New(&testpb.AccountCredited{})
+		require.NoError(t, err)
+
+		events := []*egopb.Event{
+			{
+				PersistenceId:  persistenceID,
+				SequenceNumber: 1,
+				IsDeleted:      false,
+				Event:          eventAny,
+				Timestamp:      timestamp.AsTime().Unix(),
+				Shard:          shardNumber,
+			},
+		}
+
+		nextOffset := timestamppb.New(time.Now().Add(time.Minute))
+		maxBufferSize := 10
+
+		offsetStore := new(mocksoffsetstore.OffsetStore)
+		offsetStore.EXPECT().Ping(mock.Anything).Return(nil)
+		offsetStore.EXPECT().GetCurrentOffset(mock.Anything, projectionID).Return(offset, nil)
+
+		eventsStore := new(mockseventstore.EventsStore)
+		eventsStore.EXPECT().Ping(mock.Anything).Return(nil)
+		eventsStore.EXPECT().ShardOffsets(mock.Anything).Return(map[uint64]int64{shardNumber: nextOffset.AsTime().UnixMilli()}, nil)
+		eventsStore.EXPECT().GetShardEvents(mock.Anything, shardNumber, offset.GetValue(), uint64(maxBufferSize)).Return(events, nextOffset.AsTime().UnixMilli(), nil)
+
+		// testHandler1 always fails and the default recovery policy is Fail
+		runner := newProjectionRunner(projectionName, testHandler1{}, eventsStore, offsetStore,
+			withPullInterval(time.Millisecond))
+		runner.maxBufferSize = maxBufferSize
+
+		require.NoError(t, runner.Start(ctx))
+		runner.Run(ctx)
+
+		// the unprocessable event stops the processing loop permanently
+		require.Eventually(t, func() bool {
+			return !runner.running.Load()
+		}, 2*time.Second, 10*time.Millisecond)
+
+		eventsStore.AssertExpectations(t)
+		offsetStore.AssertExpectations(t)
+
+		require.NoError(t, runner.Stop())
+	})
+	t.Run("with mixed store and event errors in one batch the projectionRunner stops", func(t *testing.T) {
+		ctx := context.TODO()
+		projectionName := "db-writer"
+		persistenceID := uuid.NewString()
+		storeShard := uint64(1)
+		poisonShard := uint64(2)
+		timestamp := timestamppb.Now()
+		offsetValue := timestamp.AsTime().Unix()
+
+		eventAny, err := anypb.New(&testpb.AccountCredited{})
+		require.NoError(t, err)
+
+		events := []*egopb.Event{
+			{
+				PersistenceId:  persistenceID,
+				SequenceNumber: 1,
+				IsDeleted:      false,
+				Event:          eventAny,
+				Timestamp:      offsetValue,
+				Shard:          poisonShard,
+			},
+		}
+
+		nextOffset := timestamppb.New(time.Now().Add(time.Minute)).AsTime().UnixMilli()
+		maxBufferSize := 10
+
+		offsetStore := new(mocksoffsetstore.OffsetStore)
+		offsetStore.EXPECT().Ping(mock.Anything).Return(nil)
+		offsetStore.EXPECT().GetCurrentOffset(mock.Anything, mock.AnythingOfType("*egopb.ProjectionId")).Return(&egopb.Offset{Value: offsetValue}, nil)
+
+		// one shard fails its store round trip while the other returns an
+		// event the handler cannot process
+		eventsStore := new(mockseventstore.EventsStore)
+		eventsStore.EXPECT().Ping(mock.Anything).Return(nil)
+		eventsStore.EXPECT().ShardOffsets(mock.Anything).Return(map[uint64]int64{storeShard: nextOffset, poisonShard: nextOffset}, nil)
+		eventsStore.EXPECT().GetShardEvents(mock.Anything, storeShard, offsetValue, uint64(maxBufferSize)).Return(nil, 0, assert.AnError)
+		eventsStore.EXPECT().GetShardEvents(mock.Anything, poisonShard, offsetValue, uint64(maxBufferSize)).Return(events, nextOffset, nil)
+
+		runner := newProjectionRunner(projectionName, testHandler1{}, eventsStore, offsetStore,
+			withPullInterval(time.Millisecond))
+		runner.maxBufferSize = maxBufferSize
+
+		require.NoError(t, runner.Start(ctx))
+		runner.Run(ctx)
+
+		// the unprocessable event outranks the store failure: the loop stops
+		// instead of retrying, since retrying cannot advance past the event
+		require.Eventually(t, func() bool {
+			return !runner.running.Load()
+		}, 2*time.Second, 10*time.Millisecond)
+
+		eventsStore.AssertExpectations(t)
+		offsetStore.AssertExpectations(t)
+
+		require.NoError(t, runner.Stop())
+	})
+	t.Run("with persistent store error Stop interrupts the retry backoff", func(t *testing.T) {
+		ctx := context.TODO()
+		projectionName := "db-writer"
+
+		offsetStore := new(mocksoffsetstore.OffsetStore)
+		offsetStore.EXPECT().Ping(mock.Anything).Return(nil)
+
+		eventsStore := new(mockseventstore.EventsStore)
+		eventsStore.EXPECT().Ping(mock.Anything).Return(nil)
+		eventsStore.EXPECT().ShardOffsets(mock.Anything).Return(nil, assert.AnError)
+
+		handler := projection.NewDiscardHandler()
+		runner := newProjectionRunner(projectionName, handler, eventsStore, offsetStore,
+			withPullInterval(time.Millisecond))
+
+		require.NoError(t, runner.Start(ctx))
+		runner.Run(ctx)
+
+		// wait for the first failed pull to enter its backoff wait, then stop
+		pause.For(100 * time.Millisecond)
+		require.NoError(t, runner.Stop())
+
+		assert.False(t, runner.running.Load())
+	})
+}
+
 func TestRunner(t *testing.T) {
 	t.Run("with happy path", func(t *testing.T) {
 		ctx := context.TODO()
@@ -848,7 +1034,7 @@ func TestRunner(t *testing.T) {
 		eventsStore.AssertExpectations(t)
 		require.NoError(t, runner.Stop())
 	})
-	t.Run("when fail to write the offset stops the projectionRunner", func(t *testing.T) {
+	t.Run("when fail to write the offset the projectionRunner retries and keeps running", func(t *testing.T) {
 		ctx := context.TODO()
 		projectionName := "db-writer"
 		persistenceID := uuid.NewString()
@@ -915,11 +1101,11 @@ func TestRunner(t *testing.T) {
 		eventsStore.AssertExpectations(t)
 		offsetStore.AssertExpectations(t)
 
-		assert.False(t, runner.running.Load())
+		assert.True(t, runner.running.Load())
 
 		require.NoError(t, runner.Stop())
 	})
-	t.Run("when fail to fetch shard numbers stops the projectionRunner", func(t *testing.T) {
+	t.Run("when fail to fetch shard numbers the projectionRunner retries and keeps running", func(t *testing.T) {
 		ctx := context.TODO()
 		projectionName := "db-writer"
 		handler := projection.NewDiscardHandler()
@@ -952,11 +1138,11 @@ func TestRunner(t *testing.T) {
 		eventsStore.AssertExpectations(t)
 		offsetStore.AssertExpectations(t)
 
-		assert.False(t, runner.running.Load())
+		assert.True(t, runner.running.Load())
 
 		require.NoError(t, runner.Stop())
 	})
-	t.Run("when fail to get current offset stops the projectionRunner", func(t *testing.T) {
+	t.Run("when fail to get current offset the projectionRunner retries and keeps running", func(t *testing.T) {
 		ctx := context.TODO()
 		projectionName := "db-writer"
 		shardNumber := uint64(9)
@@ -998,11 +1184,11 @@ func TestRunner(t *testing.T) {
 		eventsStore.AssertExpectations(t)
 		offsetStore.AssertExpectations(t)
 
-		assert.False(t, runner.running.Load())
+		assert.True(t, runner.running.Load())
 
 		require.NoError(t, runner.Stop())
 	})
-	t.Run("when fail to get shard events stops the projectionRunner", func(t *testing.T) {
+	t.Run("when fail to get shard events the projectionRunner retries and keeps running", func(t *testing.T) {
 		ctx := context.TODO()
 		projectionName := "db-writer"
 
@@ -1053,7 +1239,7 @@ func TestRunner(t *testing.T) {
 		eventsStore.AssertExpectations(t)
 		offsetStore.AssertExpectations(t)
 
-		assert.False(t, runner.running.Load())
+		assert.True(t, runner.running.Load())
 
 		require.NoError(t, runner.Stop())
 	})
