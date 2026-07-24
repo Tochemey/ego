@@ -4,8 +4,8 @@ go 1.26.0
 
 require (
 	github.com/IBM/sarama v1.50.3
-	github.com/tochemey/ego/v4 v4.4.1
-	github.com/tochemey/goakt/v4 v4.4.1
+	github.com/tochemey/ego/v4 v4.4.2
+	github.com/tochemey/goakt/v4 v4.4.2
 	go.uber.org/atomic v1.11.0
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af
 )
@@ -39,7 +39,7 @@ require (
 	github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529 // indirect
 	github.com/tidwall/btree v1.8.1 // indirect
 	github.com/tidwall/match v1.2.0 // indirect
-	github.com/tidwall/redcon v1.6.2 // indirect
+	github.com/tidwall/redcon v1.6.4 // indirect
 	github.com/tochemey/olric v0.3.17 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
@@ -59,7 +59,7 @@ require (
 )
 
 require (
-	github.com/RoaringBitmap/roaring/v2 v2.21.0 // indirect
+	github.com/RoaringBitmap/roaring/v2 v2.24.0 // indirect
 	github.com/bytedance/gopkg v0.1.4 // indirect
 	github.com/bytedance/sonic v1.15.2 // indirect
 	github.com/bytedance/sonic/loader v0.5.1 // indirect
