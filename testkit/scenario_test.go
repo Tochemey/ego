@@ -25,8 +25,10 @@ package testkit
 import (
 	"context"
 	"errors"
+	"runtime"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
 	testpb "github.com/tochemey/ego/v4/test/data/testpb"
@@ -70,6 +72,10 @@ func (b *accountEventSourcedBehavior) HandleCommand(_ context.Context, command p
 
 	case *testpb.TestNoEvent:
 		return nil, nil
+
+	case *testpb.TestPanic:
+		// emits an event that HandleEvent does not recognize
+		return []proto.Message{&testpb.TestSend{}}, nil
 
 	default:
 		return nil, errors.New("unhandled command")
@@ -132,20 +138,49 @@ func (b *accountDurableStateBehavior) HandleCommand(_ context.Context, command p
 	}
 }
 
+// recordingTB captures assertion failures instead of failing the enclosing test,
+// so the scenario's own failure paths can themselves be asserted.
+type recordingTB struct {
+	testing.TB
+	failed bool
+}
+
+func (r *recordingTB) Errorf(string, ...any) { r.failed = true }
+func (r *recordingTB) Helper()               {}
+
+func (r *recordingTB) FailNow() {
+	r.failed = true
+	runtime.Goexit()
+}
+
+// recordFailure runs the assertion against a recording testing.TB and reports
+// whether it failed. The assertion runs on its own goroutine because a failed
+// require aborts through runtime.Goexit.
+func recordFailure(t testing.TB, assert func(t testing.TB)) bool {
+	recorder := &recordingTB{TB: t}
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		assert(recorder)
+	}()
+
+	<-done
+	return recorder.failed
+}
+
 // ---------------------------------------------------------------------------
 // EventSourcedScenario tests
 // ---------------------------------------------------------------------------
 
-func TestEventSourcedScenario_GivenEventsWhenCommandThenEventsAndState(t *testing.T) {
+func TestEventSourcedScenario_GivenStateWhenCommandThenEventsAndState(t *testing.T) {
 	behavior := &accountEventSourcedBehavior{id: "acc-1"}
 
 	ForEventSourcedBehavior(behavior).
-		Given(
-			&testpb.AccountCreated{
-				AccountId:      "acc-1",
-				AccountBalance: 100.00,
-			},
-		).
+		Given(&testpb.Account{
+			AccountId:      "acc-1",
+			AccountBalance: 100.00,
+		}).
 		When(&testpb.CreditAccount{
 			AccountId: "acc-1",
 			Balance:   50.00,
@@ -200,35 +235,27 @@ func TestEventSourcedScenario_WhenCommandProducesNoEvents(t *testing.T) {
 		ThenNoEvents(t)
 }
 
-func TestEventSourcedScenario_GivenEventsFailHandleEvent(t *testing.T) {
+func TestEventSourcedScenario_HandleEventFailsOnProducedEvent(t *testing.T) {
 	behavior := &accountEventSourcedBehavior{id: "acc-5"}
 
-	// Supply an event that HandleEvent does not recognize, which causes
-	// an error during the Given phase (prior-event replay).
+	// TestPanic makes the command handler emit an event that HandleEvent
+	// does not recognize, which surfaces while deriving the resulting state.
 	ForEventSourcedBehavior(behavior).
-		Given(
-			&testpb.TestNoEvent{}, // not handled by HandleEvent
-		).
-		When(&testpb.CreateAccount{
-			AccountBalance: 10.00,
-		}).
+		When(&testpb.TestPanic{}).
 		ThenError(t, "unhandled event")
 }
 
-func TestEventSourcedScenario_MultipleGivenEvents(t *testing.T) {
+func TestEventSourcedScenario_GivenStateIsPassedToCommandHandler(t *testing.T) {
 	behavior := &accountEventSourcedBehavior{id: "acc-6"}
 
+	// The prior state is handed to the command handler as-is: no event replay
+	// happens during the Given phase, so HandleEvent is only exercised on the
+	// events the command produced.
 	ForEventSourcedBehavior(behavior).
-		Given(
-			&testpb.AccountCreated{
-				AccountId:      "acc-6",
-				AccountBalance: 100.00,
-			},
-			&testpb.AccountCredited{
-				AccountId:      "acc-6",
-				AccountBalance: 25.00,
-			},
-		).
+		Given(&testpb.Account{
+			AccountId:      "acc-6",
+			AccountBalance: 125.00,
+		}).
 		When(&testpb.CreditAccount{
 			AccountId: "acc-6",
 			Balance:   75.00,
@@ -243,6 +270,95 @@ func TestEventSourcedScenario_MultipleGivenEvents(t *testing.T) {
 			AccountId:      "acc-6",
 			AccountBalance: 200.00,
 		})
+}
+
+func TestEventSourcedScenario_GivenEventsBuildTheState(t *testing.T) {
+	behavior := &accountEventSourcedBehavior{id: "acc-8"}
+
+	ForEventSourcedBehavior(behavior).
+		GivenEvents(
+			&testpb.AccountCreated{
+				AccountId:      "acc-8",
+				AccountBalance: 100.00,
+			},
+			&testpb.AccountCredited{
+				AccountId:      "acc-8",
+				AccountBalance: 25.00,
+			},
+		).
+		When(&testpb.CreditAccount{
+			AccountId: "acc-8",
+			Balance:   75.00,
+		}).
+		ThenEvents(t,
+			&testpb.AccountCredited{
+				AccountId:      "acc-8",
+				AccountBalance: 75.00,
+			},
+		).
+		ThenState(t, &testpb.Account{
+			AccountId:      "acc-8",
+			AccountBalance: 200.00,
+		})
+}
+
+func TestEventSourcedScenario_GivenEventsApplyOnTopOfGivenState(t *testing.T) {
+	behavior := &accountEventSourcedBehavior{id: "acc-9"}
+
+	// mirrors an entity recovered from a snapshot and then replayed
+	ForEventSourcedBehavior(behavior).
+		Given(&testpb.Account{
+			AccountId:      "acc-9",
+			AccountBalance: 100.00,
+		}).
+		GivenEvents(
+			&testpb.AccountCredited{
+				AccountId:      "acc-9",
+				AccountBalance: 25.00,
+			},
+		).
+		When(&testpb.CreditAccount{
+			AccountId: "acc-9",
+			Balance:   75.00,
+		}).
+		ThenState(t, &testpb.Account{
+			AccountId:      "acc-9",
+			AccountBalance: 200.00,
+		})
+}
+
+func TestEventSourcedScenario_GivenEventsFailureIsReportedAsArrangementFailure(t *testing.T) {
+	behavior := &accountEventSourcedBehavior{id: "acc-10"}
+
+	// TestNoEvent is not recognized by HandleEvent, so the arrangement cannot be
+	// built. Every assertion must report that instead of a command outcome, even
+	// ThenError, which would otherwise let a broken setup pass as a failed command.
+	result := ForEventSourcedBehavior(behavior).
+		GivenEvents(&testpb.TestNoEvent{}).
+		When(&testpb.CreateAccount{
+			AccountBalance: 10.00,
+		})
+
+	require.Error(t, result.arrangeErr)
+	require.ErrorContains(t, result.arrangeErr, "given events could not be applied")
+	require.NoError(t, result.err, "an arrangement failure must not surface as a command error")
+
+	assertions := []struct {
+		name   string
+		assert func(t testing.TB)
+	}{
+		{"ThenEvents", func(t testing.TB) { result.ThenEvents(t, &testpb.AccountCreated{}) }},
+		{"ThenState", func(t testing.TB) { result.ThenState(t, &testpb.Account{}) }},
+		{"ThenNoEvents", func(t testing.TB) { result.ThenNoEvents(t) }},
+		{"ThenError", func(t testing.TB) { result.ThenError(t, "unhandled event") }},
+	}
+
+	for _, assertion := range assertions {
+		t.Run(assertion.name, func(t *testing.T) {
+			require.True(t, recordFailure(t, assertion.assert),
+				"%s must fail when the arrangement failed", assertion.name)
+		})
+	}
 }
 
 func TestEventSourcedScenario_UnhandledCommandReturnsError(t *testing.T) {

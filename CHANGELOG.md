@@ -4,6 +4,57 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 💥 Breaking Changes
+
+- **`testkit.EventSourcedScenario.Given` takes a prior state instead of prior events.** Existing calls that passed events — `Given(accountCreated, accountCredited)` — no longer compile. Rename them to `GivenEvents` to keep the same arrangement, or pass the single state those events fold into. Nothing outside the testkit is affected, and `DurableStateScenario.Given(state, version)` is unchanged.
+
+### ✨ Features
+
+- **Event-sourced scenarios can be arranged from state or from history.** `testkit.EventSourcedScenario` now offers both ways to put an entity into the state a command is handled against, so a test can say what the entity *is* or what has *happened* to it, whichever reads better:
+
+  ```go
+  // from state — handed to HandleCommand verbatim, the way EventSourcedActor
+  // hands over the state it recovered
+  testkit.ForEventSourcedBehavior(behavior).
+      Given(&pb.Account{AccountId: "acc-1", AccountBalance: 125}).
+      When(&pb.CreditAccount{AccountId: "acc-1", Balance: 75}).
+      ThenState(t, &pb.Account{AccountId: "acc-1", AccountBalance: 200})
+
+  // from history — replayed in order through HandleEvent, the way the engine
+  // replays a journal
+  testkit.ForEventSourcedBehavior(behavior).
+      GivenEvents(
+          &pb.AccountCreated{AccountId: "acc-1", AccountBalance: 100},
+          &pb.AccountCredited{AccountId: "acc-1", AccountBalance: 25},
+      ).
+      When(&pb.CreditAccount{AccountId: "acc-1", Balance: 75}).
+      ThenState(t, &pb.Account{AccountId: "acc-1", AccountBalance: 200})
+  ```
+
+  `Given(priorState)` keeps the arrangement independent of `HandleEvent`, which matters when the command handler is what the test is actually about: the handler under test no longer builds its own fixture. `GivenEvents(events...)` keeps the event-based arrangement for tests where the history is the clearer statement, and deliberately exercises `HandleEvent` as part of the scenario. The two compose — `Given(snapshotState).GivenEvents(subsequentEvents...)` mirrors an entity recovered from a snapshot and then replayed from that point. Omitting both starts from `InitialState()`.
+
+  Either way, the events the command produced are applied in order to derive the resulting state, the same derivation the actor performs before persisting, and that result is what `ThenState` asserts.
+
+- **A broken scenario arrangement can no longer pass as a command outcome.** An event `GivenEvents` cannot replay is recorded as an arrangement failure, distinct from the failure of the command under test, and **every** assertion — `ThenEvents`, `ThenState`, `ThenNoEvents`, and `ThenError` alike — reports it as `given events could not be applied: ...`. A replay failure previously came back as the scenario's own error, indistinguishable from a rejected command, so a test whose *setup* was broken could satisfy `ThenError` and read as a command correctly refused — eGo's own testkit suite contained exactly such a test.
+
+### 🐛 Bug Fixes
+
+- **The testkit scenarios now accept real behaviors.** `testkit.ForEventSourcedBehavior` and `testkit.ForDurableStateBehavior` are declared against small interfaces the testkit defines with `proto.Message` parameters, which any ego behavior is meant to satisfy structurally — but `ego.Command`, `ego.Event`, and `ego.State` were *defined* types, not synonyms of `proto.Message`, so the signatures never matched. Any behavior written against `ego.EventSourcedBehavior` — including every example in this repository — failed to compile when passed to a scenario, and the only workaround was to write a second, `proto.Message`-shaped copy of the behavior and test that copy instead of the code the engine runs.
+
+  `ego.Command`, `ego.Event`, and `ego.State` are now aliases for `proto.Message`. An alias is the same type under another name, so existing application code compiles unchanged — and every behavior the engine accepts now satisfies the testkit's interfaces, exactly as intended:
+
+  ```go
+  // the behavior you run in production is the behavior you test — no adapter
+  testkit.ForEventSourcedBehavior(&AccountBehavior{}).
+      Given(&pb.Account{AccountId: "acc-1", AccountBalance: 125}).
+      When(&pb.CreditAccount{AccountId: "acc-1", Balance: 75}).
+      ThenState(t, &pb.Account{AccountId: "acc-1", AccountBalance: 200})
+  ```
+
+  A compile-time assertion in the ego package now pins this compatibility, so the two can never drift apart unnoticed again.
+
 ## [v4.4.2] - 2026-07-24
 
 ### 🐛 Bug Fixes

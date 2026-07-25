@@ -427,7 +427,7 @@ func (entity *EventSourcedActor) applyPersistedEvent(ctx context.Context, envelo
 		return nil, fmt.Errorf("failed to unmarshal event at sequence %d: %w", seqNr, err)
 	}
 
-	state, err = entity.behavior.HandleEvent(ctx, eventMsg.(Event), state)
+	state, err = entity.behavior.HandleEvent(ctx, eventMsg, state)
 	if err != nil {
 		return nil, fmt.Errorf("failed to handle event at sequence %d: %w", seqNr, err)
 	}

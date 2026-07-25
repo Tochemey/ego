@@ -187,7 +187,7 @@ func (s *SagaActor) recover(ctx context.Context) error {
 			return fmt.Errorf("failed to unmarshal saga event at sequence %d: %w", envelope.GetSequenceNumber(), err)
 		}
 
-		s.currentState, err = s.behavior.ApplyEvent(ctx, eventMsg.(Event), s.currentState)
+		s.currentState, err = s.behavior.ApplyEvent(ctx, eventMsg, s.currentState)
 		if err != nil {
 			return fmt.Errorf("failed to apply saga event at sequence %d: %w", envelope.GetSequenceNumber(), err)
 		}
@@ -259,7 +259,7 @@ func (s *SagaActor) handleStreamEvent(event *egopb.Event) {
 		return
 	}
 
-	action, err := s.behavior.HandleEvent(context.Background(), eventMsg.(Event), s.currentState)
+	action, err := s.behavior.HandleEvent(context.Background(), eventMsg, s.currentState)
 	if err != nil {
 		s.logger.Errorf("saga %s: HandleEvent failed: %v", s.sagaID, err)
 		return

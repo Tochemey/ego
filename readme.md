@@ -516,11 +516,26 @@ The [`testkit`](./testkit) package provides in-memory event, snapshot, state, of
 
 ```go
 testkit.ForEventSourcedBehavior(behavior).
-    Given(previousEvents...).
+    Given(priorState).
     When(command).
     ThenEvents(t, expectedEvents...).
     ThenState(t, expectedState)
 ```
+
+`Given` states the entity's prior state — the same state the engine recovers from the journal and hands to `HandleCommand` — so the arrangement never depends on `HandleEvent`. Omit it to start from `InitialState()`.
+
+Where the history reads better than the folded state, `GivenEvents` arranges the entity from the events it has already recorded, replayed in order through `HandleEvent` just as the engine replays a journal:
+
+```go
+testkit.ForEventSourcedBehavior(behavior).
+    GivenEvents(accountCreated, accountCredited).
+    When(command).
+    ThenEvents(t, expectedEvents...)
+```
+
+The two compose — `Given(snapshotState).GivenEvents(subsequentEvents...)` mirrors an entity recovered from a snapshot and then replayed. An event `HandleEvent` rejects fails the scenario as a broken arrangement, reported as such by every assertion including `ThenError`, so a bad setup can never pass as a failed command.
+
+The durable-state scenario reads the same way, with `Given(priorState, priorVersion)` and `ThenState`/`ThenVersion`.
 
 Generated mocks for persistence, encryption, adapters, offsets, and publishers are available under [`mocks`](./mocks).
 

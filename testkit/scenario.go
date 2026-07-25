@@ -24,6 +24,7 @@ package testkit
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -31,16 +32,22 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// EventSourcedBehavior mirrors ego.EventSourcedBehavior for use in the testkit
-// without creating an import cycle. Any ego.EventSourcedBehavior satisfies this interface.
+// EventSourcedBehavior is the subset of ego.EventSourcedBehavior the scenarios
+// exercise, declared here because the testkit cannot import ego (ego's own tests
+// import the testkit). Every ego.EventSourcedBehavior satisfies it structurally,
+// so a scenario tests the very behavior the engine runs — never a copy written
+// for the test. A compile-time assertion in the ego package keeps it that way.
 type EventSourcedBehavior interface {
 	InitialState() proto.Message
 	HandleCommand(ctx context.Context, command proto.Message, priorState proto.Message) (events []proto.Message, err error)
 	HandleEvent(ctx context.Context, event proto.Message, priorState proto.Message) (state proto.Message, err error)
 }
 
-// DurableStateBehavior mirrors ego.DurableStateBehavior for use in the testkit
-// without creating an import cycle. Any ego.DurableStateBehavior satisfies this interface.
+// DurableStateBehavior is the subset of ego.DurableStateBehavior the scenarios
+// exercise, declared here because the testkit cannot import ego (ego's own tests
+// import the testkit). Every ego.DurableStateBehavior satisfies it structurally,
+// so a scenario tests the very behavior the engine runs — never a copy written
+// for the test. A compile-time assertion in the ego package keeps it that way.
 type DurableStateBehavior interface {
 	InitialState() proto.Message
 	HandleCommand(ctx context.Context, command proto.Message, priorVersion uint64, priorState proto.Message) (newState proto.Message, newVersion uint64, err error)
@@ -51,6 +58,7 @@ type DurableStateBehavior interface {
 // HandleEvent directly.
 type EventSourcedScenario struct {
 	behavior    EventSourcedBehavior
+	priorState  proto.Message
 	priorEvents []proto.Message
 }
 
@@ -58,7 +66,11 @@ type EventSourcedScenario struct {
 type EventSourcedScenarioResult struct {
 	events []proto.Message
 	state  proto.Message
-	err    error
+	// err is the failure of the command under test.
+	err error
+	// arrangeErr is the failure to build the prior state from the given events. It is
+	// kept apart from err so a broken arrangement is never read as a command outcome.
+	arrangeErr error
 }
 
 // ForEventSourcedBehavior creates a new test scenario for the given behavior.
@@ -68,35 +80,56 @@ func ForEventSourcedBehavior(behavior EventSourcedBehavior) *EventSourcedScenari
 	}
 }
 
-// Given sets up prior events that are applied (via HandleEvent) to build
-// the initial state before the command is sent. This simulates an entity
-// that has already processed these events.
-func (s *EventSourcedScenario) Given(events ...proto.Message) *EventSourcedScenario {
+// Given sets the state the entity is already in when the command arrives. It is
+// handed to HandleCommand verbatim, exactly as the engine hands over the state it
+// recovered from the journal, so the arrangement does not depend on HandleEvent
+// being correct. When Given is omitted, the behavior's InitialState is used.
+//
+// Given combines with GivenEvents: the state set here is the one those events are
+// applied to, mirroring an entity recovered from a snapshot and then replayed.
+func (s *EventSourcedScenario) Given(priorState proto.Message) *EventSourcedScenario {
+	s.priorState = priorState
+	return s
+}
+
+// GivenEvents sets the history the entity has already recorded. The events are
+// applied in order via HandleEvent to derive the state the command is handled
+// against, mirroring how the engine replays a journal, and so exercise HandleEvent
+// as part of the scenario. Use Given instead to state the prior state outright and
+// keep the arrangement independent of HandleEvent.
+//
+// An event that HandleEvent rejects fails the scenario as a broken arrangement:
+// every assertion reports it as such rather than as a command failure.
+func (s *EventSourcedScenario) GivenEvents(events ...proto.Message) *EventSourcedScenario {
 	s.priorEvents = events
 	return s
 }
 
-// When sets the command to process and returns the result.
+// When processes the command against the prior state and returns the result.
+// The events returned by HandleCommand are applied in order via HandleEvent,
+// mirroring how the engine derives the resulting state.
 func (s *EventSourcedScenario) When(command proto.Message) *EventSourcedScenarioResult {
 	ctx := context.Background()
 
-	// build up state from prior events
-	state := s.behavior.InitialState()
-	for _, event := range s.priorEvents {
-		var err error
-		state, err = s.behavior.HandleEvent(ctx, event, state)
-		if err != nil {
-			return &EventSourcedScenarioResult{err: err}
-		}
+	state := s.priorState
+	if state == nil {
+		state = s.behavior.InitialState()
 	}
 
-	// process the command
+	for _, event := range s.priorEvents {
+		replayedState, err := s.behavior.HandleEvent(ctx, event, state)
+		if err != nil {
+			return &EventSourcedScenarioResult{arrangeErr: fmt.Errorf("given events could not be applied: %w", err)}
+		}
+
+		state = replayedState
+	}
+
 	events, err := s.behavior.HandleCommand(ctx, command, state)
 	if err != nil {
 		return &EventSourcedScenarioResult{err: err}
 	}
 
-	// apply produced events to get final state
 	for _, event := range events {
 		state, err = s.behavior.HandleEvent(ctx, event, state)
 		if err != nil {
@@ -107,10 +140,18 @@ func (s *EventSourcedScenario) When(command proto.Message) *EventSourcedScenario
 	return &EventSourcedScenarioResult{events: events, state: state}
 }
 
+// requireArranged fails the test when the given events could not be applied, so a
+// broken arrangement is never reported as an outcome of the command under test.
+func (r *EventSourcedScenarioResult) requireArranged(t testing.TB) {
+	t.Helper()
+	require.NoError(t, r.arrangeErr, "scenario arrangement failed")
+}
+
 // ThenEvents asserts that the command produced exactly these events
 // (using proto.Equal for comparison). Returns itself for chaining.
 func (r *EventSourcedScenarioResult) ThenEvents(t testing.TB, expected ...proto.Message) *EventSourcedScenarioResult {
 	t.Helper()
+	r.requireArranged(t)
 	require.NoError(t, r.err, "command processing returned an error")
 	require.Len(t, r.events, len(expected), "unexpected number of events")
 	for i, exp := range expected {
@@ -123,6 +164,7 @@ func (r *EventSourcedScenarioResult) ThenEvents(t testing.TB, expected ...proto.
 // ThenState asserts the final state after all produced events are applied.
 func (r *EventSourcedScenarioResult) ThenState(t testing.TB, expected proto.Message) *EventSourcedScenarioResult {
 	t.Helper()
+	r.requireArranged(t)
 	require.NoError(t, r.err, "command processing returned an error")
 	assert.True(t, proto.Equal(expected, r.state),
 		"state mismatch: expected %v, got %v", expected, r.state)
@@ -132,6 +174,7 @@ func (r *EventSourcedScenarioResult) ThenState(t testing.TB, expected proto.Mess
 // ThenError asserts the command returned an error containing the given substring.
 func (r *EventSourcedScenarioResult) ThenError(t testing.TB, errSubstring string) *EventSourcedScenarioResult {
 	t.Helper()
+	r.requireArranged(t)
 	require.Error(t, r.err, "expected an error but got none")
 	assert.Contains(t, r.err.Error(), errSubstring)
 	return r
@@ -140,6 +183,7 @@ func (r *EventSourcedScenarioResult) ThenError(t testing.TB, errSubstring string
 // ThenNoEvents asserts the command produced no events (no-op).
 func (r *EventSourcedScenarioResult) ThenNoEvents(t testing.TB) *EventSourcedScenarioResult {
 	t.Helper()
+	r.requireArranged(t)
 	require.NoError(t, r.err, "command processing returned an error")
 	assert.Empty(t, r.events, "expected no events but got %d", len(r.events))
 	return r

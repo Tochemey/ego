@@ -29,9 +29,17 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-type Command proto.Message
-type Event proto.Message
-type State proto.Message
+// Command is a command sent to an entity. It is an alias for [proto.Message],
+// so a behavior may be written in terms of either name.
+type Command = proto.Message
+
+// Event is an event persisted by an entity. It is an alias for [proto.Message],
+// so a behavior may be written in terms of either name.
+type Event = proto.Message
+
+// State is the state held by an entity. It is an alias for [proto.Message],
+// so a behavior may be written in terms of either name.
+type State = proto.Message
 
 // EventSourcedBehavior defines an event-sourced behavior when modeling a CQRS EventSourcedBehavior.
 type EventSourcedBehavior interface {
