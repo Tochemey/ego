@@ -451,6 +451,28 @@ You retain full control over discovery, partitioning, quorum, replicas, TLS, rem
 
 Single-node deployments do not need `ClusterKinds` or `WithEntityKinds`.
 
+### Remoting
+
+Go-Akt speaks a multiplexed remoting protocol — per-peer lane connections, chunked large messages, and credit-based flow control. eGo requires no configuration for it: `remote.NewConfig(host, remotingPort)` negotiates it on its own, and eGo's remote surface is unchanged.
+
+Two things follow from how eGo's traffic maps onto those lanes.
+
+**Entity placement travels on the control lane.** Spawns, singleton placement, and death-watch are carried separately from user commands, so a burst of entity traffic can no longer delay them.
+
+**Entity commands share one ordinary lane by default.** `SendCommand` and saga participant calls are asks, and every ask from one node to a given peer rides a single connection with one writer queue and one credit window. Raising the lane count shards receivers across connections so sends proceed in parallel:
+
+```go
+goakt.WithRemote(remote.NewConfig(host, remotingPort,
+    remote.WithOrdinaryLanes(4),
+)),
+```
+
+Any lane count is safe for eGo. Ordering in eGo is per entity — each entity actor serializes its own mailbox — and Go-Akt pins a receiver to a lane by a stable hash of its address, so commands to one entity stay in order however many lanes exist. eGo never relies on ordering between different entities.
+
+Slow entities degrade gracefully rather than stalling a connection: asks are multiplexed by correlation ID and dispatched on a bounded worker pool, so an entity waiting on its events store occupies a worker instead of blocking the socket. When that pool saturates, the affected request comes back as an unavailable error and the connection stays healthy.
+
+Leave the protocol pin at its `auto` default while upgrading a running cluster. Nodes negotiate the multiplexed protocol with peers that support it and fall back to the legacy wire for those that do not, so a cluster rolls node by node without a flag day.
+
 The [Kubernetes cluster example](./example/cluster) demonstrates a three-node deployment with PostgreSQL, Kubernetes discovery, a singleton projection, OpenTelemetry, Prometheus, Jaeger, and Grafana.
 
 ## Persistence

@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v4.4.3] - 2026-08-15
 
 ### 💥 Breaking Changes
 
@@ -54,6 +54,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
   ```
 
   A compile-time assertion in the ego package now pins this compatibility, so the two can never drift apart unnoticed again.
+
+### ⬆️ Dependencies
+
+- `github.com/tochemey/goakt/v4` v4.4.3 → v4.5.0
+- `go.opentelemetry.io/otel`, `go.opentelemetry.io/otel/metric`, `go.opentelemetry.io/otel/sdk`, and `go.opentelemetry.io/otel/trace` v1.44.0 → v1.45.0
+- `google.golang.org/protobuf` → v1.36.12
+
+  Go-Akt v4.5.0 introduces a multiplexed remoting protocol — per-peer lane connections, chunked large messages, and credit-based flow control. eGo adopts it without a code or configuration change: remoting belongs to the application rather than to eGo, and the same `remote.NewConfig(host, remotingPort)` negotiates the new protocol on its own. Entity placement and death-watch now travel on a dedicated control lane, isolated from user command traffic.
+
+  Clusters roll node by node. The default `auto` protocol pin negotiates the multiplexed wire with upgraded peers and falls back to the legacy wire for peers still on v4.4.x, so no flag day is required. Deployments with heavy inter-node command traffic can shard it across connections with `remote.WithOrdinaryLanes(n)` — safe at any count, because eGo's ordering guarantee is per entity and Go-Akt pins each receiver to a lane by a stable hash of its address. See [Remoting](./readme.md#remoting).
 
 ## [v4.4.2] - 2026-07-24
 
