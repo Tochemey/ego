@@ -7,8 +7,8 @@ replace github.com/tochemey/ego/v4 => ../../
 
 require (
 	github.com/jackc/pgx/v5 v5.10.0
-	github.com/tochemey/ego/v4 v4.2.1
-	github.com/tochemey/goakt/v4 v4.5.0
+	github.com/tochemey/ego/v4 v4.4.2
+	github.com/tochemey/goakt/v4 v4.5.1
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.70.0
 	go.opentelemetry.io/otel v1.45.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.45.0
