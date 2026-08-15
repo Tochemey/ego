@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/gorilla/websocket v1.5.3
-	github.com/tochemey/ego/v4 v4.4.2
+	github.com/tochemey/ego/v4 v4.4.3
 	github.com/tochemey/gopack v0.2.1
 	go.uber.org/atomic v1.11.0
 	google.golang.org/protobuf v1.36.12
@@ -48,7 +48,7 @@ require (
 	github.com/tidwall/btree v1.8.1 // indirect
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/redcon v1.6.4 // indirect
-	github.com/tochemey/goakt/v4 v4.5.0 // indirect
+	github.com/tochemey/goakt/v4 v4.5.1 // indirect
 	github.com/tochemey/olric v0.3.18 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
