@@ -7,6 +7,8 @@ github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERo
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
 github.com/RoaringBitmap/roaring/v2 v2.24.0 h1:zQkkBZtG3WRP4j+P3A5DO221SvL1Br88TJkhyqEQRZo=
 github.com/RoaringBitmap/roaring/v2 v2.24.0/go.mod h1:SfT3of9nYh3vis1dIbCj4Yw6KQGujTN+f345nrN/0JA=
+github.com/RoaringBitmap/roaring/v2 v2.25.0 h1:HjcMG0PfmgO1rJcp2VHMarvQiulkB51qA31UH4I+j/U=
+github.com/RoaringBitmap/roaring/v2 v2.25.0/go.mod h1:SfT3of9nYh3vis1dIbCj4Yw6KQGujTN+f345nrN/0JA=
 github.com/Workiva/go-datastructures v1.1.7 h1:q5RXlAeKm3zDpZTbYXwdMb1gN9RtGSvOCtPXGJJL6Cs=
 github.com/Workiva/go-datastructures v1.1.7/go.mod h1:1yZL+zfsztete+ePzZz/Zb1/t5BnDuE2Ya2MMGhzP6A=
 github.com/alecthomas/template v0.0.0-20160405071501-a0175ee3bccc/go.mod h1:LOuyumcjzFXgccqObfd/Ljyb9UuFJ6TxHnclSeseNhc=
@@ -80,6 +82,8 @@ github.com/flowchartsman/retry v1.2.0 h1:qDhlw6RNufXz6RGr+IiYimFpMMkt77SUSHY5tgF
 github.com/flowchartsman/retry v1.2.0/go.mod h1:+sfx8OgCCiAr3t5jh2Gk+T0fRTI+k52edaYxURQxY64=
 github.com/fxamacker/cbor/v2 v2.9.2 h1:X4Ksno9+x3cz0TZv69ec1hxP/+tymuR8PXQJyDwfh78=
 github.com/fxamacker/cbor/v2 v2.9.2/go.mod h1:vM4b+DJCtHn+zz7h3FFp/hDAI9WNWCsZj23V5ytsSxQ=
+github.com/fxamacker/cbor/v2 v2.9.3 h1:oQBnFATpNdY8gJHTndDDv5Xl4QqNaz51G5LLEPhng3Q=
+github.com/fxamacker/cbor/v2 v2.9.3/go.mod h1:vM4b+DJCtHn+zz7h3FFp/hDAI9WNWCsZj23V5ytsSxQ=
 github.com/go-kit/kit v0.8.0/go.mod h1:xBxKIO96dXMWWy0MnWVtmwkA9/13aqxPnvrjFYMA2as=
 github.com/go-kit/kit v0.9.0/go.mod h1:xBxKIO96dXMWWy0MnWVtmwkA9/13aqxPnvrjFYMA2as=
 github.com/go-logfmt/logfmt v0.3.0/go.mod h1:Qt1PoO58o5twSAckw1HlFXLmHsOX5/0LbT9GBnD5lWE=
@@ -177,6 +181,8 @@ github.com/mattn/go-isatty v0.0.24/go.mod h1:nMCL3Zebbrt45jsMDgnfIwz6ydEQApk5oEI
 github.com/matttproud/golang_protobuf_extensions v1.0.1/go.mod h1:D8He9yQNgCq6Z5Ld7szi9bcBfOoFv/3dc6xSMkL2PC0=
 github.com/miekg/dns v1.1.72 h1:vhmr+TF2A3tuoGNkLDFK9zi36F2LS+hKTRW0Uf8kbzI=
 github.com/miekg/dns v1.1.72/go.mod h1:+EuEPhdHOsfk6Wk5TT2CzssZdqkmFhf8r+aVyDEToIs=
+github.com/miekg/dns v1.1.73 h1:uhT8nJxmTrPJYClxVxTCX+CVn6qnzSiybRk72Z6DgrE=
+github.com/miekg/dns v1.1.73/go.mod h1:RW2Obtfd5NZHvOFe3zYG0W8koWOQtAzyHaLo8vASBuQ=
 github.com/minio/highwayhash v1.0.4 h1:asJizugGgchQod2ja9NJlGOWq4s7KsAWr5XUc9Clgl4=
 github.com/minio/highwayhash v1.0.4/go.mod h1:GGYsuwP/fPD6Y9hMiXuapVvlIUEhFhMTh0rxU3ik1LQ=
 github.com/mitchellh/go-homedir v1.1.0 h1:lukF9ziXFxDFPkA1vsr5zpc1XuPDn/wFntq5mG+4E0Y=
@@ -274,6 +280,8 @@ github.com/stretchr/testify v1.8.4/go.mod h1:sz/lmYIOXD/1dqDmKjjqLyZ2RngseejIcXl
 github.com/stretchr/testify v1.10.0/go.mod h1:r2ic/lqez/lEtzL7wO/rwa5dbSLXVDPFyf8C91i36aY=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
+github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWDWE=
+github.com/stretchr/testify v1.12.1/go.mod h1:MDEgiDPPsNp5cuIrHPPCyornHKgEVbtFUmoNlxoYthg=
 github.com/testcontainers/testcontainers-go v0.44.0 h1:/Fwh6HY1mIikhnm9e7HwoxGycx0lzRAE0f5VQpjFxzI=
 github.com/testcontainers/testcontainers-go v0.44.0/go.mod h1:IcnwQrYTO86xHXu5bvMaBH7ATlbS3Qn1M1QWW3c66rE=
 github.com/testcontainers/testcontainers-go/modules/consul v0.44.0 h1:3K9iR88TdBE8b/CtlpS04dNqGoKn26mK/spO/uJC6wQ=
@@ -295,6 +303,8 @@ github.com/tochemey/goakt/v4 v4.5.0 h1:HfOAFh7bimOpwps+xJQy7VpRfj0AuccB1Y8OPpEcq
 github.com/tochemey/goakt/v4 v4.5.0/go.mod h1:iJyiLuiaPer4gi9XumfuRXy5U5xysuECUt9Ob86Zv3A=
 github.com/tochemey/goakt/v4 v4.5.1 h1:cMT4GNaW6D4NRyc6ytmzUUsX0n2/Y8JwcmWPMg6YsIs=
 github.com/tochemey/goakt/v4 v4.5.1/go.mod h1:iJyiLuiaPer4gi9XumfuRXy5U5xysuECUt9Ob86Zv3A=
+github.com/tochemey/goakt/v4 v4.5.2 h1:05HEkAcgGl3s61E8DXxWiCppiZ//8ujHLAemekOkRSg=
+github.com/tochemey/goakt/v4 v4.5.2/go.mod h1:iJyiLuiaPer4gi9XumfuRXy5U5xysuECUt9Ob86Zv3A=
 github.com/tochemey/olric v0.3.18 h1:i/1llTZCXqomeS257/xdIXDlDRH0w0yBuZsKiVjEzZY=
 github.com/tochemey/olric v0.3.18/go.mod h1:U+htGNuLQboPKwnSPFOOSao7gM+YgL41vgXoE1HLoLI=
 github.com/travisjeffery/go-dynaport v1.0.0 h1:m/qqf5AHgB96CMMSworIPyo1i7NZueRsnwdzdCJ8Ajw=
