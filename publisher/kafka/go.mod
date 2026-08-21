@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/IBM/sarama v1.60.1
 	github.com/tochemey/ego/v4 v4.4.3
-	github.com/tochemey/goakt/v4 v4.5.1
+	github.com/tochemey/goakt/v4 v4.5.2
 	go.uber.org/atomic v1.11.0
 	google.golang.org/protobuf v1.36.12
 )
@@ -18,7 +18,7 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/deckarep/golang-set/v2 v2.9.0 // indirect
 	github.com/flowchartsman/retry v1.2.0 // indirect
-	github.com/fxamacker/cbor/v2 v2.9.2 // indirect
+	github.com/fxamacker/cbor/v2 v2.9.3 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/google/btree v1.1.3 // indirect
@@ -31,7 +31,7 @@ require (
 	github.com/hashicorp/logutils v1.0.0 // indirect
 	github.com/hashicorp/memberlist v0.6.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
-	github.com/miekg/dns v1.1.72 // indirect
+	github.com/miekg/dns v1.1.73 // indirect
 	github.com/mschoch/smat v0.2.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/redis/go-redis/v9 v9.22.0 // indirect
@@ -52,14 +52,12 @@ require (
 	go.opentelemetry.io/otel/trace v1.45.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.28.0 // indirect
-	golang.org/x/mod v0.40.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
-	golang.org/x/tools v0.49.0 // indirect
 )
 
 require (
-	github.com/RoaringBitmap/roaring/v2 v2.24.0 // indirect
+	github.com/RoaringBitmap/roaring/v2 v2.25.0 // indirect
 	github.com/bytedance/gopkg v0.1.4 // indirect
 	github.com/bytedance/sonic v1.15.2 // indirect
 	github.com/bytedance/sonic/loader v0.5.2 // indirect
@@ -75,7 +73,7 @@ require (
 	github.com/jcmturner/gokrb5/v8 v8.4.4 // indirect
 	github.com/jcmturner/rpc/v2 v2.0.3 // indirect
 	github.com/klauspost/compress v1.19.2 // indirect
-	github.com/pierrec/lz4/v4 v4.1.28 // indirect
+	github.com/pierrec/lz4/v4 v4.1.29 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20250401214520-65e299d6c5c9 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	go.mongodb.org/mongo-driver v1.17.9 // indirect

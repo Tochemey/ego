@@ -13,7 +13,7 @@ require (
 require (
 	github.com/AthenZ/athenz v1.12.45 // indirect
 	github.com/DataDog/zstd v1.5.7 // indirect
-	github.com/RoaringBitmap/roaring/v2 v2.24.0 // indirect
+	github.com/RoaringBitmap/roaring/v2 v2.25.0 // indirect
 	github.com/Workiva/go-datastructures v1.1.7 // indirect
 	github.com/andybalholm/brotli v1.2.2 // indirect
 	github.com/ardielle/ardielle-go v1.5.2 // indirect
@@ -30,7 +30,7 @@ require (
 	github.com/emirpasic/gods v1.18.1 // indirect
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/flowchartsman/retry v1.2.0 // indirect
-	github.com/fxamacker/cbor/v2 v2.9.2 // indirect
+	github.com/fxamacker/cbor/v2 v2.9.3 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -53,12 +53,12 @@ require (
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
-	github.com/miekg/dns v1.1.72 // indirect
+	github.com/miekg/dns v1.1.73 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/mschoch/smat v0.2.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/pierrec/lz4/v4 v4.1.28 // indirect
+	github.com/pierrec/lz4/v4 v4.1.29 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/client_golang v1.24.1 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
@@ -67,13 +67,13 @@ require (
 	github.com/redis/go-redis/v9 v9.22.0 // indirect
 	github.com/reugn/go-quartz v0.15.2 // indirect
 	github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529 // indirect
-	github.com/sirupsen/logrus v1.10.0 // indirect
+	github.com/sirupsen/logrus v1.10.1 // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	github.com/theparanoids/crypki v1.21.2 // indirect
 	github.com/tidwall/btree v1.8.1 // indirect
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/redcon v1.6.4 // indirect
-	github.com/tochemey/goakt/v4 v4.5.1 // indirect
+	github.com/tochemey/goakt/v4 v4.5.2 // indirect
 	github.com/tochemey/olric v0.3.18 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
@@ -103,13 +103,12 @@ require (
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect
-	golang.org/x/tools v0.49.0 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20260810153831-ec0a7760b754 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20260810153831-ec0a7760b754 // indirect
-	google.golang.org/grpc v1.83.0 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20260819154853-08b0e4226688 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260819154853-08b0e4226688 // indirect
+	google.golang.org/grpc v1.83.1 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
-	k8s.io/apimachinery v0.36.3 // indirect
-	k8s.io/client-go v0.36.3 // indirect
+	k8s.io/apimachinery v0.36.4 // indirect
+	k8s.io/client-go v0.36.4 // indirect
 	k8s.io/klog/v2 v2.140.0 // indirect
 	k8s.io/kube-openapi v0.0.0-20260721132016-d427ff9ee9ad // indirect
 	k8s.io/utils v0.0.0-20260707023825-cf1189d6abe3 // indirect
