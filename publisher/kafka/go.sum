@@ -5,6 +5,8 @@ github.com/Azure/go-ansiterm v0.0.0-20250102033503-faa5f7b0171c/go.mod h1:xomTg6
 github.com/DataDog/datadog-go v3.2.0+incompatible/go.mod h1:LButxg5PwREeZtORoXG3tL4fMGNddJ+vMq1mwgfaqoQ=
 github.com/IBM/sarama v1.60.1 h1:2IjpLPCL16CvaJcpxUT5+zE6tpeY5HdhREZOES80kGE=
 github.com/IBM/sarama v1.60.1/go.mod h1:ugg061kdM8zE4mgCeCUwDMd9NRd7QIRMoiA4a/Z8VH8=
+github.com/IBM/sarama v1.60.2 h1:T/HyMhOJMyH/BgkBLCiuTDH8EJAEf32eDbNldlKOWIg=
+github.com/IBM/sarama v1.60.2/go.mod h1:fZRPG+DZm8DM9WpmslgMiVErD46mmYAYBiFWC8XKkes=
 github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERoyfY=
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
 github.com/RoaringBitmap/roaring/v2 v2.25.0 h1:HjcMG0PfmgO1rJcp2VHMarvQiulkB51qA31UH4I+j/U=
