@@ -1056,6 +1056,8 @@ func TestEngineSagaHappyPath(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, info)
 	assert.Equal(t, sagaID, info.ID)
+	assert.Equal(t, SagaRunning, info.Status)
+	assert.NotNil(t, info.State)
 }
 
 // ensure proto and context imports are not flagged when subtests vary.
@@ -1661,7 +1663,7 @@ func TestEngineSendCommandUnexpectedReply(t *testing.T) {
 
 // TestEngineSagaStatusErrorPaths covers the three error branches of
 // SagaStatus that follow the not-started guard: SendSync failure, an
-// unexpected reply type, and parseCommandReply returning an error.
+// unexpected reply type, and a reply whose state cannot be unmarshalled.
 func TestEngineSagaStatusErrorPaths(t *testing.T) {
 	ctx := context.Background()
 	store := testkit.NewEventsStore()
@@ -1699,20 +1701,20 @@ func TestEngineSagaStatusErrorPaths(t *testing.T) {
 		require.Nil(t, info)
 	})
 
-	t.Run("parseCommandReply error reply", func(t *testing.T) {
-		sagaID := "saga-error-reply-" + uuid.NewString()
-		errReply := &egopb.CommandReply{
-			Reply: &egopb.CommandReply_ErrorReply{
-				ErrorReply: &egopb.ErrorReply{Message: "saga is sick"},
-			},
+	t.Run("unreadable state in reply", func(t *testing.T) {
+		sagaID := "saga-bad-state-" + uuid.NewString()
+		statusReply := &egopb.SagaStatusReply{
+			SagaId: sagaID,
+			Status: uint32(SagaRunning),
+			State:  &anypb.Any{TypeUrl: "type.googleapis.com/nonexistent.Type"},
 		}
 		_, err := sys.Spawn(ctx, sagaID,
-			&simpleReplyActor{reply: errReply},
+			&simpleReplyActor{reply: statusReply},
 			goakt.WithLongLived())
 		require.NoError(t, err)
 		info, err := engine.SagaStatus(ctx, sagaID, time.Minute)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "saga is sick")
+		require.Contains(t, err.Error(), "failed to unmarshal the state of saga")
 		require.Nil(t, info)
 	})
 }

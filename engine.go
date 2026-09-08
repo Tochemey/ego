@@ -916,25 +916,30 @@ func (engine *Engine) SagaStatus(ctx context.Context, sagaID string, timeout tim
 		return nil, ErrEngineNotStarted
 	}
 
-	reply, err := ref.noSender.SendSync(ctx, sagaID, new(egopb.GetStateCommand), timeout)
+	reply, err := ref.noSender.SendSync(ctx, sagaID, new(egopb.GetSagaStatus), timeout)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get saga status for %s: %w", sagaID, err)
 	}
 
-	commandReply, ok := reply.(*egopb.CommandReply)
+	statusReply, ok := reply.(*egopb.SagaStatusReply)
 	if !ok {
 		return nil, fmt.Errorf("unexpected reply type from saga %s", sagaID)
 	}
 
-	state, _, err := parseCommandReply(commandReply)
-	if err != nil {
-		return nil, err
+	info := &SagaInfo{
+		ID:     sagaID,
+		Status: SagaStatus(statusReply.GetStatus()),
 	}
 
-	return &SagaInfo{
-		ID:    sagaID,
-		State: state,
-	}, nil
+	if stateAny := statusReply.GetState(); stateAny != nil {
+		state, err := stateAny.UnmarshalNew()
+		if err != nil {
+			return nil, fmt.Errorf("failed to unmarshal the state of saga %s: %w", sagaID, err)
+		}
+		info.State = state
+	}
+
+	return info, nil
 }
 
 // EraseEntity performs GDPR erasure for the given persistence ID.

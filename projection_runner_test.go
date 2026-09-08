@@ -25,6 +25,7 @@ package ego
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -1738,6 +1739,87 @@ func TestProjectionRunnerLagMetrics(t *testing.T) {
 		require.NoError(t, journalStore.Disconnect(ctx))
 		require.NoError(t, offsetStore.Disconnect(ctx))
 	})
+}
+
+// TestProjectionRunnerSkipsFrameworkEvents asserts that eGo's own framework
+// events never reach a projection handler while the projection offset still
+// advances past them.
+func TestProjectionRunnerSkipsFrameworkEvents(t *testing.T) {
+	ctx := context.TODO()
+	projectionName := "framework-events"
+	persistenceID := uuid.NewString()
+	shardNumber := uint64(3)
+
+	eventsStore := testkit2.NewEventsStore()
+	require.NoError(t, eventsStore.Connect(ctx))
+
+	offsetStore := testkit2.NewOffsetStore()
+	require.NoError(t, offsetStore.Connect(ctx))
+
+	handler := &recordingHandler{}
+	runner := newProjectionRunner(projectionName, handler, eventsStore, offsetStore,
+		withPullInterval(time.Millisecond),
+		withLogger(log.DiscardLogger))
+	require.NoError(t, runner.Start(ctx))
+	runner.Run(ctx)
+
+	domainEvent, err := anypb.New(&testpb.AccountCredited{})
+	require.NoError(t, err)
+	frameworkEvent, err := anypb.New(&egopb.SagaStatusChanged{Status: uint32(SagaCompleted)})
+	require.NoError(t, err)
+
+	// the Any specification only fixes what follows the last slash: a framework
+	// event must be recognised whatever host prefix its type URL carries
+	relocatedFrameworkEvent := &anypb.Any{
+		TypeUrl: "type.example.com/" + string(frameworkEvent.MessageName()),
+		Value:   frameworkEvent.GetValue(),
+	}
+
+	timestamp := timestamppb.Now().AsTime().Unix()
+	require.NoError(t, eventsStore.WriteEvents(ctx, []*egopb.Event{
+		{PersistenceId: persistenceID, SequenceNumber: 1, Event: domainEvent, Timestamp: timestamp, Shard: shardNumber},
+		{PersistenceId: persistenceID, SequenceNumber: 2, Event: frameworkEvent, Timestamp: timestamp + 1, Shard: shardNumber},
+		{PersistenceId: persistenceID, SequenceNumber: 3, Event: relocatedFrameworkEvent, Timestamp: timestamp + 2, Shard: shardNumber},
+	}))
+
+	pause.For(time.Second)
+
+	assert.Equal(t, []string{domainEvent.GetTypeUrl()}, handler.typeURLs())
+
+	offset, err := offsetStore.GetCurrentOffset(ctx, &egopb.ProjectionId{
+		ProjectionName: projectionName,
+		ShardNumber:    shardNumber,
+	})
+	require.NoError(t, err)
+	assert.EqualValues(t, timestamp+2, offset.GetValue())
+
+	require.NoError(t, eventsStore.Disconnect(ctx))
+	require.NoError(t, offsetStore.Disconnect(ctx))
+	require.NoError(t, runner.Stop())
+}
+
+// recordingHandler is a projection handler that records the type URL of every
+// event it is given.
+type recordingHandler struct {
+	mutex     sync.Mutex
+	seenTypes []string
+}
+
+var _ projection.Handler = (*recordingHandler)(nil)
+
+// Handle records the event type URL and always succeeds.
+func (x *recordingHandler) Handle(_ context.Context, _ string, event *anypb.Any, _ uint64) error {
+	x.mutex.Lock()
+	defer x.mutex.Unlock()
+	x.seenTypes = append(x.seenTypes, event.GetTypeUrl())
+	return nil
+}
+
+// typeURLs returns a copy of the type URLs recorded so far.
+func (x *recordingHandler) typeURLs() []string {
+	x.mutex.Lock()
+	defer x.mutex.Unlock()
+	return append([]string(nil), x.seenTypes...)
 }
 
 type testHandler1 struct{}

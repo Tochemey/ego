@@ -63,6 +63,13 @@ const (
 	storeRetryMaxDelay = 30 * time.Second
 )
 
+// frameworkEventPackage is the protobuf package of eGo's own framework events,
+// such as the saga status transitions written to a saga journal. They are
+// internal bookkeeping and never reach a projection handler. The package is
+// taken from the generated descriptor so the check does not depend on the host
+// prefix a type URL happens to carry.
+var frameworkEventPackage = egopb.File_ego_ego_proto.Package()
+
 // shardItem is a unit of work dispatched to the persistent worker pool.
 // The embedded WaitGroup pointer lets processingLoop wait for a whole batch.
 type shardItem struct {
@@ -671,10 +678,19 @@ func (x *projectionRunner) processEvents(ctx context.Context, shard uint64, even
 }
 
 // processEnvelope handles a single event.
+//
+// eGo's own framework events are skipped before any decryption or adaptation
+// happens: they carry no domain meaning. The batch offset is committed by the
+// caller, so skipped events do not stall the projection.
 func (x *projectionRunner) processEnvelope(ctx context.Context, envelope *egopb.Event) error {
 	event := envelope.GetEvent()
 	seqNr := envelope.GetSequenceNumber()
 	persistenceID := envelope.GetPersistenceId()
+
+	if event.MessageName().Parent() == frameworkEventPackage {
+		x.logger.Debugf("projection=(%s) skipped framework event=[persistenceID=%s, revision=%d, type=%s]", x.name, persistenceID, seqNr, event.MessageName())
+		return nil
+	}
 
 	// Decrypt the event if it was encrypted
 	if envelope.GetIsEncrypted() && x.encryptor != nil {

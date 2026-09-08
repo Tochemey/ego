@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### 🐛 Bug Fixes
+
+- **Durable-state entities no longer advance their in-memory state on a failed write.** `processCommand` assigned the new state, version, and timestamp before `WriteState` ran, so after one store error the entity answered later commands from state the store never saw, and reverted to the stored state on restart. The write now happens first and the entity's fields are updated only once it succeeds, matching what event-sourced entities already did.
+
+- **Sagas no longer advance their state or sequence counter on a failed write.** `persistAndApplyEvents` applied the events and bumped the counter before `WriteEvents`, so a store error left the saga ahead of its journal and the next successful write skipped sequence numbers. Events are now applied to local copies that are committed only after the write succeeds. The error from marshalling a saga event is no longer discarded.
+
+- **Saga status survives restarts and is actually reported.** Recovery unconditionally reset a saga to running, so a completed or failed saga that restarted or relocated reacted to new events and re-issued commands for a process that had already finished. Status transitions are now journaled as `egopb.SagaStatusChanged` events in the saga's own journal and replayed on recovery. `Engine.SagaStatus` also never set `SagaInfo.Status`, so every caller saw `SagaRunning`; it now queries the saga with the new `egopb.GetSagaStatus` message and reports the real status from `egopb.SagaStatusReply`.
+
+- **Saga events are journaled on the saga's own shard.** They were written with the shard left at zero, so every projection processed them and shard 0 carried disproportionate load. The shard is now derived from the saga ID exactly as entities derive theirs. Projections also skip eGo's framework events, recognised by their protobuf package rather than by the host prefix of the type URL, so `SagaStatusChanged` never reaches a handler.
+
+- **Sagas stay responsive while a participant is slow.** Participant calls ran synchronously inside the actor, so one slow participant blocked status queries, incoming events, and the saga's own timeout for the duration of its call. Calls now run off the actor goroutine and their outcomes come back through the mailbox. A reply that arrives after the saga has completed, failed, or started compensating is dropped instead of being fed to the behavior.
+
+- **Every compensation is attempted, and a rejected compensation counts as a failure.** Compensation stopped at the first participant that could not be reached, leaving the remaining participants uncompensated, and a participant that answered a compensation command with an error reply was treated as compensated. All compensation commands are now sent; the saga settles on `SagaFailed` if any participant was unreachable or rejected its compensation, and on `SagaCompleted` otherwise, once every result is in.
+
+- **Saga handler errors are retried and then surfaced.** A failing `HandleEvent`, `HandleResult`, or `HandleError` was logged and the event dropped, so a transient error, such as a lookup inside the handler, stalled the saga forever while it looked healthy. Behavior calls and the saga's own journal writes are now retried with backoff; when retries are exhausted the saga moves to `SagaFailed`, visible through `Engine.SagaStatus`.
+
+- **Saga timeouts survive restarts.** The timeout was re-armed with its full duration on every start, so a saga on a node that restarted periodically never timed out. The start time is journaled with the first status transition and the remaining duration is armed instead; a deadline that passed while the saga was down fires immediately on restart.
+
+- **The README lists the ego-contrib stores that exist.** MongoDB event, snapshot, offset, and durable-state stores were listed but have never shipped; the Persistence section now shows the actual coverage per backend.
+
 ## [v4.4.3] - 2026-08-15
 
 ### 💥 Breaking Changes

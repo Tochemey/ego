@@ -486,8 +486,10 @@ eGo defines small interfaces for:
 
 Applications may implement these interfaces directly. The [ego-contrib](https://github.com/Tochemey/ego-contrib) project provides ready-to-use implementations:
 
-- **Postgres** event store, snapshot store, offset store, and durable state store
-- **MongoDB** event store, snapshot store, offset store, and durable state store
+- **Event stores**: memory, Postgres, SQLite
+- **Offset stores**: memory, Postgres, SQLite
+- **Snapshot stores**: Postgres, SQLite
+- **Durable state stores**: memory, Postgres, SQLite, Cassandra, DynamoDB
 
 To use a contrib store, import the relevant module alongside eGo:
 
