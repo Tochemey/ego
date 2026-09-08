@@ -366,6 +366,8 @@ The two projections consume the same event journal independently. Each uses its 
 
 Projection handlers receive events with at-least-once delivery. They must be idempotent and safe for concurrent calls across different shards; events within one shard are delivered sequentially.
 
+Offsets are event timestamps taken from the clock of the node that persisted the event. The runner reads 100 ms behind the current time: an event reaches the handler only once it is at least that old, so an event stamped slightly earlier by a peer whose clock lags, or committed to the store just after a pull passed its timestamp, is still ahead of the committed offset when it becomes visible. Skew beyond that window can still cause an event to be skipped, so keep node clocks synchronized. All events of one entity land on the same shard and are delivered in order; events of different entities carry no ordering guarantee.
+
 The engine also supports:
 
 - `StopProjection` to stop a running projection
@@ -411,6 +413,8 @@ eGo includes first-class saga support for long-running business processes that c
 A saga consumes the journal, starting at the moment it first ran, and records how far it has read in the offset store. Configure one with `ego.WithOffsetStore(...)`; without it `Engine.Saga` returns `ego.ErrOffsetStoreRequired`. Reading the journal is what lets a saga see the events of every entity it coordinates, whichever cluster node persisted them: events written on the saga's own node reach it immediately, events written by a peer within the poll interval.
 
 Delivery is at-least-once, so `SagaBehavior.HandleEvent` must be idempotent: an event already handled is handed to the saga again when it restarts before its progress was recorded. A saga that completes or fails leaves its offset rows in the offset store.
+
+A saga is fed through the same runner as a projection, so the same read lag and ordering apply: the events of one entity reach the saga in the order they were persisted, but events of different entities may arrive in another order than they happened. A saga coordinating several entities has to tolerate a step arriving before the one it logically follows, for instance by tracking in its own state which steps it still expects.
 
 See the [fund-transfer saga example](./example/saga) for a complete implementation.
 

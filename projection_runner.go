@@ -61,6 +61,12 @@ const (
 	// storeRetryMaxDelay caps the exponential backoff delay between
 	// consecutive store retry attempts.
 	storeRetryMaxDelay = 30 * time.Second
+	// readLag is how far behind the current time the runner reads. An event
+	// is delivered only once it is at least this old, so an event stamped
+	// slightly earlier by a peer node whose clock lags, or committed to the
+	// store just after a pull passed its timestamp, is still ahead of the
+	// committed offset when it becomes visible.
+	readLag = 100 * time.Millisecond
 )
 
 // frameworkEventPackage is the protobuf package of eGo's own framework events,
@@ -167,6 +173,11 @@ type projectionRunner struct {
 	// current pass, in which case the loop re-pulls without waiting for the
 	// next tick.
 	sawFullBatch atomic.Bool
+
+	// sawHeldBack reports that a shard batch ended with events younger than
+	// readLag during the current pass, in which case the loop pulls again once
+	// they have aged instead of waiting for the next tick.
+	sawHeldBack atomic.Bool
 
 	// pid, when set, receives a *runnerFailed message after the
 	// processing loop stops permanently because an event cannot be processed,
@@ -324,7 +335,8 @@ func (x *projectionRunner) Run(_ context.Context) {
 // that are behind, dispatches them to workers, and waits for the batch to
 // complete before the next pull.  No goroutines or channels are allocated per
 // pull.  A pull is triggered by the ticker, by a nudge from the local events
-// stream, or by a full-buffer read reporting that more events are pending.
+// stream, by a full-buffer read reporting that more events are pending, or by
+// the read lag elapsing for events that were held back.
 func (x *projectionRunner) processingLoop(ctx context.Context) {
 	for {
 		select {
@@ -433,6 +445,13 @@ drain:
 	// immediately instead of waiting for the next tick.
 	if x.sawFullBatch.Swap(false) {
 		x.requestPull()
+	}
+
+	// Events held back for being younger than readLag are deliverable once
+	// they have aged: pull again then rather than at the next tick, so events
+	// persisted on this node keep their low latency.
+	if x.sawHeldBack.Swap(false) {
+		time.AfterFunc(readLag, x.requestPull)
 	}
 
 	return true
@@ -593,6 +612,8 @@ func (x *projectionRunner) doProcess(ctx context.Context, shard uint64) error {
 		return err
 	}
 
+	events, nextOffset = x.settledEvents(events, nextOffset)
+
 	if len(events) >= x.maxBufferSize {
 		// A full buffer means more events are pending on this shard.
 		x.sawFullBatch.Store(true)
@@ -644,6 +665,32 @@ func (x *projectionRunner) doProcess(ctx context.Context, shard uint64) error {
 	}
 
 	return nil
+}
+
+// settledEvents returns the events of a shard batch that are at least readLag
+// old, together with the offset to commit for them. Events are ordered by
+// timestamp, so the younger ones form the tail of the batch; a non-empty tail
+// is held back for a later pass and the pass loop is told so. An empty result
+// carries no offset.
+func (x *projectionRunner) settledEvents(events []*egopb.Event, nextOffset int64) ([]*egopb.Event, int64) {
+	cutoff := time.Now().Add(-readLag).UnixNano()
+
+	settled := len(events)
+	for settled > 0 && events[settled-1].GetTimestamp() > cutoff {
+		settled--
+	}
+
+	if settled == len(events) {
+		return events, nextOffset
+	}
+
+	x.sawHeldBack.Store(true)
+
+	if settled == 0 {
+		return nil, 0
+	}
+
+	return events[:settled], events[settled-1].GetTimestamp()
 }
 
 // currentOffset returns the committed offset for a projection shard,

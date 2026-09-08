@@ -1915,20 +1915,180 @@ func TestProjectionRunnerStartOffset(t *testing.T) {
 	})
 }
 
+func TestProjectionRunnerReadLag(t *testing.T) {
+	t.Run("delivers an event only once it is older than the read lag", func(t *testing.T) {
+		ctx := context.TODO()
+		projectionName := "db-writer"
+		persistenceID := uuid.NewString()
+		shardNumber := uint64(9)
+
+		eventsStore := testkit2.NewEventsStore()
+		require.NoError(t, eventsStore.Connect(ctx))
+
+		offsetStore := testkit2.NewOffsetStore()
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		event, err := anypb.New(&testpb.AccountCredited{})
+		require.NoError(t, err)
+
+		eventTimestamp := time.Now().UnixNano()
+		require.NoError(t, eventsStore.WriteEvents(ctx, []*egopb.Event{
+			{PersistenceId: persistenceID, SequenceNumber: 1, Event: event, Timestamp: eventTimestamp, Shard: shardNumber},
+		}))
+
+		handler := &recordingHandler{}
+		runner := newProjectionRunner(projectionName, handler, eventsStore, offsetStore,
+			withPullInterval(time.Millisecond),
+			withLogger(log.DiscardLogger))
+
+		require.NoError(t, runner.Start(ctx))
+		runner.Run(ctx)
+
+		require.Eventually(t, func() bool {
+			return len(handler.typeURLs()) == 1
+		}, 2*time.Second, 5*time.Millisecond)
+
+		// Pull passes ran every millisecond from the start, so the delivery
+		// time shows the event was held back until it was readLag old.
+		deliveredAt := handler.deliveryTimes()[0]
+		assert.GreaterOrEqual(t, deliveredAt.UnixNano()-eventTimestamp, int64(readLag))
+
+		offset, err := offsetStore.GetCurrentOffset(ctx, &egopb.ProjectionId{
+			ProjectionName: projectionName,
+			ShardNumber:    shardNumber,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, eventTimestamp, offset.GetValue())
+
+		require.NoError(t, eventsStore.Disconnect(ctx))
+		require.NoError(t, offsetStore.Disconnect(ctx))
+		require.NoError(t, runner.Stop())
+	})
+
+	t.Run("delivers a late event stamped behind an event it has already read", func(t *testing.T) {
+		ctx := context.TODO()
+		projectionName := "db-writer"
+		shardNumber := uint64(9)
+
+		eventsStore := testkit2.NewEventsStore()
+		require.NoError(t, eventsStore.Connect(ctx))
+
+		offsetStore := testkit2.NewOffsetStore()
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		aheadEvent, err := anypb.New(&testpb.AccountCreated{})
+		require.NoError(t, err)
+		behindEvent, err := anypb.New(&testpb.AccountCredited{})
+		require.NoError(t, err)
+
+		// The first event comes from a node whose clock runs readLag ahead of
+		// this one. The second is written later by a node whose clock runs
+		// true, so it lands in the store stamped behind an event the runner
+		// has already read.
+		aheadTimestamp := time.Now().Add(readLag).UnixNano()
+		behindTimestamp := aheadTimestamp - int64(readLag/2)
+		require.NoError(t, eventsStore.WriteEvents(ctx, []*egopb.Event{
+			{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: aheadEvent, Timestamp: aheadTimestamp, Shard: shardNumber},
+		}))
+
+		handler := &recordingHandler{}
+		runner := newProjectionRunner(projectionName, handler, eventsStore, offsetStore,
+			withPullInterval(time.Millisecond),
+			withLogger(log.DiscardLogger))
+
+		require.NoError(t, runner.Start(ctx))
+		runner.Run(ctx)
+
+		// Many pull passes have read the first event by now.
+		pause.For(50 * time.Millisecond)
+
+		require.NoError(t, eventsStore.WriteEvents(ctx, []*egopb.Event{
+			{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: behindEvent, Timestamp: behindTimestamp, Shard: shardNumber},
+		}))
+
+		require.Eventually(t, func() bool {
+			return len(handler.typeURLs()) == 2
+		}, 2*time.Second, 5*time.Millisecond)
+
+		assert.Equal(t, []string{behindEvent.GetTypeUrl(), aheadEvent.GetTypeUrl()}, handler.typeURLs())
+
+		offset, err := offsetStore.GetCurrentOffset(ctx, &egopb.ProjectionId{
+			ProjectionName: projectionName,
+			ShardNumber:    shardNumber,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, aheadTimestamp, offset.GetValue())
+
+		require.NoError(t, eventsStore.Disconnect(ctx))
+		require.NoError(t, offsetStore.Disconnect(ctx))
+		require.NoError(t, runner.Stop())
+	})
+
+	t.Run("pulls again once a held-back event has aged without waiting for the next tick", func(t *testing.T) {
+		ctx := context.TODO()
+		projectionName := "db-writer"
+		persistenceID := uuid.NewString()
+		shardNumber := uint64(9)
+
+		eventsStore := testkit2.NewEventsStore()
+		require.NoError(t, eventsStore.Connect(ctx))
+
+		offsetStore := testkit2.NewOffsetStore()
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		event, err := anypb.New(&testpb.AccountCredited{})
+		require.NoError(t, err)
+
+		eventTimestamp := time.Now().UnixNano()
+		require.NoError(t, eventsStore.WriteEvents(ctx, []*egopb.Event{
+			{PersistenceId: persistenceID, SequenceNumber: 1, Event: event, Timestamp: eventTimestamp, Shard: shardNumber},
+		}))
+
+		handler := &recordingHandler{}
+		// The pull interval is far longer than the test: the single pass
+		// requested below holds the event back, and only a pull scheduled by
+		// the runner itself can deliver it afterwards.
+		runner := newProjectionRunner(projectionName, handler, eventsStore, offsetStore,
+			withPullInterval(time.Hour),
+			withLogger(log.DiscardLogger))
+
+		require.NoError(t, runner.Start(ctx))
+		runner.Run(ctx)
+		runner.requestPull()
+
+		require.Eventually(t, func() bool {
+			return len(handler.typeURLs()) == 1
+		}, 2*time.Second, 5*time.Millisecond)
+
+		offset, err := offsetStore.GetCurrentOffset(ctx, &egopb.ProjectionId{
+			ProjectionName: projectionName,
+			ShardNumber:    shardNumber,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, eventTimestamp, offset.GetValue())
+
+		require.NoError(t, eventsStore.Disconnect(ctx))
+		require.NoError(t, offsetStore.Disconnect(ctx))
+		require.NoError(t, runner.Stop())
+	})
+}
+
 // recordingHandler is a projection handler that records the type URL of every
-// event it is given.
+// event it is given and the wall-clock time it was given it.
 type recordingHandler struct {
 	mutex     sync.Mutex
 	seenTypes []string
+	seenAt    []time.Time
 }
 
 var _ projection.Handler = (*recordingHandler)(nil)
 
-// Handle records the event type URL and always succeeds.
+// Handle records the event type URL and the delivery time, and always succeeds.
 func (x *recordingHandler) Handle(_ context.Context, _ string, event *anypb.Any, _ uint64) error {
 	x.mutex.Lock()
 	defer x.mutex.Unlock()
 	x.seenTypes = append(x.seenTypes, event.GetTypeUrl())
+	x.seenAt = append(x.seenAt, time.Now())
 	return nil
 }
 
@@ -1937,6 +2097,14 @@ func (x *recordingHandler) typeURLs() []string {
 	x.mutex.Lock()
 	defer x.mutex.Unlock()
 	return append([]string(nil), x.seenTypes...)
+}
+
+// deliveryTimes returns a copy of the delivery times recorded so far, in the
+// same order as typeURLs.
+func (x *recordingHandler) deliveryTimes() []time.Time {
+	x.mutex.Lock()
+	defer x.mutex.Unlock()
+	return append([]time.Time(nil), x.seenAt...)
 }
 
 type testHandler1 struct{}
