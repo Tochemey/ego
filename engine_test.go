@@ -675,6 +675,129 @@ func TestEngineMultiNodeRemoteEntitySpawn(t *testing.T) {
 	}
 }
 
+// TestEngineMultiNodeSagaSeesRemoteEvents pins the saga's reach in a cluster:
+// a saga running on one node coordinates entities wherever the cluster placed
+// them, because it reads the journal every node writes to rather than the
+// stream of its own node.
+func TestEngineMultiNodeSagaSeesRemoteEvents(t *testing.T) {
+	ctx := context.Background()
+	host := "127.0.0.1"
+
+	ports := dynaport.Get(6)
+	gossipAddrs := []string{
+		net.JoinHostPort(host, strconv.Itoa(ports[0])),
+		net.JoinHostPort(host, strconv.Itoa(ports[3])),
+	}
+
+	// Both nodes share the same store instances: a single process stands in
+	// for the database every node of a cluster reads from and writes to.
+	store := testkit.NewEventsStore()
+	require.NoError(t, store.Connect(ctx))
+	t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+	offsetStore := testkit.NewOffsetStore()
+	require.NoError(t, offsetStore.Connect(ctx))
+	t.Cleanup(func() { _ = offsetStore.Disconnect(ctx) })
+
+	newNode := func(gossipPort, peersPort, remotingPort int) (goakt.ActorSystem, *Config) {
+		cfg := NewConfig(store,
+			WithLogger(DiscardLogger),
+			WithOffsetStore(offsetStore),
+			WithEntityKinds(new(AccountEventSourcedBehavior), new(callbackSagaBehavior)),
+		)
+
+		provider := &mockClusterProvider{id: "test", peers: gossipAddrs}
+		clusterCfg := goakt.NewClusterConfig().
+			WithDiscovery(provider).
+			WithDiscoveryPort(gossipPort).
+			WithPeersPort(peersPort).
+			WithMinimumPeersQuorum(1).
+			WithReplicaCount(1).
+			WithPartitionCount(7).
+			WithKinds(ClusterKinds()...)
+
+		goaktOpts := append(cfg.GoaktOptions(),
+			goakt.WithCluster(clusterCfg),
+			goakt.WithRemote(remote.NewConfig(host, remotingPort)),
+		)
+
+		sys, err := goakt.NewActorSystem("Sample", goaktOpts...)
+		require.NoError(t, err)
+		return sys, cfg
+	}
+
+	sys1, cfg1 := newNode(ports[0], ports[1], ports[2])
+	sys2, cfg2 := newNode(ports[3], ports[4], ports[5])
+
+	errs := make(chan error, 2)
+	go func() { errs <- sys1.Start(ctx) }()
+	go func() { errs <- sys2.Start(ctx) }()
+	require.NoError(t, <-errs)
+	require.NoError(t, <-errs)
+	t.Cleanup(func() {
+		_ = sys1.Stop(context.Background())
+		_ = sys2.Stop(context.Background())
+	})
+
+	require.Eventually(t, func() bool {
+		peers1, err1 := sys1.Peers(ctx, time.Second)
+		peers2, err2 := sys2.Peers(ctx, time.Second)
+		return err1 == nil && err2 == nil && len(peers1) == 1 && len(peers2) == 1
+	}, 30*time.Second, 500*time.Millisecond, "the two nodes never formed a cluster")
+
+	engine1, err := NewEngine(sys1, cfg1)
+	require.NoError(t, err)
+	require.NoError(t, engine1.Start(ctx))
+	engine2, err := NewEngine(sys2, cfg2)
+	require.NoError(t, err)
+	require.NoError(t, engine2.Start(ctx))
+	t.Cleanup(func() {
+		_ = engine1.Stop(context.Background())
+		_ = engine2.Stop(context.Background())
+	})
+
+	// The saga lives on node2 while every entity is spawned from node1, so
+	// RoundRobin placement puts some of them on the node the saga is not on.
+	observed := make(chan string, 16)
+	sagaID := "saga-" + uuid.NewString()
+	behavior := &callbackSagaBehavior{
+		id: sagaID,
+		handleEvent: func(_ context.Context, event Event, _ State) (*SagaAction, error) {
+			if created, ok := event.(*testpb.AccountCreated); ok {
+				observed <- created.GetAccountId()
+			}
+			return &SagaAction{}, nil
+		},
+	}
+	require.NoError(t, engine2.Saga(ctx, behavior, 0))
+
+	entityIDs := make(map[string]bool, 8)
+	for range 8 {
+		entityID := uuid.NewString()
+		require.NoError(t, engine1.Entity(ctx, NewEventSourcedEntity(entityID)))
+
+		_, _, err := engine1.SendCommand(ctx, entityID, &testpb.CreateAccount{
+			AccountBalance: 100,
+		}, time.Minute)
+		require.NoError(t, err)
+		entityIDs[entityID] = false
+	}
+
+	// Every entity's event must reach the saga, whichever node persisted it.
+	deadline := time.After(time.Minute)
+	for remaining := len(entityIDs); remaining > 0; {
+		select {
+		case accountID := <-observed:
+			if seen, tracked := entityIDs[accountID]; tracked && !seen {
+				entityIDs[accountID] = true
+				remaining--
+			}
+		case <-deadline:
+			t.Fatalf("the saga on node2 missed %d of the %d entity events", remaining, len(entityIDs))
+		}
+	}
+}
+
 // TestParseCommandReply pins the reply-decoding contract.
 func TestParseCommandReply(t *testing.T) {
 	t.Run("error reply", func(t *testing.T) {
@@ -1118,7 +1241,10 @@ func TestEngineSagaHappyPath(t *testing.T) {
 	require.NoError(t, store.Connect(ctx))
 	t.Cleanup(func() { _ = store.Disconnect(ctx) })
 
-	engine := newTestEngine(t, "Sample", store, WithLogger(DiscardLogger))
+	engine := newTestEngine(t, "Sample", store,
+		WithLogger(DiscardLogger),
+		WithOffsetStore(testkit.NewOffsetStore()),
+	)
 	require.NoError(t, engine.Start(ctx))
 
 	sagaID := "saga-" + uuid.NewString()
@@ -1131,6 +1257,22 @@ func TestEngineSagaHappyPath(t *testing.T) {
 	assert.Equal(t, sagaID, info.ID)
 	assert.Equal(t, SagaRunning, info.Status)
 	assert.NotNil(t, info.State)
+}
+
+// TestEngineSagaRequiresOffsetStore pins the saga's dependency on an offset
+// store: a saga follows the journal through one, so the engine refuses to
+// start a saga that would otherwise never see an event.
+func TestEngineSagaRequiresOffsetStore(t *testing.T) {
+	ctx := context.Background()
+	store := testkit.NewEventsStore()
+	require.NoError(t, store.Connect(ctx))
+	t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+	engine := newTestEngine(t, "Sample", store, WithLogger(DiscardLogger))
+	require.NoError(t, engine.Start(ctx))
+
+	err := engine.Saga(ctx, &testSagaBehavior{sagaID: "saga-" + uuid.NewString()}, 0)
+	require.ErrorIs(t, err, ErrOffsetStoreRequired)
 }
 
 // ensure proto and context imports are not flagged when subtests vary.
@@ -2023,7 +2165,7 @@ func TestEngineSagaSpawnError(t *testing.T) {
 	require.NoError(t, store.Connect(ctx))
 	t.Cleanup(func() { _ = store.Disconnect(ctx) })
 
-	cfg := NewConfig(store, WithLogger(DiscardLogger))
+	cfg := NewConfig(store, WithLogger(DiscardLogger), WithOffsetStore(testkit.NewOffsetStore()))
 	sys, err := goakt.NewActorSystem("Sample", cfg.GoaktOptions()...)
 	require.NoError(t, err)
 	require.NoError(t, sys.Start(ctx))
@@ -2105,6 +2247,49 @@ func TestEngineRebuildProjectionResetOffsetError(t *testing.T) {
 	err := engine.RebuildProjection(ctx, name, ZeroTime)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to reset offset")
+}
+
+// TestEngineRebuildProjectionResetsOffsetInNanoseconds asserts that a rebuild
+// resets the projection offset in the unit the events store compares against:
+// event timestamps are nanoseconds, so a millisecond value would replay the
+// whole journal instead of resuming at the requested time.
+func TestEngineRebuildProjectionResetsOffsetInNanoseconds(t *testing.T) {
+	ctx := context.Background()
+	store := testkit.NewEventsStore()
+	require.NoError(t, store.Connect(ctx))
+	t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+	offsetStore := testkit.NewOffsetStore()
+	require.NoError(t, offsetStore.Connect(ctx))
+	t.Cleanup(func() { _ = offsetStore.Disconnect(ctx) })
+
+	const name = "rebuild-nanoseconds"
+	engine := newTestEngine(t, "Sample", store,
+		WithLogger(DiscardLogger),
+		WithOffsetStore(offsetStore),
+		WithProjection(name, &projection.Options{
+			Handler:      projection.NewDiscardHandler(),
+			BufferSize:   100,
+			PullInterval: time.Second,
+		}),
+	)
+	require.NoError(t, engine.Start(ctx))
+	require.NoError(t, engine.StartProjection(ctx, name))
+	pause.For(200 * time.Millisecond)
+
+	from := time.Now().Add(-time.Hour)
+
+	// Swap the offset store for a mock that only accepts the nanosecond value;
+	// the restarted projection keeps reading its own offsets from the store
+	// registered on the actor system.
+	recording := new(mockoffsetstore.OffsetStore)
+	recording.EXPECT().ResetOffset(mock.Anything, name, from.UnixNano()).Return(nil)
+	engine.mutex.Lock()
+	engine.offsetStore = recording
+	engine.mutex.Unlock()
+
+	require.NoError(t, engine.RebuildProjection(ctx, name, from))
+	recording.AssertExpectations(t)
 }
 
 // TestEngineRebuildProjectionRestartError covers the

@@ -11,7 +11,6 @@
   <a href="https://codecov.io/gh/Tochemey/ego"><img src="https://codecov.io/gh/Tochemey/ego/branch/main/graph/badge.svg?token=Z5b9gM6Mnt" alt="Code coverage"></a>
   <a href="https://github.com/Tochemey/ego/releases/latest"><img src="https://img.shields.io/github/v/release/Tochemey/ego?label=release" alt="Latest release"></a>
   <a href="https://github.com/Tochemey/ego/tags"><img src="https://img.shields.io/github/v/tag/Tochemey/ego?label=tag" alt="Pre-release"></a>
-  <a href="https://human-oss.dev"><img src="https://human-oss.dev/badge.svg" alt="Open Source AI Manifesto"></a>
 </p>
 
 eGo is a protobuf-first framework for building event-sourced and durable-state CQRS applications in Go. It runs on [Go-Akt](https://github.com/Tochemey/goakt) and adds persistence, projections, publishers, sagas, encryption, and observability to an actor system that your application owns.
@@ -408,6 +407,10 @@ eGo includes first-class saga support for long-running business processes that c
 - Inspect it with `Engine.SagaStatus(...)`
 - Model compensation logic for timeouts and failures
 - Persist saga state using the same event-sourced foundations
+
+A saga consumes the journal, starting at the moment it first ran, and records how far it has read in the offset store. Configure one with `ego.WithOffsetStore(...)`; without it `Engine.Saga` returns `ego.ErrOffsetStoreRequired`. Reading the journal is what lets a saga see the events of every entity it coordinates, whichever cluster node persisted them: events written on the saga's own node reach it immediately, events written by a peer within the poll interval.
+
+Delivery is at-least-once, so `SagaBehavior.HandleEvent` must be idempotent: an event already handled is handed to the saga again when it restarts before its progress was recorded. A saga that completes or fails leaves its offset rows in the offset store.
 
 See the [fund-transfer saga example](./example/saga) for a complete implementation.
 

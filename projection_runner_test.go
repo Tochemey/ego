@@ -106,7 +106,7 @@ func TestProjectionRunnerErrorPaths(t *testing.T) {
 
 		offsetStore := new(mocksoffsetstore.OffsetStore)
 		offsetStore.EXPECT().Ping(mock.Anything).Return(nil)
-		offsetStore.EXPECT().ResetOffset(mock.Anything, projectionName, resetOffsetTo.UnixMilli()).Return(nil)
+		offsetStore.EXPECT().ResetOffset(mock.Anything, projectionName, resetOffsetTo.UnixNano()).Return(nil)
 		offsetStore.EXPECT().GetCurrentOffset(mock.Anything, projectionID).Return(offset, nil)
 
 		eventsStore := new(mockseventstore.EventsStore)
@@ -189,7 +189,7 @@ func TestProjectionRunnerErrorPaths(t *testing.T) {
 
 		offsetStore := new(mocksoffsetstore.OffsetStore)
 		offsetStore.EXPECT().Ping(mock.Anything).Return(nil)
-		offsetStore.EXPECT().ResetOffset(mock.Anything, projectionName, resetOffsetTo.UnixMilli()).Return(nil)
+		offsetStore.EXPECT().ResetOffset(mock.Anything, projectionName, resetOffsetTo.UnixNano()).Return(nil)
 		offsetStore.EXPECT().GetCurrentOffset(mock.Anything, projectionID).Return(offset, nil)
 
 		eventsStore := new(mockseventstore.EventsStore)
@@ -263,7 +263,7 @@ func TestProjectionRunnerErrorPaths(t *testing.T) {
 
 		offsetStore := new(mocksoffsetstore.OffsetStore)
 		offsetStore.EXPECT().Ping(mock.Anything).Return(nil)
-		offsetStore.EXPECT().ResetOffset(mock.Anything, projectionName, resetOffsetTo.UnixMilli()).Return(nil)
+		offsetStore.EXPECT().ResetOffset(mock.Anything, projectionName, resetOffsetTo.UnixNano()).Return(nil)
 		offsetStore.EXPECT().GetCurrentOffset(mock.Anything, projectionID).Return(offset, nil)
 
 		eventsStore := new(mockseventstore.EventsStore)
@@ -1020,7 +1020,7 @@ func TestRunner(t *testing.T) {
 		resetOffsetTo := time.Now().UTC()
 		offsetStore := new(mocksoffsetstore.OffsetStore)
 		offsetStore.EXPECT().Ping(mock.Anything).Return(nil)
-		offsetStore.EXPECT().ResetOffset(ctx, projectionName, resetOffsetTo.UnixMilli()).Return(errors.New("fail to reset offset"))
+		offsetStore.EXPECT().ResetOffset(ctx, projectionName, resetOffsetTo.UnixNano()).Return(errors.New("fail to reset offset"))
 
 		// create an instance of the projection
 		runner := newProjectionRunner(projectionName, handler, eventsStore, offsetStore, withPullInterval(time.Millisecond))
@@ -1076,7 +1076,7 @@ func TestRunner(t *testing.T) {
 
 		offsetStore := new(mocksoffsetstore.OffsetStore)
 		offsetStore.EXPECT().Ping(mock.Anything).Return(nil)
-		offsetStore.EXPECT().ResetOffset(mock.Anything, projectionName, resetOffsetTo.UnixMilli()).Return(nil)
+		offsetStore.EXPECT().ResetOffset(mock.Anything, projectionName, resetOffsetTo.UnixNano()).Return(nil)
 		offsetStore.EXPECT().GetCurrentOffset(mock.Anything, projectionID).Return(offset, nil)
 		offsetStore.EXPECT().WriteOffset(mock.Anything, mock.AnythingOfType("*egopb.Offset")).Return(assert.AnError)
 
@@ -1116,7 +1116,7 @@ func TestRunner(t *testing.T) {
 
 		offsetStore := new(mocksoffsetstore.OffsetStore)
 		offsetStore.EXPECT().Ping(mock.Anything).Return(nil)
-		offsetStore.EXPECT().ResetOffset(mock.Anything, projectionName, resetOffsetTo.UnixMilli()).Return(nil)
+		offsetStore.EXPECT().ResetOffset(mock.Anything, projectionName, resetOffsetTo.UnixNano()).Return(nil)
 
 		eventsStore := new(mockseventstore.EventsStore)
 		eventsStore.EXPECT().Ping(mock.Anything).Return(nil)
@@ -1161,7 +1161,7 @@ func TestRunner(t *testing.T) {
 
 		offsetStore := new(mocksoffsetstore.OffsetStore)
 		offsetStore.EXPECT().Ping(mock.Anything).Return(nil)
-		offsetStore.EXPECT().ResetOffset(mock.Anything, projectionName, resetOffsetTo.UnixMilli()).Return(nil)
+		offsetStore.EXPECT().ResetOffset(mock.Anything, projectionName, resetOffsetTo.UnixNano()).Return(nil)
 		offsetStore.EXPECT().GetCurrentOffset(mock.Anything, projectionID).Return(nil, assert.AnError)
 
 		eventsStore := new(mockseventstore.EventsStore)
@@ -1215,7 +1215,7 @@ func TestRunner(t *testing.T) {
 
 		offsetStore := new(mocksoffsetstore.OffsetStore)
 		offsetStore.EXPECT().Ping(mock.Anything).Return(nil)
-		offsetStore.EXPECT().ResetOffset(mock.Anything, projectionName, resetOffsetTo.UnixMilli()).Return(nil)
+		offsetStore.EXPECT().ResetOffset(mock.Anything, projectionName, resetOffsetTo.UnixNano()).Return(nil)
 		offsetStore.EXPECT().GetCurrentOffset(mock.Anything, projectionID).Return(offset, nil)
 
 		eventsStore := new(mockseventstore.EventsStore)
@@ -1594,7 +1594,7 @@ func TestRunner(t *testing.T) {
 
 		offsetStore := new(mocksoffsetstore.OffsetStore)
 		offsetStore.EXPECT().Ping(mock.Anything).Return(nil)
-		offsetStore.EXPECT().ResetOffset(mock.Anything, projectionName, resetOffsetTo.UnixMilli()).Return(nil)
+		offsetStore.EXPECT().ResetOffset(mock.Anything, projectionName, resetOffsetTo.UnixNano()).Return(nil)
 		offsetStore.EXPECT().GetCurrentOffset(mock.Anything, projectionID).Return(offset, nil)
 		offsetStore.EXPECT().WriteOffset(mock.Anything, mock.AnythingOfType("*egopb.Offset")).Return(nil)
 
@@ -1796,6 +1796,123 @@ func TestProjectionRunnerSkipsFrameworkEvents(t *testing.T) {
 	require.NoError(t, eventsStore.Disconnect(ctx))
 	require.NoError(t, offsetStore.Disconnect(ctx))
 	require.NoError(t, runner.Stop())
+}
+
+// TestProjectionRunnerStartOffset pins the unit and the precedence of the
+// runner's starting offset: event timestamps are nanoseconds, and the start
+// offset is only a floor, so a committed offset past it wins on later passes.
+func TestProjectionRunnerStartOffset(t *testing.T) {
+	t.Run("skips events stamped before the start offset", func(t *testing.T) {
+		ctx := context.TODO()
+		projectionName := "db-writer"
+		persistenceID := uuid.NewString()
+		shardNumber := uint64(9)
+
+		eventsStore := testkit2.NewEventsStore()
+		require.NoError(t, eventsStore.Connect(ctx))
+
+		offsetStore := testkit2.NewOffsetStore()
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		staleEvent, err := anypb.New(&testpb.AccountCreated{})
+		require.NoError(t, err)
+		freshEvent, err := anypb.New(&testpb.AccountCredited{})
+		require.NoError(t, err)
+
+		startOffset := time.Now().Add(-30 * time.Minute)
+		require.NoError(t, eventsStore.WriteEvents(ctx, []*egopb.Event{
+			{PersistenceId: persistenceID, SequenceNumber: 1, Event: staleEvent, Timestamp: startOffset.Add(-time.Hour).UnixNano(), Shard: shardNumber},
+			{PersistenceId: persistenceID, SequenceNumber: 2, Event: freshEvent, Timestamp: time.Now().UnixNano(), Shard: shardNumber},
+		}))
+
+		handler := &recordingHandler{}
+		runner := newProjectionRunner(projectionName, handler, eventsStore, offsetStore,
+			withPullInterval(time.Millisecond),
+			withLogger(log.DiscardLogger),
+			withStartOffset(startOffset))
+
+		require.NoError(t, runner.Start(ctx))
+		runner.Run(ctx)
+
+		pause.For(time.Second)
+
+		assert.Equal(t, []string{freshEvent.GetTypeUrl()}, handler.typeURLs())
+
+		require.NoError(t, eventsStore.Disconnect(ctx))
+		require.NoError(t, offsetStore.Disconnect(ctx))
+		require.NoError(t, runner.Stop())
+	})
+
+	t.Run("honors the committed offset after the first pass", func(t *testing.T) {
+		ctx := context.TODO()
+		projectionName := "db-writer"
+		persistenceID := uuid.NewString()
+		shardNumber := uint64(9)
+
+		eventsStore := testkit2.NewEventsStore()
+		require.NoError(t, eventsStore.Connect(ctx))
+
+		offsetStore := testkit2.NewOffsetStore()
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		event, err := anypb.New(&testpb.AccountCredited{})
+		require.NoError(t, err)
+
+		eventTimestamp := time.Now().UnixNano()
+		require.NoError(t, eventsStore.WriteEvents(ctx, []*egopb.Event{
+			{PersistenceId: persistenceID, SequenceNumber: 1, Event: event, Timestamp: eventTimestamp, Shard: shardNumber},
+		}))
+
+		handler := &recordingHandler{}
+		runner := newProjectionRunner(projectionName, handler, eventsStore, offsetStore,
+			withPullInterval(time.Millisecond),
+			withLogger(log.DiscardLogger),
+			withStartOffset(time.Now().Add(-30*time.Minute)))
+
+		require.NoError(t, runner.Start(ctx))
+		runner.Run(ctx)
+
+		// Many pull passes elapse within this window: an event is handled once
+		// only when the committed offset takes precedence over the start offset.
+		pause.For(time.Second)
+
+		assert.Equal(t, []string{event.GetTypeUrl()}, handler.typeURLs())
+
+		offset, err := offsetStore.GetCurrentOffset(ctx, &egopb.ProjectionId{
+			ProjectionName: projectionName,
+			ShardNumber:    shardNumber,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, eventTimestamp, offset.GetValue())
+
+		require.NoError(t, eventsStore.Disconnect(ctx))
+		require.NoError(t, offsetStore.Disconnect(ctx))
+		require.NoError(t, runner.Stop())
+	})
+
+	t.Run("resets the offset in nanoseconds", func(t *testing.T) {
+		ctx := context.TODO()
+		projectionName := "db-writer"
+		resetOffsetTo := time.Now().UTC()
+
+		offsetStore := new(mocksoffsetstore.OffsetStore)
+		offsetStore.EXPECT().Ping(mock.Anything).Return(nil)
+		offsetStore.EXPECT().ResetOffset(mock.Anything, projectionName, resetOffsetTo.UnixNano()).Return(nil)
+
+		eventsStore := new(mockseventstore.EventsStore)
+		eventsStore.EXPECT().Ping(mock.Anything).Return(nil)
+
+		runner := newProjectionRunner(projectionName, projection.NewDiscardHandler(), eventsStore, offsetStore,
+			withPullInterval(time.Millisecond),
+			withLogger(log.DiscardLogger),
+			withResetOffset(resetOffsetTo))
+
+		require.NoError(t, runner.Start(ctx))
+
+		offsetStore.AssertExpectations(t)
+
+		require.NoError(t, runner.Stop())
+	})
 }
 
 // recordingHandler is a projection handler that records the type URL of every

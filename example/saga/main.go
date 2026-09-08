@@ -90,11 +90,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	// The saga reads the journal and records how far it has read in the
+	// offset store, so one is required.
+	offsetStore := testkit.NewOffsetStore()
+	if err := offsetStore.Connect(ctx); err != nil {
+		slog.Error("failed to connect offset store", "err", err)
+		os.Exit(1)
+	}
+
 	// Build the eGo Config once and reuse it for both the actor system and
 	// the engine. cfg.GoaktOptions() wires the extensions eGo needs (events
 	// store, event stream, default supervisor, pubsub, logger adapter) at
 	// construction time.
-	cfg := ego.NewConfig(eventStore)
+	cfg := ego.NewConfig(eventStore, ego.WithOffsetStore(offsetStore))
 	sys, err := goakt.NewActorSystem("FundTransferExample", cfg.GoaktOptions()...)
 	if err != nil {
 		slog.Error("failed to build actor system", "err", err)
@@ -175,13 +183,14 @@ func main() {
 	}
 	slog.Info("Fund transfer saga started", "amount", 250.00)
 
-	// The saga reacts to events on the event stream. To kick it off, we send
-	// a command to the source account that the saga will pick up and orchestrate.
-	// In this example, the saga handles the initial DebitAccount command itself
-	// once it sees the TransferStarted event it persisted during HandleEvent.
+	// The saga reacts to the events written to the journal. To kick it off, we
+	// send a command to the source account that the saga will pick up and
+	// orchestrate. In this example, the saga handles the initial DebitAccount
+	// command itself once it sees the TransferStarted event it persisted during
+	// HandleEvent.
 	//
 	// We trigger the saga by sending a DebitAccount command to the source account directly.
-	// The AccountDebited event published to the event stream will be picked up by the saga.
+	// The AccountDebited event the account journals will be picked up by the saga.
 	reply, _, err = engine.SendCommand(ctx, sourceAccountID, &samplepb.DebitAccount{
 		AccountId: sourceAccountID,
 		Balance:   250.00,

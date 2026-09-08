@@ -85,6 +85,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -114,6 +115,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -148,6 +150,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -188,6 +191,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -231,6 +235,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -275,6 +280,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -318,6 +324,9 @@ func TestSagaActor(t *testing.T) {
 		// the saga journals its start once it is running; this test only
 		// asserts the recovery calls, so the write is allowed but not required
 		eventStore.EXPECT().WriteEvents(mock.Anything, mock.Anything).Return(nil).Maybe()
+		// the runner feeding the saga polls the journal for as long as the
+		// saga lives; an empty journal keeps it away from the handler
+		eventStore.EXPECT().ShardOffsets(mock.Anything).Return(nil, nil).Maybe()
 
 		stream := eventstream.New()
 		defer stream.Close()
@@ -328,6 +337,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -379,6 +389,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -427,6 +438,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -479,6 +491,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -548,6 +561,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -575,7 +589,7 @@ func TestSagaActor(t *testing.T) {
 		require.NoError(t, actorSystem.Stop(ctx))
 	})
 
-	t.Run("consumeEvents: skips non-egopb-Event payloads", func(t *testing.T) {
+	t.Run("journal: a stream payload that is not an event never reaches the saga", func(t *testing.T) {
 		ctx := context.TODO()
 		sagaID := uuid.NewString()
 
@@ -591,6 +605,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -629,7 +644,7 @@ func TestSagaActor(t *testing.T) {
 		require.NoError(t, actorSystem.Stop(ctx))
 	})
 
-	t.Run("consumeEvents: skips own saga events", func(t *testing.T) {
+	t.Run("journal: the saga's own events are not handed back to it", func(t *testing.T) {
 		ctx := context.TODO()
 		sagaID := uuid.NewString()
 
@@ -645,6 +660,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -674,8 +690,7 @@ func TestSagaActor(t *testing.T) {
 			SequenceNumber: 1,
 			Event:          eventAny,
 		}
-		topic := eventsTopic
-		stream.Publish(topic, ownEvent)
+		journalEvent(t, eventStore, stream, ownEvent)
 		pause.For(500 * time.Millisecond)
 
 		select {
@@ -689,7 +704,7 @@ func TestSagaActor(t *testing.T) {
 		require.NoError(t, actorSystem.Stop(ctx))
 	})
 
-	t.Run("consumeEvents: skips events when saga is not running", func(t *testing.T) {
+	t.Run("journal: events are ignored once the saga is no longer running", func(t *testing.T) {
 		ctx := context.TODO()
 		sagaID := uuid.NewString()
 
@@ -705,6 +720,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -731,22 +747,29 @@ func TestSagaActor(t *testing.T) {
 		pause.For(time.Second)
 
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
-		domainEvent := &egopb.Event{
-			PersistenceId:  uuid.NewString(),
-			SequenceNumber: 1,
-			Event:          eventAny,
-		}
-		topic := eventsTopic
+		persistenceID := uuid.NewString()
 
 		// First event: triggers Complete → saga status becomes SagaCompleted
-		stream.Publish(topic, domainEvent)
+		journalEvent(t, eventStore, stream, &egopb.Event{
+			PersistenceId:  persistenceID,
+			SequenceNumber: 1,
+			Event:          eventAny,
+		})
 		pause.For(500 * time.Millisecond)
 
 		countAfterFirst := callCount.Load()
 
 		// Subsequent events should be ignored
-		stream.Publish(topic, domainEvent)
-		stream.Publish(topic, domainEvent)
+		journalEvent(t, eventStore, stream, &egopb.Event{
+			PersistenceId:  persistenceID,
+			SequenceNumber: 2,
+			Event:          eventAny,
+		})
+		journalEvent(t, eventStore, stream, &egopb.Event{
+			PersistenceId:  persistenceID,
+			SequenceNumber: 3,
+			Event:          eventAny,
+		})
 		pause.For(500 * time.Millisecond)
 
 		assert.Equal(t, countAfterFirst, callCount.Load(), "HandleEvent should not be called after saga completes")
@@ -755,7 +778,7 @@ func TestSagaActor(t *testing.T) {
 		require.NoError(t, actorSystem.Stop(ctx))
 	})
 
-	t.Run("consumeEvents: UnmarshalNew error fails the saga once retries are exhausted", func(t *testing.T) {
+	t.Run("journal: an undecodable event fails the saga once retries are exhausted", func(t *testing.T) {
 		ctx := context.TODO()
 		sagaID := uuid.NewString()
 
@@ -771,6 +794,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -804,7 +828,7 @@ func TestSagaActor(t *testing.T) {
 			SequenceNumber: 1,
 			Event:          &anypb.Any{TypeUrl: "type.googleapis.com/nonexistent.Type", Value: []byte("bad")},
 		}
-		stream.Publish(eventsTopic, badEvent)
+		journalEvent(t, eventStore, stream, badEvent)
 
 		require.Eventually(t, func() bool {
 			reply, askErr := goakt.Ask(ctx, pid, new(egopb.GetSagaStatus), 3*time.Second)
@@ -824,7 +848,7 @@ func TestSagaActor(t *testing.T) {
 		require.NoError(t, actorSystem.Stop(ctx))
 	})
 
-	t.Run("consumeEvents: HandleEvent error is logged and skipped", func(t *testing.T) {
+	t.Run("journal: the saga keeps processing after a HandleEvent error", func(t *testing.T) {
 		ctx := context.TODO()
 		sagaID := uuid.NewString()
 
@@ -840,6 +864,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -871,13 +896,12 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
-		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
+		persistenceID := uuid.NewString()
 
-		stream.Publish(topic, event)
+		journalEvent(t, eventStore, stream, &egopb.Event{PersistenceId: persistenceID, SequenceNumber: 1, Event: eventAny})
 		pause.For(300 * time.Millisecond)
-		stream.Publish(topic, event)
+		journalEvent(t, eventStore, stream, &egopb.Event{PersistenceId: persistenceID, SequenceNumber: 2, Event: eventAny})
 
 		select {
 		case <-secondHandled:
@@ -889,7 +913,7 @@ func TestSagaActor(t *testing.T) {
 		require.NoError(t, actorSystem.Stop(ctx))
 	})
 
-	t.Run("consumeEvents: HandleEvent returns nil action is no-op", func(t *testing.T) {
+	t.Run("journal: a nil action from HandleEvent is a no-op", func(t *testing.T) {
 		ctx := context.TODO()
 		sagaID := uuid.NewString()
 
@@ -905,6 +929,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -928,10 +953,9 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
-		stream.Publish(topic, event)
+		journalEvent(t, eventStore, stream, event)
 
 		select {
 		case <-handled:
@@ -946,7 +970,7 @@ func TestSagaActor(t *testing.T) {
 		require.NoError(t, actorSystem.Stop(ctx))
 	})
 
-	t.Run("consumeEvents: HandleEvent Complete action marks saga completed", func(t *testing.T) {
+	t.Run("journal: a Complete action marks the saga completed", func(t *testing.T) {
 		ctx := context.TODO()
 		sagaID := uuid.NewString()
 
@@ -962,6 +986,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -983,10 +1008,9 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
-		stream.Publish(topic, event)
+		journalEvent(t, eventStore, stream, event)
 		pause.For(500 * time.Millisecond)
 
 		// Actor is still alive but status is Completed
@@ -996,7 +1020,7 @@ func TestSagaActor(t *testing.T) {
 		require.NoError(t, actorSystem.Stop(ctx))
 	})
 
-	t.Run("consumeEvents: persistAndApplyEvents ApplyEvent error is logged", func(t *testing.T) {
+	t.Run("journal: an ApplyEvent error while persisting is logged", func(t *testing.T) {
 		ctx := context.TODO()
 		sagaID := uuid.NewString()
 
@@ -1004,6 +1028,9 @@ func TestSagaActor(t *testing.T) {
 		eventStore.EXPECT().Ping(mock.Anything).Return(nil)
 		eventStore.EXPECT().GetLatestEvent(mock.Anything, sagaID).Return(nil, nil)
 		eventStore.EXPECT().WriteEvents(mock.Anything, mock.Anything).Return(nil)
+		// the runner feeding the saga polls the journal for as long as the
+		// saga lives; the event under test is delivered to it directly
+		eventStore.EXPECT().ShardOffsets(mock.Anything).Return(nil, nil).Maybe()
 
 		stream := eventstream.New()
 		defer stream.Close()
@@ -1013,6 +1040,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -1043,10 +1071,9 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
-		stream.Publish(topic, event)
+		deliverEvent(t, pid, event)
 
 		select {
 		case <-handled:
@@ -1063,7 +1090,7 @@ func TestSagaActor(t *testing.T) {
 		require.NoError(t, actorSystem.Stop(ctx))
 	})
 
-	t.Run("consumeEvents: persistAndApplyEvents WriteEvents error is logged", func(t *testing.T) {
+	t.Run("journal: a WriteEvents error while persisting is logged", func(t *testing.T) {
 		ctx := context.TODO()
 		sagaID := uuid.NewString()
 
@@ -1071,6 +1098,9 @@ func TestSagaActor(t *testing.T) {
 		eventStore.EXPECT().Ping(mock.Anything).Return(nil)
 		eventStore.EXPECT().GetLatestEvent(mock.Anything, sagaID).Return(nil, nil)
 		eventStore.EXPECT().WriteEvents(mock.Anything, mock.Anything).Return(assert.AnError)
+		// the runner feeding the saga polls the journal for as long as the
+		// saga lives; the event under test is delivered to it directly
+		eventStore.EXPECT().ShardOffsets(mock.Anything).Return(nil, nil).Maybe()
 
 		stream := eventstream.New()
 		defer stream.Close()
@@ -1080,6 +1110,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -1106,10 +1137,9 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
-		stream.Publish(topic, event)
+		deliverEvent(t, pid, event)
 
 		select {
 		case <-handled:
@@ -1125,7 +1155,7 @@ func TestSagaActor(t *testing.T) {
 		require.NoError(t, actorSystem.Stop(ctx))
 	})
 
-	t.Run("consumeEvents: HandleEvent with events persists state", func(t *testing.T) {
+	t.Run("journal: events returned by HandleEvent are persisted", func(t *testing.T) {
 		ctx := context.TODO()
 		sagaID := uuid.NewString()
 
@@ -1141,6 +1171,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -1171,10 +1202,9 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
-		stream.Publish(topic, event)
+		journalEvent(t, eventStore, stream, event)
 
 		select {
 		case <-applied:
@@ -1211,6 +1241,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -1235,10 +1266,9 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
-		stream.Publish(topic, event)
+		journalEvent(t, eventStore, stream, event)
 		pause.For(500 * time.Millisecond)
 
 		require.True(t, pid.IsRunning())
@@ -1263,6 +1293,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -1289,10 +1320,9 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
-		stream.Publish(topic, event)
+		journalEvent(t, eventStore, stream, event)
 		pause.For(2 * time.Second)
 
 		require.True(t, pid.IsRunning())
@@ -1318,6 +1348,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -1368,10 +1399,9 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
-		stream.Publish(topic, event)
+		journalEvent(t, eventStore, stream, event)
 		pause.For(2 * time.Second)
 
 		require.True(t, pid.IsRunning())
@@ -1396,6 +1426,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -1427,10 +1458,9 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
-		stream.Publish(topic, event)
+		journalEvent(t, eventStore, stream, event)
 
 		select {
 		case <-handleErrorCalled:
@@ -1458,6 +1488,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -1489,10 +1520,9 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
-		stream.Publish(topic, event)
+		journalEvent(t, eventStore, stream, event)
 
 		select {
 		case <-handleErrorCalled:
@@ -1523,6 +1553,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -1558,10 +1589,9 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
-		stream.Publish(topic, event)
+		journalEvent(t, eventStore, stream, event)
 
 		select {
 		case <-commandSent:
@@ -1594,6 +1624,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -1637,10 +1668,9 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
-		stream.Publish(topic, event)
+		journalEvent(t, eventStore, stream, event)
 
 		select {
 		case <-handleErrorCalled:
@@ -1669,6 +1699,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -1711,10 +1742,9 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
-		stream.Publish(topic, event)
+		journalEvent(t, eventStore, stream, event)
 
 		select {
 		case <-handleErrorCalled:
@@ -1745,6 +1775,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -1792,10 +1823,9 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
-		stream.Publish(topic, event)
+		journalEvent(t, eventStore, stream, event)
 
 		select {
 		case <-handleResultCalled:
@@ -1826,6 +1856,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -1872,10 +1903,9 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
-		stream.Publish(topic, event)
+		journalEvent(t, eventStore, stream, event)
 
 		select {
 		case <-handleResultCalled:
@@ -1905,6 +1935,7 @@ func TestSagaActor(t *testing.T) {
 			goakt.WithExtensions(
 				extensions.NewEventsStore(eventStore),
 				extensions.NewEventsStream(stream),
+				extensions.NewOffsetStore(newTestOffsetStore(t)),
 			),
 			goakt.WithActorInitMaxRetries(1))
 		require.NoError(t, err)
@@ -1937,10 +1968,9 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
-		topic := eventsTopic
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		event := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny}
-		stream.Publish(topic, event)
+		journalEvent(t, eventStore, stream, event)
 
 		select {
 		case <-handleErrorCalled:
@@ -2057,6 +2087,7 @@ func TestSagaStatusSurvivesRestart(t *testing.T) {
 		goakt.WithExtensions(
 			extensions.NewEventsStore(eventStore),
 			extensions.NewEventsStream(stream),
+			extensions.NewOffsetStore(newTestOffsetStore(t)),
 		),
 		goakt.WithActorInitMaxRetries(1))
 	require.NoError(t, err)
@@ -2081,7 +2112,7 @@ func TestSagaStatusSurvivesRestart(t *testing.T) {
 
 	eventAny, err := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 	require.NoError(t, err)
-	stream.Publish(eventsTopic, &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny})
+	journalEvent(t, eventStore, stream, &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny})
 
 	select {
 	case <-handled:
@@ -2108,7 +2139,7 @@ func TestSagaStatusSurvivesRestart(t *testing.T) {
 	assert.EqualValues(t, SagaCompleted, statusReply.GetStatus())
 
 	// a completed saga must not react to new events
-	stream.Publish(eventsTopic, &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 2, Event: eventAny})
+	journalEvent(t, eventStore, stream, &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 2, Event: eventAny})
 	pause.For(time.Second)
 
 	select {
@@ -2157,7 +2188,7 @@ func TestSagaStatusReportsTransitions(t *testing.T) {
 
 		eventAny, err := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		require.NoError(t, err)
-		stream.Publish(eventsTopic, &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny})
+		journalEvent(t, eventStore, stream, &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny})
 
 		select {
 		case <-handled:
@@ -2204,7 +2235,7 @@ func TestSagaStatusReportsTransitions(t *testing.T) {
 
 		eventAny, err := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		require.NoError(t, err)
-		stream.Publish(eventsTopic, &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny})
+		journalEvent(t, eventStore, stream, &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny})
 
 		require.Eventually(t, func() bool {
 			return sagaStatusOf(t, ctx, pid) == SagaFailed
@@ -2239,6 +2270,7 @@ func TestSagaTimeoutSurvivesRestart(t *testing.T) {
 		goakt.WithExtensions(
 			extensions.NewEventsStore(eventStore),
 			extensions.NewEventsStream(stream),
+			extensions.NewOffsetStore(newTestOffsetStore(t)),
 		),
 		goakt.WithActorInitMaxRetries(1))
 	require.NoError(t, err)
@@ -2314,6 +2346,7 @@ func TestSagaTimesOutOnRestartWhenDeadlinePassed(t *testing.T) {
 		goakt.WithExtensions(
 			extensions.NewEventsStore(eventStore),
 			extensions.NewEventsStream(stream),
+			extensions.NewOffsetStore(newTestOffsetStore(t)),
 		),
 		goakt.WithActorInitMaxRetries(1))
 	require.NoError(t, err)
@@ -2388,6 +2421,7 @@ func TestSagaRemainsResponsiveDuringParticipantCall(t *testing.T) {
 		goakt.WithExtensions(
 			extensions.NewEventsStore(eventStore),
 			extensions.NewEventsStream(stream),
+			extensions.NewOffsetStore(newTestOffsetStore(t)),
 		),
 		goakt.WithActorInitMaxRetries(1))
 	require.NoError(t, err)
@@ -2431,7 +2465,7 @@ func TestSagaRemainsResponsiveDuringParticipantCall(t *testing.T) {
 
 	eventAny, err := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 	require.NoError(t, err)
-	stream.Publish(eventsTopic, &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny})
+	journalEvent(t, eventStore, stream, &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny})
 
 	select {
 	case <-commandSent:
@@ -2521,7 +2555,7 @@ func TestSagaCompensation(t *testing.T) {
 
 		eventAny, err := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		require.NoError(t, err)
-		stream.Publish(eventsTopic, &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny})
+		journalEvent(t, eventStore, stream, &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny})
 
 		select {
 		case <-compensated:
@@ -2581,7 +2615,7 @@ func TestSagaCompensation(t *testing.T) {
 
 		eventAny, err := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		require.NoError(t, err)
-		stream.Publish(eventsTopic, &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny})
+		journalEvent(t, eventStore, stream, &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny})
 
 		select {
 		case <-compensating:
@@ -2673,7 +2707,7 @@ func TestSagaRetriesHandlerErrors(t *testing.T) {
 
 		eventAny, err := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		require.NoError(t, err)
-		stream.Publish(eventsTopic, &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny})
+		journalEvent(t, eventStore, stream, &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny})
 
 		select {
 		case <-applied:
@@ -2718,7 +2752,7 @@ func TestSagaRetriesHandlerErrors(t *testing.T) {
 
 		eventAny, err := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 		require.NoError(t, err)
-		stream.Publish(eventsTopic, &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny})
+		journalEvent(t, eventStore, stream, &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny})
 
 		require.Eventually(t, func() bool {
 			reply, askErr := goakt.Ask(ctx, pid, new(egopb.GetSagaStatus), 3*time.Second)
@@ -2743,6 +2777,7 @@ func newSagaTestSystem(t *testing.T, ctx context.Context, eventStore persistence
 		goakt.WithExtensions(
 			extensions.NewEventsStore(eventStore),
 			extensions.NewEventsStream(stream),
+			extensions.NewOffsetStore(newTestOffsetStore(t)),
 		),
 		goakt.WithActorInitMaxRetries(1))
 	require.NoError(t, err)
@@ -2797,6 +2832,7 @@ func TestSagaIgnoresLateResultsAfterCompletion(t *testing.T) {
 		goakt.WithExtensions(
 			extensions.NewEventsStore(eventStore),
 			extensions.NewEventsStream(stream),
+			extensions.NewOffsetStore(newTestOffsetStore(t)),
 		),
 		goakt.WithActorInitMaxRetries(1))
 	require.NoError(t, err)
@@ -2844,7 +2880,7 @@ func TestSagaIgnoresLateResultsAfterCompletion(t *testing.T) {
 
 	eventAny, err := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 	require.NoError(t, err)
-	stream.Publish(eventsTopic, &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny})
+	journalEvent(t, eventStore, stream, &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny})
 
 	sagaStatusOf := func() SagaStatus {
 		reply, askErr := goakt.Ask(ctx, pid, new(egopb.GetSagaStatus), 3*time.Second)
@@ -2891,6 +2927,7 @@ func TestSagaCompensationRejectedByParticipantFails(t *testing.T) {
 		goakt.WithExtensions(
 			extensions.NewEventsStore(eventStore),
 			extensions.NewEventsStream(stream),
+			extensions.NewOffsetStore(newTestOffsetStore(t)),
 		),
 		goakt.WithActorInitMaxRetries(1))
 	require.NoError(t, err)
@@ -2924,7 +2961,7 @@ func TestSagaCompensationRejectedByParticipantFails(t *testing.T) {
 
 	eventAny, err := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 	require.NoError(t, err)
-	stream.Publish(eventsTopic, &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny})
+	journalEvent(t, eventStore, stream, &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny})
 
 	require.Eventually(t, func() bool {
 		reply, askErr := goakt.Ask(ctx, pid, new(egopb.GetSagaStatus), 3*time.Second)
@@ -2963,4 +3000,293 @@ func TestSagaRecordStatusRetriesJournalWrite(t *testing.T) {
 	assert.Equal(t, SagaCompleted, saga.status)
 	assert.EqualValues(t, 1, saga.eventsCounter)
 	eventStore.AssertExpectations(t)
+}
+
+// TestSagaReactsToJournaledEventsWithoutNudge pins that a saga is fed from the
+// journal and not from the local stream: an event persisted without ever being
+// announced on this node's stream — every event a peer node writes — still
+// reaches the saga.
+func TestSagaReactsToJournaledEventsWithoutNudge(t *testing.T) {
+	ctx := context.TODO()
+	sagaID := uuid.NewString()
+
+	eventStore := testkit.NewEventsStore()
+	require.NoError(t, eventStore.Connect(ctx))
+	defer eventStore.Disconnect(ctx) //nolint:errcheck
+
+	stream := eventstream.New()
+	defer stream.Close()
+
+	actorSystem, err := goakt.NewActorSystem("TestSystem",
+		goakt.WithLogger(log.DiscardLogger),
+		goakt.WithExtensions(
+			extensions.NewEventsStore(eventStore),
+			extensions.NewEventsStream(stream),
+			extensions.NewOffsetStore(newTestOffsetStore(t)),
+		),
+		goakt.WithActorInitMaxRetries(1))
+	require.NoError(t, err)
+	require.NoError(t, actorSystem.Start(ctx))
+	pause.For(time.Second)
+
+	handled := make(chan struct{}, 1)
+	behavior := &callbackSagaBehavior{
+		id: sagaID,
+		handleEvent: func(_ context.Context, _ Event, _ State) (*SagaAction, error) {
+			select {
+			case handled <- struct{}{}:
+			default:
+			}
+			return &SagaAction{}, nil
+		},
+	}
+
+	pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
+		goakt.WithLongLived(),
+		goakt.WithDependencies(behavior, extensions.NewSagaConfig(0)))
+	require.NoError(t, err)
+	require.NotNil(t, pid)
+	pause.For(time.Second)
+
+	eventAny, err := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
+	require.NoError(t, err)
+
+	// The event is written to the journal only: nothing is published on the
+	// local stream, so the saga can learn about it from the journal alone.
+	require.NoError(t, eventStore.WriteEvents(ctx, []*egopb.Event{
+		{
+			PersistenceId:  uuid.NewString(),
+			SequenceNumber: 1,
+			Event:          eventAny,
+			Timestamp:      time.Now().UnixNano(),
+		},
+	}))
+
+	select {
+	case <-handled:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the saga never saw the journaled event")
+	}
+
+	require.NoError(t, actorSystem.Stop(ctx))
+}
+
+// TestSagaIgnoresEventsBeforeItsStart pins the saga's start offset: a saga
+// coordinates the process that starts with it, so events journaled before it
+// first ran are never delivered, however they are announced.
+func TestSagaIgnoresEventsBeforeItsStart(t *testing.T) {
+	ctx := context.TODO()
+	sagaID := uuid.NewString()
+
+	eventStore := testkit.NewEventsStore()
+	require.NoError(t, eventStore.Connect(ctx))
+	defer eventStore.Disconnect(ctx) //nolint:errcheck
+
+	stream := eventstream.New()
+	defer stream.Close()
+
+	actorSystem, err := goakt.NewActorSystem("TestSystem",
+		goakt.WithLogger(log.DiscardLogger),
+		goakt.WithExtensions(
+			extensions.NewEventsStore(eventStore),
+			extensions.NewEventsStream(stream),
+			extensions.NewOffsetStore(newTestOffsetStore(t)),
+		),
+		goakt.WithActorInitMaxRetries(1))
+	require.NoError(t, err)
+	require.NoError(t, actorSystem.Start(ctx))
+	pause.For(time.Second)
+
+	handled := make(chan struct{}, 1)
+	behavior := &callbackSagaBehavior{
+		id: sagaID,
+		handleEvent: func(_ context.Context, _ Event, _ State) (*SagaAction, error) {
+			select {
+			case handled <- struct{}{}:
+			default:
+			}
+			return &SagaAction{}, nil
+		},
+	}
+
+	pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
+		goakt.WithLongLived(),
+		goakt.WithDependencies(behavior, extensions.NewSagaConfig(0)))
+	require.NoError(t, err)
+	require.NotNil(t, pid)
+	pause.For(time.Second)
+
+	eventAny, err := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
+	require.NoError(t, err)
+
+	journalEvent(t, eventStore, stream, &egopb.Event{
+		PersistenceId:  uuid.NewString(),
+		SequenceNumber: 1,
+		Event:          eventAny,
+		Timestamp:      time.Now().Add(-time.Hour).UnixNano(),
+	})
+
+	pause.For(3 * time.Second)
+
+	select {
+	case <-handled:
+		t.Fatal("an event journaled before the saga started must not be delivered")
+	default:
+	}
+
+	require.NoError(t, actorSystem.Stop(ctx))
+}
+
+// newTestOffsetStore returns a connected in-memory offset store and
+// disconnects it when the test ends. Every saga tracks the journal through
+// one, so a saga actor cannot start without it.
+func newTestOffsetStore(t *testing.T) *testkit.OffsetStore {
+	t.Helper()
+
+	ctx := context.Background()
+	offsetStore := testkit.NewOffsetStore()
+	require.NoError(t, offsetStore.Connect(ctx))
+	t.Cleanup(func() { _ = offsetStore.Disconnect(ctx) })
+
+	return offsetStore
+}
+
+// journalEvent persists an event envelope and announces it on the local
+// stream, exactly as an entity does. The envelope is stamped with the current
+// time when it carries no timestamp of its own, so the saga reading the
+// journal sees it as an event of the present.
+func journalEvent(t *testing.T, eventsStore persistence.EventsStore, stream eventstream.Stream, envelope *egopb.Event) {
+	t.Helper()
+
+	if envelope.GetTimestamp() == 0 {
+		envelope.Timestamp = time.Now().UnixNano()
+	}
+
+	require.NoError(t, eventsStore.WriteEvents(context.Background(), []*egopb.Event{envelope}))
+	stream.Publish(eventsTopic, envelope)
+}
+
+// deliverEvent hands an event envelope straight to a saga actor and requires
+// the saga to acknowledge it, so a test can drive the saga's handling logic
+// without a journal behind it.
+func deliverEvent(t *testing.T, pid *goakt.PID, envelope *egopb.Event) {
+	t.Helper()
+
+	reply, err := goakt.Ask(context.Background(), pid, envelope, time.Minute)
+	require.NoError(t, err)
+	require.NotNil(t, reply)
+}
+
+// TestSagaEventHandlerStopsWhenContextIsDone asserts that the handler feeding
+// a saga reports a cancelled context at once instead of delivering to the saga:
+// the runner winds down with a cancelled context once the saga has settled, and
+// its retries must not keep pushing the same event into the settled saga.
+func TestSagaEventHandlerStopsWhenContextIsDone(t *testing.T) {
+	handler := &sagaEventHandler{sagaID: uuid.NewString()}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	eventAny, err := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
+	require.NoError(t, err)
+
+	err = handler.Handle(ctx, uuid.NewString(), eventAny, 1)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+// TestSagaRunnerFailureDoesNotOverrideCompensation asserts that a journal
+// runner failure only fails a running saga: a saga that is already compensating
+// settles on the outcome of its compensations instead.
+func TestSagaRunnerFailureDoesNotOverrideCompensation(t *testing.T) {
+	const participantDelay = 2 * time.Second
+
+	ctx := context.TODO()
+	sagaID := uuid.NewString()
+	targetID := uuid.NewString()
+
+	eventStore := testkit.NewEventsStore()
+	require.NoError(t, eventStore.Connect(ctx))
+	defer eventStore.Disconnect(ctx) //nolint:errcheck
+
+	stream := eventstream.New()
+	defer stream.Close()
+
+	actorSystem, err := goakt.NewActorSystem("TestSystem",
+		goakt.WithLogger(log.DiscardLogger),
+		goakt.WithExtensions(
+			extensions.NewEventsStore(eventStore),
+			extensions.NewEventsStream(stream),
+			extensions.NewOffsetStore(newTestOffsetStore(t)),
+		),
+		goakt.WithActorInitMaxRetries(1))
+	require.NoError(t, err)
+	require.NoError(t, actorSystem.Start(ctx))
+	pause.For(time.Second)
+
+	successReply := &egopb.CommandReply{
+		Reply: &egopb.CommandReply_StateReply{
+			StateReply: &egopb.StateReply{
+				PersistenceId:  targetID,
+				SequenceNumber: 1,
+				State:          mustAny(t, &samplepb.Account{}),
+			},
+		},
+	}
+	_, err = actorSystem.Spawn(ctx, targetID,
+		&delayedReplyActor{reply: successReply, delay: participantDelay},
+		goakt.WithLongLived())
+	require.NoError(t, err)
+	pause.For(500 * time.Millisecond)
+
+	compensating := make(chan struct{}, 1)
+	behavior := &callbackSagaBehavior{
+		id: sagaID,
+		handleEvent: func(_ context.Context, _ Event, _ State) (*SagaAction, error) {
+			return &SagaAction{Compensate: true}, nil
+		},
+		compensate: func(_ context.Context, _ State) ([]SagaCommand, error) {
+			select {
+			case compensating <- struct{}{}:
+			default:
+			}
+			return []SagaCommand{{EntityID: targetID, Command: new(emptypb.Empty), Timeout: 5 * time.Second}}, nil
+		},
+	}
+
+	pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
+		goakt.WithLongLived(),
+		goakt.WithDependencies(behavior, extensions.NewSagaConfig(0)))
+	require.NoError(t, err)
+	pause.For(time.Second)
+
+	sagaStatusOf := func() SagaStatus {
+		reply, askErr := goakt.Ask(ctx, pid, new(egopb.GetSagaStatus), 3*time.Second)
+		require.NoError(t, askErr)
+		return SagaStatus(reply.(*egopb.SagaStatusReply).GetStatus())
+	}
+
+	eventAny, err := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
+	require.NoError(t, err)
+	journalEvent(t, eventStore, stream, &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny})
+
+	select {
+	case <-compensating:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Compensate was not called")
+	}
+
+	require.Equal(t, SagaCompensating, sagaStatusOf())
+
+	// the runner gives up while the compensation is still in flight
+	require.NoError(t, goakt.Tell(ctx, pid, &runnerFailed{err: assert.AnError}))
+	pause.For(500 * time.Millisecond)
+
+	assert.Equal(t, SagaCompensating, sagaStatusOf(), "a runner failure must not override an in-flight compensation")
+
+	// the compensation settles the saga on its own outcome
+	require.Eventually(t, func() bool {
+		return sagaStatusOf() == SagaCompleted
+	}, 10*time.Second, 200*time.Millisecond)
+
+	require.NoError(t, actorSystem.Stop(ctx))
 }

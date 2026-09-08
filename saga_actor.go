@@ -25,6 +25,7 @@ package ego
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"time"
 
 	goakt "github.com/tochemey/goakt/v4/actor"
@@ -34,12 +35,28 @@ import (
 	"github.com/tochemey/ego/v4/egopb"
 	"github.com/tochemey/ego/v4/eventstream"
 	"github.com/tochemey/ego/v4/internal/extensions"
+	"github.com/tochemey/ego/v4/offsetstore"
 	"github.com/tochemey/ego/v4/persistence"
+	"github.com/tochemey/ego/v4/projection"
 )
 
-// defaultSagaCommandTimeout is how long a saga waits for a participant reply
-// when the SagaCommand does not set a timeout of its own.
-const defaultSagaCommandTimeout = 5 * time.Second
+const (
+	// defaultSagaCommandTimeout is how long a saga waits for a participant reply
+	// when the SagaCommand does not set a timeout of its own.
+	defaultSagaCommandTimeout = 5 * time.Second
+	// sagaEventTimeout is how long the journal runner waits for the saga to
+	// acknowledge an event before the delivery is retried.
+	sagaEventTimeout = 30 * time.Second
+	// sagaRunnerNamePrefix prefixes the saga ID to name the journal runner
+	// that feeds it, and with it the offset rows recording its progress.
+	sagaRunnerNamePrefix = "ego.saga."
+	// sagaRunnerRetries is how many times the journal runner redelivers an
+	// event the saga could not acknowledge before it fails the saga.
+	sagaRunnerRetries = 5
+	// sagaRunnerRetryDelay is the delay between two redeliveries of the same
+	// event to the saga.
+	sagaRunnerRetryDelay = time.Second
+)
 
 // sagaTimeoutMsg is an internal message sent when the saga timeout expires.
 type sagaTimeoutMsg struct{}
@@ -60,18 +77,31 @@ type sagaCommandResult struct {
 }
 
 // SagaActor implements a saga/process manager as a Go-Akt actor.
-// It subscribes to the event stream, reacts to events via the SagaBehavior,
-// persists its own events, and coordinates commands to other entities.
+// It reads the journal, reacts to events via the SagaBehavior, persists its
+// own events, and coordinates commands to other entities.
 type SagaActor struct {
 	behavior      SagaBehavior
 	eventsStore   persistence.EventsStore
 	eventsStream  eventstream.Stream
-	subscriber    eventstream.Subscriber
+	offsetStore   offsetstore.OffsetStore
 	currentState  State
 	eventsCounter uint64
 	status        SagaStatus
 	sagaID        string
 	timeout       time.Duration
+
+	// runner reads the journal on the saga's behalf and hands every event
+	// written since the saga started to eventHandler. It is the saga's only
+	// source of events; the local stream merely nudges it awake.
+	runner *projectionRunner
+
+	// eventHandler feeds the runner's events into the saga mailbox. It is
+	// held here so PostStart can give it the saga's own PID.
+	eventHandler *sagaEventHandler
+
+	// firstStart reports that the saga has no journaled start yet, so its
+	// start time and its running status must be recorded once it is up.
+	firstStart bool
 
 	// shard is the journal shard the saga's own events belong to. It is
 	// computed once in PostStart from the saga ID, the same way entities
@@ -93,15 +123,11 @@ type SagaActor struct {
 	// compensation has answered.
 	compensationFailed bool
 
-	// actorSystem, logger and self are stored during PostStart so that the
-	// consumeEvents goroutine can use them safely after the ReceiveContext
+	// actorSystem and logger are stored during PostStart so that code running
+	// outside a receive turn can use them safely after the ReceiveContext
 	// from PostStart has been returned to the pool.
 	actorSystem goakt.ActorSystem
 	logger      log.Logger
-	self        *goakt.PID
-
-	// stopCh is used to stop the event consumption loop
-	stopCh chan struct{}
 }
 
 // implements the goakt.Actor interface
@@ -111,12 +137,11 @@ var _ goakt.Actor = (*SagaActor)(nil)
 // No arguments are passed in the constructor to support cluster relocation.
 // The SagaBehavior and timeout are passed via dependencies.
 func newSagaActor() *SagaActor {
-	return &SagaActor{
-		stopCh: make(chan struct{}, 1),
-	}
+	return new(SagaActor)
 }
 
-// PreStart initializes the saga actor: loads stores, recovers state, subscribes to events.
+// PreStart initializes the saga actor: loads stores, recovers state, and
+// prepares the runner that feeds it the journal.
 func (s *SagaActor) PreStart(ctx *goakt.Context) error {
 	eventsStore, err := requiredEventsStore(ctx)
 	if err != nil {
@@ -128,8 +153,14 @@ func (s *SagaActor) PreStart(ctx *goakt.Context) error {
 		return err
 	}
 
+	offsetStore, err := requiredOffsetStore(ctx)
+	if err != nil {
+		return err
+	}
+
 	s.eventsStore = eventsStore
 	s.eventsStream = eventsStream
+	s.offsetStore = offsetStore
 	s.sagaID = ctx.ActorName()
 
 	for _, dependency := range ctx.Dependencies() {
@@ -158,42 +189,88 @@ func (s *SagaActor) PreStart(ctx *goakt.Context) error {
 		return err
 	}
 
-	// Subscribe to the single in-process events topic. Sagas observe events
-	// from every shard; the shard is carried in the event payload for any
-	// downstream filtering the saga behavior wants to apply.
-	s.subscriber = s.eventsStream.AddSubscriber()
-	s.eventsStream.Subscribe(s.subscriber, eventsTopic)
+	// A saga that has never run yet stamps its start now: the runner resumes
+	// the journal from it, so the saga only ever sees the events of the
+	// process it was started to coordinate.
+	s.firstStart = s.startedAt == 0
+	if s.firstStart {
+		s.startedAt = time.Now().UnixNano()
+	}
 
-	return nil
+	s.eventHandler = &sagaEventHandler{sagaID: s.sagaID}
+	s.runner = newProjectionRunner(sagaRunnerNamePrefix+s.sagaID, s.eventHandler, s.eventsStore, s.offsetStore, s.runnerOptions(ctx)...)
+
+	// context.Background() is used instead of ctx.Context() because PreStart's
+	// context is ephemeral — goakt wraps it in context.WithTimeout and cancels
+	// it immediately after PreStart returns — while the runner ties the life
+	// of its workers to the context it is started with.
+	return s.runner.Start(context.Background())
+}
+
+// runnerOptions builds the settings of the runner that feeds the saga: it
+// resumes the journal at the saga's start time, is woken by the events
+// persisted on this node, and retries a delivery the saga could not
+// acknowledge before it gives up and fails the saga.
+func (s *SagaActor) runnerOptions(ctx *goakt.Context) []runnerOption {
+	opts := []runnerOption{
+		withLogger(ctx.ActorSystem().Logger()),
+		withStartOffset(time.Unix(0, s.startedAt)),
+		withEventsStream(s.eventsStream),
+		withRecoveryStrategy(projection.NewRecovery(
+			projection.WithRecoveryPolicy(projection.RetryAndFail),
+			projection.WithRetries(sagaRunnerRetries),
+			projection.WithRetryDelay(sagaRunnerRetryDelay),
+		)),
+	}
+
+	if ext := ctx.Extension(extensions.EventAdaptersExtensionID); ext != nil {
+		opts = append(opts, withEventAdapters(ext.(*extensions.EventAdapters).Adapters()))
+	}
+
+	if ext := ctx.Extension(extensions.EncryptorExtensionID); ext != nil {
+		opts = append(opts, withEncryptor(ext.(*extensions.EncryptorExtension).Encryptor()))
+	}
+
+	return opts
 }
 
 // Receive handles messages sent to the saga actor.
 //
 // All saga state (currentState, eventsCounter, status) is read and written
-// exclusively from here: the consumeEvents goroutine forwards stream events
-// to the actor's own mailbox instead of processing them itself, so the
-// actor's serialized message loop is the only writer.
+// exclusively from here: the runner hands journaled events to the actor's own
+// mailbox instead of processing them itself, so the actor's serialized message
+// loop is the only writer.
 func (s *SagaActor) Receive(ctx *goakt.ReceiveContext) {
 	switch message := ctx.Message().(type) {
 	case *goakt.PostStart:
 		// Capture stable references before the ReceiveContext is returned to the pool.
 		s.actorSystem = ctx.ActorSystem()
 		s.logger = ctx.Logger()
-		s.self = ctx.Self()
 		s.shard = ctx.ActorSystem().Partition(s.sagaID)
+
+		// Hand the actor PID to the runner and its handler before the journal
+		// is read: the handler delivers through it, and a runner that dies on
+		// an unprocessable event reports the failure back through it.
+		s.eventHandler.pid.Store(ctx.Self())
+		s.runner.pid = ctx.Self()
 
 		// A saga that has never run yet journals its start so the deadline
 		// and the status survive a restart or a relocation.
-		if s.startedAt == 0 {
-			s.startedAt = time.Now().UnixNano()
+		if s.firstStart {
 			s.recordStatus(ctx.Context(), SagaRunning)
 		}
 
-		// Start consuming events from the stream
-		go s.consumeEvents()
+		s.runner.Run(ctx.Context())
 		s.armTimeout(ctx)
 	case *egopb.Event:
-		s.handleStreamEvent(ctx, message)
+		s.handleJournalEvent(ctx, message)
+
+		// The runner waits for this acknowledgement before it records the
+		// progress of the saga. The response is a no-op when the event was
+		// told rather than asked.
+		ctx.Response(new(egopb.NoReply))
+	case *runnerFailed:
+		s.handleRunnerFailure(ctx, message.err)
 	case *sagaCommandResult:
 		s.handleCommandResult(ctx, message)
 	case *sagaTimeoutMsg:
@@ -212,9 +289,9 @@ func (s *SagaActor) Receive(ctx *goakt.ReceiveContext) {
 
 // PostStop cleans up the saga actor.
 func (s *SagaActor) PostStop(ctx *goakt.Context) error {
-	close(s.stopCh)
-	if s.subscriber != nil {
-		s.subscriber.Shutdown()
+	// Stop is idempotent: a saga that already settled stopped its runner then.
+	if s.runner != nil {
+		_ = s.runner.Stop()
 	}
 
 	// Release the timeout schedule so a restarted saga can arm it again with
@@ -267,64 +344,74 @@ func (s *SagaActor) recover(ctx context.Context) error {
 	return nil
 }
 
-// consumeEvents pumps events from the stream into the actor's own mailbox.
-// It uses the stable actorSystem, logger and self fields captured during
-// PostStart instead of the ReceiveContext (which is returned to the pool once
-// Receive returns).
+// sagaEventHandler hands the events read from the journal to a saga.
 //
-// It blocks on the subscriber's Ready signal when idle, then drains the
-// snapshot returned by Iterator. Selecting on Iterator directly would
-// busy-spin a CPU core: it returns a closed snapshot channel that yields
-// nil immediately whenever the queue is empty.
-//
-// Events are forwarded to the mailbox rather than processed here so that all
-// saga state stays owned by the actor's serialized message loop — processing
-// them on this goroutine would race with Receive (state queries, timeout).
-func (s *SagaActor) consumeEvents() {
-	for {
-		select {
-		case <-s.stopCh:
-			return
-		case <-s.subscriber.Ready():
-		}
-
-		for message := range s.subscriber.Iterator() {
-			select {
-			case <-s.stopCh:
-				return
-			default:
-			}
-
-			if message == nil {
-				continue
-			}
-
-			event, ok := message.Payload().(*egopb.Event)
-			if !ok {
-				continue
-			}
-
-			// Skip our own saga events
-			if event.GetPersistenceId() == s.sagaID {
-				continue
-			}
-
-			if err := s.actorSystem.NoSender().Tell(context.Background(), s.self, event); err != nil {
-				s.logger.Errorf("saga %s: failed to forward event to mailbox: %v", s.sagaID, err)
-			}
-		}
-	}
+// It runs on the runner's goroutines, so it delivers every event through the
+// saga mailbox rather than touching saga state: the actor's serialized message
+// loop stays the only writer. The delivery is an ask, so the runner records the
+// saga's progress only once the saga has processed the event.
+type sagaEventHandler struct {
+	// sagaID is the persistence ID of the saga being fed. The saga's own
+	// events are its private bookkeeping and are never handed back to it.
+	sagaID string
+	// pid is the saga actor to deliver to. It is set once the saga is up,
+	// before the runner reads the journal.
+	pid atomic.Pointer[goakt.PID]
 }
 
-// handleStreamEvent processes a stream event forwarded by consumeEvents.
-// It runs on the actor's message loop, so it can freely touch saga state.
-func (s *SagaActor) handleStreamEvent(ctx *goakt.ReceiveContext, event *egopb.Event) {
+// implements the projection handler contract
+var _ projection.Handler = (*sagaEventHandler)(nil)
+
+// Handle delivers one journaled event to the saga and waits for its
+// acknowledgement. The returned error makes the runner redeliver the event,
+// so nothing the saga did not accept is marked as processed.
+//
+// A cancelled context is how the runner winds down once the saga has settled.
+// It is reported at once, so the runner's retries do not keep pushing the same
+// event into a saga that no longer reads the journal.
+func (h *sagaEventHandler) Handle(ctx context.Context, persistenceID string, event *anypb.Any, revision uint64) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	if persistenceID == h.sagaID {
+		return nil
+	}
+
+	_, err := goakt.Ask(ctx, h.pid.Load(), &egopb.Event{
+		PersistenceId:  persistenceID,
+		SequenceNumber: revision,
+		Event:          event,
+	}, sagaEventTimeout)
+
+	return err
+}
+
+// handleRunnerFailure records that the journal runner stopped for good.
+//
+// Only a running saga is failed by it: without the journal it can no longer
+// follow the process it coordinates. A saga that is compensating settles on
+// the outcome of its compensations, and a settled saga keeps its status.
+func (s *SagaActor) handleRunnerFailure(ctx *goakt.ReceiveContext, err error) {
+	s.logger.Errorf("saga %s: the journal runner stopped: %v", s.sagaID, err)
+
 	if s.status != SagaRunning {
 		return
 	}
 
-	// A transient handler error must not lose the event: nothing redelivers it
-	// and the saga would wait forever while still looking healthy.
+	s.recordStatus(ctx.Context(), SagaFailed)
+}
+
+// handleJournalEvent processes an event the runner read from the journal.
+// It runs on the actor's message loop, so it can freely touch saga state.
+func (s *SagaActor) handleJournalEvent(ctx *goakt.ReceiveContext, event *egopb.Event) {
+	if s.status != SagaRunning {
+		return
+	}
+
+	// A transient handler error must not lose the event: the saga acknowledges
+	// it once this returns, so the error is retried here and only an exhausted
+	// retry moves the saga to SagaFailed.
 	var action *SagaAction
 	err := retryWithBackoff(ctx.Context(), defaultMaxRetries, func() error {
 		eventMsg, unmarshalErr := event.GetEvent().UnmarshalNew()
@@ -601,6 +688,12 @@ func (s *SagaActor) recordStatus(ctx context.Context, status SagaStatus) {
 
 	if status == SagaCompleted || status == SagaFailed {
 		s.cancelTimeout(s.actorSystem)
+
+		// A settled saga reacts to nothing further: the journal is no longer
+		// read on its behalf. Stop is non-blocking, so it is safe here.
+		if s.runner != nil {
+			_ = s.runner.Stop()
+		}
 	}
 }
 

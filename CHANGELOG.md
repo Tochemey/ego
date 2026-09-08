@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### 💥 Breaking Changes
+
+- **`Engine.Saga` requires an offset store.** A saga is now fed from the journal and records how far it has read, so a `Config` without `WithOffsetStore` makes `Engine.Saga` return the new `ErrOffsetStoreRequired` instead of starting a saga that would miss events. Configure an offset store, as a projection already needs one.
+
+- **`SagaBehavior.HandleEvent` must be idempotent.** Journal delivery is at-least-once: an event already handled is handed to the saga again when it restarts before its progress was recorded. A handler that assumed exactly-once delivery has to be made idempotent.
+
 ### 🐛 Bug Fixes
 
 - **Durable-state entities no longer advance their in-memory state on a failed write.** `processCommand` assigned the new state, version, and timestamp before `WriteState` ran, so after one store error the entity answered later commands from state the store never saw, and reverted to the stored state on restart. The write now happens first and the entity's fields are updated only once it succeeds, matching what event-sourced entities already did.
@@ -31,6 +37,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **`EraseEntity` erases.** With `full=false` it returned nil and did nothing; with `full=true` it deleted events and snapshots but left the encryption key in place and the live actor running with the erased state in memory. Both modes now stop the live entity first. `full=false` crypto-shreds the entity by deleting its key through the key store configured with the new `WithKeyStore` option, and returns `ErrKeyStoreRequired` when none is configured instead of silently succeeding. `full=true` deletes the key when a key store is configured and then the events and snapshots. Durable-state records are still not covered, since `persistence.StateStore` has no delete operation.
 
 - **Publishers no longer hang forever or grow memory without bound.** A `Publish` call ran with a background context, so a broker that stopped answering blocked the publishing loop indefinitely while events kept queueing in an unbounded buffer. Each delivery now runs under a publish timeout, 30 seconds by default and configurable with the new `WithPublishTimeout` option, transient failures are retried with backoff before the payload is dropped, and the queue behind each publisher holds at most 10,000 payloads. Drops of either kind are logged and counted on the new `ego.publisher.dropped.total` metric, labelled by publisher ID. Delivery stays best-effort: a payload that outlives the retries or arrives while the queue is full is lost, and the metric says so.
+
+- **Sagas see the events of every cluster node.** A saga consumed the in-process event stream, which is created per `Config` and carries only the events persisted on its own node, so a saga coordinating entities spread over a cluster silently missed every step that happened elsewhere. Sagas are now fed from the journal through the same runner that drives a projection, starting at the moment the saga first ran and tracking their progress in the offset store under `ego.saga.<saga id>`. The local stream remains as a low-latency nudge, so events written on the saga's own node still reach it immediately and events written by a peer within the poll interval.
+
+- **The projection runner's start and reset offsets are read in the right unit.** Offsets are event timestamps in nanoseconds, but a configured start offset and `projection.Options.ResetOffset` were converted with `UnixMilli`, a value about a million times too small, so both replayed the whole journal instead of resuming where they were told to. Both now convert with `UnixNano`, and so does `Engine.RebuildProjection`, whose own reset had the same defect: a rebuild from a timestamp replayed everything before it too. A start offset was also re-applied on every pull, overriding the committed offset, so a projection configured with one reprocessed the same events forever; it is now the floor a shard resumes from and a committed offset past it wins.
 
 - **The README lists the ego-contrib stores that exist.** MongoDB event, snapshot, offset, and durable-state stores were listed but have never shipped; the Persistence section now shows the actual coverage per backend.
 

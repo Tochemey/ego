@@ -77,6 +77,10 @@ var (
 	// ErrKeyStoreRequired is returned by EraseEntity when crypto-shredding is
 	// requested but no key store was configured with WithKeyStore
 	ErrKeyStoreRequired = errors.New("encryption key store is required; configure it with ego.WithKeyStore")
+	// ErrOffsetStoreRequired is returned by Saga when no offset store was
+	// configured with WithOffsetStore. A saga follows the journal and tracks
+	// how far it has read in the offset store.
+	ErrOffsetStoreRequired = errors.New("offset store is required; configure it with ego.WithOffsetStore")
 	// ErrProjectionNotRegistered is returned by StartProjection when the given
 	// name was never registered on the engine's Config via WithProjection.
 	ErrProjectionNotRegistered = errors.New("projection is not registered; register it with ego.WithProjection")
@@ -534,7 +538,7 @@ func (engine *Engine) RebuildProjection(ctx context.Context, name string, from t
 	}
 
 	// reset the offset
-	if err := offsetStore.ResetOffset(ctx, name, from.UnixMilli()); err != nil {
+	if err := offsetStore.ResetOffset(ctx, name, from.UnixNano()); err != nil {
 		return fmt.Errorf("failed to reset offset for projection %s: %w", name, err)
 	}
 
@@ -872,16 +876,19 @@ func (engine *Engine) AddStatePublishers(publishers ...StatePublisher) error {
 
 // Saga creates a saga/process manager that coordinates multiple entities.
 //
-// A saga is a long-running business process that reacts to events from the event
-// stream, sends commands to entities, persists its own events for recovery, and
-// supports compensation logic for rollback on failures.
+// A saga is a long-running business process that reacts to the events written
+// to the journal, sends commands to entities, persists its own events for
+// recovery, and supports compensation logic for rollback on failures. It reads
+// the journal from the moment it first ran and records its progress in the
+// offset store, so an offset store must be configured with WithOffsetStore.
 //
 // Parameters:
 //   - ctx: Execution context for controlling the saga lifecycle.
 //   - behavior: Defines the saga's logic including event handling, command dispatch, and compensation.
 //   - timeout: Maximum duration for the saga. Zero means no timeout.
 //
-// Returns an error if the saga fails to initialize.
+// Returns ErrOffsetStoreRequired when no offset store is configured, or an
+// error if the saga fails to initialize.
 func (engine *Engine) Saga(ctx context.Context, behavior SagaBehavior, timeout time.Duration) error {
 	if !engine.Started() {
 		return ErrEngineNotStarted
@@ -892,6 +899,14 @@ func (engine *Engine) Saga(ctx context.Context, behavior SagaBehavior, timeout t
 		return ErrEngineNotStarted
 	}
 	actorSystem := ref.sys
+
+	engine.mutex.RLock()
+	offsetStore := engine.offsetStore
+	engine.mutex.RUnlock()
+
+	if offsetStore == nil {
+		return ErrOffsetStoreRequired
+	}
 
 	// Register the behavior type on the local node as a fallback for kinds
 	// missing from WithEntityKinds; relocation to a peer requires the type to

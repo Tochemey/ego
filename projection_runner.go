@@ -487,15 +487,25 @@ func (x *projectionRunner) pendingShards(ctx context.Context) ([]uint64, error) 
 
 	shards := x.pendingBuf[:0]
 
-	// A configured starting offset overrides committed offsets on every
-	// pull (see currentOffset), so the pending decision must mirror it.
+	// A configured starting offset is the floor a shard resumes from (see
+	// currentOffset), so the pending decision must mirror it: a shard whose
+	// committed offset is already past the floor resumes from that offset.
 	if !x.startingOffset.IsZero() {
-		startOffset := x.startingOffset.UnixMilli()
+		startOffset := x.startingOffset.UnixNano()
+
+		x.committedOffsetsMu.RLock()
 		for shard, latest := range shardOffsets {
-			if latest > startOffset {
+			resumeFrom := startOffset
+			if committed, known := x.committedOffsets[shard]; known && committed > resumeFrom {
+				resumeFrom = committed
+			}
+
+			if latest > resumeFrom {
 				shards = append(shards, shard)
 			}
 		}
+		x.committedOffsetsMu.RUnlock()
+
 		x.pendingBuf = shards
 		return shards, nil
 	}
@@ -658,8 +668,13 @@ func (x *projectionRunner) currentOffset(ctx context.Context, shard uint64) (int
 		x.committedOffsetsMu.Unlock()
 	}
 
+	// The starting offset is a floor, not an override: once the shard has
+	// committed an offset past it the projection resumes from there instead
+	// of replaying the same events on every pass.
 	if !x.startingOffset.IsZero() {
-		currOffset = x.startingOffset.UnixMilli()
+		if startOffset := x.startingOffset.UnixNano(); currOffset < startOffset {
+			currOffset = startOffset
+		}
 	}
 
 	return currOffset, nil
@@ -862,10 +877,13 @@ func newHandlerPanicError(value any) error {
 	}
 }
 
-// preStart is used to perform some tasks before the projection starts
+// preStart is used to perform some tasks before the projection starts.
+//
+// Offsets are event timestamps in nanoseconds, so a configured reset time is
+// written in the unit the events store compares its events against.
 func (x *projectionRunner) preStart(ctx context.Context) error {
 	if !x.resetOffsetTo.IsZero() {
-		if err := x.offsetsStore.ResetOffset(ctx, x.name, x.resetOffsetTo.UnixMilli()); err != nil {
+		if err := x.offsetsStore.ResetOffset(ctx, x.name, x.resetOffsetTo.UnixNano()); err != nil {
 			fmtErr := fmt.Errorf("failed to reset projection=%s: %w", x.name, err)
 			x.logger.Error(fmtErr)
 			return fmtErr
