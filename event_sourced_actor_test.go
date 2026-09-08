@@ -25,6 +25,7 @@ package ego
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -2487,7 +2488,7 @@ func TestEventSourcedActorErrorPaths(t *testing.T) {
 		require.NoError(t, actorSystem.Stop(ctx))
 	})
 
-	t.Run("with persistEvents write failure shuts down actor", func(t *testing.T) {
+	t.Run("with persistEvents write failure the entity stays addressable", func(t *testing.T) {
 		ctx := context.TODO()
 
 		persistenceID := uuid.NewString()
@@ -2497,7 +2498,8 @@ func TestEventSourcedActorErrorPaths(t *testing.T) {
 		eventStore := new(mocks.EventsStore)
 		eventStore.EXPECT().Ping(mock.Anything).Return(nil)
 		eventStore.EXPECT().GetLatestEvent(mock.Anything, persistenceID).Return(nil, nil)
-		eventStore.EXPECT().WriteEvents(mock.Anything, mock.Anything).Return(assert.AnError)
+		eventStore.EXPECT().WriteEvents(mock.Anything, mock.Anything).Return(assert.AnError).Once()
+		eventStore.EXPECT().WriteEvents(mock.Anything, mock.Anything).Return(nil)
 
 		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
 			goakt.WithLogger(log.DiscardLogger),
@@ -2511,15 +2513,18 @@ func TestEventSourcedActorErrorPaths(t *testing.T) {
 		require.NoError(t, actorSystem.Start(ctx))
 		pause.For(time.Second)
 
+		// the Restart directive Engine.Entity applies by default
 		actor := newEventSourcedActor()
 		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor,
 			goakt.WithDependencies(behavior),
-			goakt.WithLongLived())
+			goakt.WithLongLived(),
+			goakt.WithSupervisor(newSupervisor(RestartDirective)))
 		require.NoError(t, err)
 		require.NotNil(t, pid)
 
 		pause.For(time.Second)
 
+		// the write fails: the caller is told so
 		reply, err := goakt.Ask(ctx, pid, &testpb.CreateAccount{AccountBalance: 500}, 5*time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, reply)
@@ -2527,9 +2532,149 @@ func TestEventSourcedActorErrorPaths(t *testing.T) {
 		commandReply := reply.(*egopb.CommandReply)
 		require.IsType(t, new(egopb.CommandReply_ErrorReply), commandReply.GetReply())
 
+		// the default supervisor restarts the entity on the same PID: the next
+		// command succeeds without a respawn
+		pause.For(time.Second)
+		require.True(t, pid.IsRunning())
+
+		reply, err = goakt.Ask(ctx, pid, &testpb.CreateAccount{AccountBalance: 500}, 5*time.Second)
+		require.NoError(t, err)
+		stateReply := reply.(*egopb.CommandReply).GetReply().(*egopb.CommandReply_StateReply)
+		assert.EqualValues(t, 1, stateReply.StateReply.GetSequenceNumber())
+
 		eventStream.Close()
 		require.NoError(t, actorSystem.Stop(ctx))
 	})
+}
+
+// TestEventSourcedActorRecoversAfterPartialWrite asserts that when the store
+// persisted the events but still reported an error, the restarted entity
+// recovers from its journal instead of reusing sequence numbers.
+func TestEventSourcedActorRecoversAfterPartialWrite(t *testing.T) {
+	ctx := context.TODO()
+
+	persistenceID := uuid.NewString()
+	behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+	backing := testkit.NewEventsStore()
+	require.NoError(t, backing.Connect(ctx))
+	defer backing.Disconnect(ctx) //nolint:errcheck
+
+	eventStore := &partialWriteEventsStore{EventStore: backing}
+	eventStore.failNext.Store(true)
+
+	eventStream := eventstream.New()
+
+	actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+		goakt.WithLogger(log.DiscardLogger),
+		goakt.WithExtensions(
+			extensions.NewEventsStore(eventStore),
+			extensions.NewEventsStream(eventStream),
+		),
+		goakt.WithActorInitMaxRetries(1))
+	require.NoError(t, err)
+	require.NoError(t, actorSystem.Start(ctx))
+	pause.For(time.Second)
+
+	// the Restart directive Engine.Entity applies by default
+	pid, err := actorSystem.Spawn(ctx, behavior.ID(), newEventSourcedActor(),
+		goakt.WithDependencies(behavior),
+		goakt.WithLongLived(),
+		goakt.WithSupervisor(newSupervisor(RestartDirective)))
+	require.NoError(t, err)
+	pause.For(time.Second)
+
+	// the event is persisted but the write is reported as failed
+	reply, err := goakt.Ask(ctx, pid, &testpb.CreateAccount{AccountBalance: 500}, 5*time.Second)
+	require.NoError(t, err)
+	require.IsType(t, new(egopb.CommandReply_ErrorReply), reply.(*egopb.CommandReply).GetReply())
+
+	// the restarted entity replayed its journal: the next event continues at
+	// sequence 2 on top of the state the persisted event produced
+	pause.For(time.Second)
+	require.True(t, pid.IsRunning())
+
+	reply, err = goakt.Ask(ctx, pid, &testpb.CreditAccount{AccountId: persistenceID, Balance: 250}, 5*time.Second)
+	require.NoError(t, err)
+	stateReply := reply.(*egopb.CommandReply).GetReply().(*egopb.CommandReply_StateReply)
+	assert.EqualValues(t, 2, stateReply.StateReply.GetSequenceNumber())
+
+	account := new(testpb.Account)
+	require.NoError(t, stateReply.StateReply.GetState().UnmarshalTo(account))
+	assert.InDelta(t, 750.00, account.GetAccountBalance(), 0)
+
+	latest, err := backing.GetLatestEvent(ctx, persistenceID)
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, latest.GetSequenceNumber())
+
+	eventStream.Close()
+	require.NoError(t, actorSystem.Stop(ctx))
+}
+
+// TestEventSourcedActorStopsOnWriteFailureWithStopDirective asserts that a
+// failed write is handed to the configured supervisor: with StopDirective the
+// entity stops.
+func TestEventSourcedActorStopsOnWriteFailureWithStopDirective(t *testing.T) {
+	ctx := context.TODO()
+
+	persistenceID := uuid.NewString()
+	behavior := NewAccountEventSourcedBehavior(persistenceID)
+	eventStream := eventstream.New()
+
+	eventStore := new(mocks.EventsStore)
+	eventStore.EXPECT().Ping(mock.Anything).Return(nil)
+	eventStore.EXPECT().GetLatestEvent(mock.Anything, persistenceID).Return(nil, nil)
+	eventStore.EXPECT().WriteEvents(mock.Anything, mock.Anything).Return(assert.AnError)
+
+	actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+		goakt.WithLogger(log.DiscardLogger),
+		goakt.WithExtensions(
+			extensions.NewEventsStore(eventStore),
+			extensions.NewEventsStream(eventStream),
+		),
+		goakt.WithActorInitMaxRetries(1))
+	require.NoError(t, err)
+	require.NoError(t, actorSystem.Start(ctx))
+	pause.For(time.Second)
+
+	pid, err := actorSystem.Spawn(ctx, behavior.ID(), newEventSourcedActor(),
+		goakt.WithDependencies(behavior),
+		goakt.WithLongLived(),
+		goakt.WithSupervisor(newSupervisor(StopDirective)))
+	require.NoError(t, err)
+	pause.For(time.Second)
+
+	reply, err := goakt.Ask(ctx, pid, &testpb.CreateAccount{AccountBalance: 500}, 5*time.Second)
+	require.NoError(t, err)
+	require.IsType(t, new(egopb.CommandReply_ErrorReply), reply.(*egopb.CommandReply).GetReply())
+
+	require.Eventually(t, func() bool {
+		return !pid.IsRunning()
+	}, 5*time.Second, 100*time.Millisecond, "StopDirective should stop the entity after a failed write")
+
+	eventStream.Close()
+	require.NoError(t, actorSystem.Stop(ctx))
+}
+
+// partialWriteEventsStore persists events and then reports a failure once,
+// standing in for a store whose write committed before the error surfaced.
+type partialWriteEventsStore struct {
+	*testkit.EventStore
+	failNext atomic.Bool
+}
+
+// WriteEvents writes through to the backing store and fails the first call
+// after the write has been committed.
+func (s *partialWriteEventsStore) WriteEvents(ctx context.Context, events []*egopb.Event) error {
+	if err := s.EventStore.WriteEvents(ctx, events); err != nil {
+		return err
+	}
+
+	if s.failNext.CompareAndSwap(true, false) {
+		return assert.AnError
+	}
+
+	return nil
 }
 
 // noopEventAdapter is a no-op event adapter that passes events through unchanged
@@ -2993,7 +3138,7 @@ func TestEventSourcedActorBatch(t *testing.T) {
 		pause.For(time.Second)
 		require.NoError(t, actorSystem.Stop(ctx))
 	})
-	t.Run("batch persist failure returns error replies and shuts down actor", func(t *testing.T) {
+	t.Run("batch persist failure returns error replies and the entity stays addressable", func(t *testing.T) {
 		ctx := context.TODO()
 
 		persistenceID := uuid.NewString()
@@ -3002,7 +3147,8 @@ func TestEventSourcedActorBatch(t *testing.T) {
 		eventStore := new(mocks.EventsStore)
 		eventStore.EXPECT().Ping(mock.Anything).Return(nil)
 		eventStore.EXPECT().GetLatestEvent(mock.Anything, persistenceID).Return(nil, nil)
-		eventStore.EXPECT().WriteEvents(mock.Anything, mock.Anything).Return(assert.AnError)
+		eventStore.EXPECT().WriteEvents(mock.Anything, mock.Anything).Return(assert.AnError).Once()
+		eventStore.EXPECT().WriteEvents(mock.Anything, mock.Anything).Return(nil)
 
 		eventStream := eventstream.New()
 
@@ -3023,11 +3169,13 @@ func TestEventSourcedActorBatch(t *testing.T) {
 		require.NoError(t, actorSystem.Start(ctx))
 		pause.For(time.Second)
 
+		// the Restart directive Engine.Entity applies by default
 		actor := newEventSourcedActor()
 		pid, err := actorSystem.Spawn(ctx, behavior.ID(), actor,
 			goakt.WithDependencies(behavior, entityCfg),
 			goakt.WithLongLived(),
-			goakt.WithStashing())
+			goakt.WithStashing(),
+			goakt.WithSupervisor(newSupervisor(RestartDirective)))
 		require.NoError(t, err)
 		require.NotNil(t, pid)
 
@@ -3039,6 +3187,16 @@ func TestEventSourcedActorBatch(t *testing.T) {
 
 		commandReply := reply.(*egopb.CommandReply)
 		require.IsType(t, new(egopb.CommandReply_ErrorReply), commandReply.GetReply())
+
+		// the default supervisor restarts the entity on the same PID: the next
+		// batch succeeds without a respawn
+		pause.For(time.Second)
+		require.True(t, pid.IsRunning())
+
+		reply, err = goakt.Ask(ctx, pid, &testpb.CreateAccount{AccountBalance: 500}, 5*time.Second)
+		require.NoError(t, err)
+		stateReply := reply.(*egopb.CommandReply).GetReply().(*egopb.CommandReply_StateReply)
+		assert.EqualValues(t, 1, stateReply.StateReply.GetSequenceNumber())
 
 		eventStream.Close()
 		require.NoError(t, actorSystem.Stop(ctx))

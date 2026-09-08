@@ -76,8 +76,18 @@ func newDurableStateActor() *DurableStateActor {
 
 // PreStart pre-starts the actor
 func (entity *DurableStateActor) PreStart(ctx *goakt.Context) error {
-	entity.stateStore = ctx.Extension(extensions.DurableStateStoreExtensionID).(*extensions.DurableStateStore).Underlying()
-	entity.eventsStream = ctx.Extension(extensions.EventsStreamExtensionID).(*extensions.EventsStream).Underlying()
+	stateStore, err := requiredStateStore(ctx)
+	if err != nil {
+		return err
+	}
+
+	eventsStream, err := requiredEventsStream(ctx)
+	if err != nil {
+		return err
+	}
+
+	entity.stateStore = stateStore
+	entity.eventsStream = eventsStream
 	entity.persistenceID = ctx.ActorName()
 
 	for _, dependency := range ctx.Dependencies() {

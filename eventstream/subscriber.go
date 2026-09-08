@@ -44,6 +44,10 @@ type Subscriber interface {
 	// empty busy-spins a CPU core.
 	Ready() <-chan struct{}
 	Shutdown()
+	// Dropped returns how many messages were discarded because the
+	// subscriber's queue was at capacity. It is always zero for an
+	// unbounded subscriber.
+	Dropped() uint64
 	signal(message *Message)
 	subscribe(topic string)
 	unsubscribe(topic string)
@@ -65,6 +69,14 @@ type subscriber struct {
 	// or the subscriber shuts down. Capacity one: a pending wake-up already
 	// guarantees the next Iterator drain sees every enqueued message.
 	notify chan struct{}
+	// capacity caps the number of undelivered messages; zero means unbounded
+	capacity int
+	// pending counts the messages admitted to the queue and not yet drained.
+	// Admission reserves a slot atomically, so the concurrent signals of a
+	// fan-out cannot overshoot the capacity.
+	pending *atomic.Int64
+	// dropped counts the messages discarded because the queue was full
+	dropped *atomic.Uint64
 }
 
 var _ Subscriber = &subscriber{}
@@ -83,6 +95,35 @@ func newSubscriber() *subscriber {
 		topics:   make(map[string]bool),
 		active:   atomic.NewBool(true),
 		notify:   make(chan struct{}, 1),
+		pending:  atomic.NewInt64(0),
+		dropped:  atomic.NewUint64(0),
+	}
+}
+
+// Dropped returns the number of messages discarded because the queue was full
+func (x *subscriber) Dropped() uint64 {
+	return x.dropped.Load()
+}
+
+// admit reserves a queue slot for one message and reports whether it may be
+// enqueued. An unbounded subscriber always admits.
+func (x *subscriber) admit() bool {
+	if x.capacity <= 0 {
+		return true
+	}
+
+	if x.pending.Inc() > int64(x.capacity) {
+		x.pending.Dec()
+		return false
+	}
+
+	return true
+}
+
+// release gives back the slot of one drained message on a bounded subscriber.
+func (x *subscriber) release() {
+	if x.capacity > 0 {
+		x.pending.Dec()
 	}
 }
 
@@ -137,6 +178,7 @@ func (x *subscriber) Iterator() chan *Message {
 		if msg == nil {
 			break
 		}
+		x.release()
 		msgs = append(msgs, msg.(*Message))
 	}
 	out := make(chan *Message, len(msgs))
@@ -151,6 +193,13 @@ func (x *subscriber) Iterator() chan *Message {
 func (x *subscriber) signal(message *Message) {
 	// only receive message when active
 	if x.active.Load() {
+		// a bounded subscriber discards what it cannot hold instead of
+		// growing without limit behind a slow consumer
+		if !x.admit() {
+			x.dropped.Inc()
+			return
+		}
+
 		x.messages.Enqueue(message)
 		// wake a consumer blocked on Ready. Dropping the send when the
 		// buffer is full is safe: the pending wake-up's drain will pick

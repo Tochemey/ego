@@ -46,11 +46,13 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 
 	"github.com/tochemey/ego/v4/egopb"
+	"github.com/tochemey/ego/v4/encryption"
 	samplepb "github.com/tochemey/ego/v4/example/examplepb"
 	"github.com/tochemey/ego/v4/internal/extensions"
 	"github.com/tochemey/ego/v4/internal/pause"
 	"github.com/tochemey/ego/v4/internal/syncmap"
 	egomock "github.com/tochemey/ego/v4/mocks/ego"
+	mockencryption "github.com/tochemey/ego/v4/mocks/encryption"
 	mockoffsetstore "github.com/tochemey/ego/v4/mocks/offsetstore"
 	mockpersistence "github.com/tochemey/ego/v4/mocks/persistence"
 	"github.com/tochemey/ego/v4/offsetstore"
@@ -919,7 +921,7 @@ func TestEngineStartWithTelemetry(t *testing.T) {
 func TestEngineEraseEntity(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("full=false is a no-op", func(t *testing.T) {
+	t.Run("full=false without a key store is rejected", func(t *testing.T) {
 		store := testkit.NewEventsStore()
 		require.NoError(t, store.Connect(ctx))
 		t.Cleanup(func() { _ = store.Disconnect(ctx) })
@@ -927,7 +929,78 @@ func TestEngineEraseEntity(t *testing.T) {
 		engine := newTestEngine(t, "Sample", store, WithLogger(DiscardLogger))
 		require.NoError(t, engine.Start(ctx))
 
-		require.NoError(t, engine.EraseEntity(ctx, uuid.NewString(), false))
+		require.ErrorIs(t, engine.EraseEntity(ctx, uuid.NewString(), false), ErrKeyStoreRequired)
+	})
+
+	t.Run("full=false deletes the encryption key", func(t *testing.T) {
+		store := testkit.NewEventsStore()
+		require.NoError(t, store.Connect(ctx))
+		t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+		keyStore := testkit.NewKeyStore()
+		engine := newTestEngine(t, "Sample", store,
+			WithLogger(DiscardLogger),
+			WithEncryptor(encryption.NewAESEncryptor(keyStore)),
+			WithKeyStore(keyStore),
+		)
+		require.NoError(t, engine.Start(ctx))
+
+		entityID := uuid.NewString()
+		require.NoError(t, engine.Entity(ctx, NewEventSourcedEntity(entityID)))
+		_, _, err := engine.SendCommand(ctx, entityID, &testpb.CreateAccount{
+			AccountBalance: 100,
+		}, time.Minute)
+		require.NoError(t, err)
+
+		latest, err := store.GetLatestEvent(ctx, entityID)
+		require.NoError(t, err)
+		require.True(t, latest.GetIsEncrypted())
+
+		require.NoError(t, engine.EraseEntity(ctx, entityID, false))
+
+		// the key is gone, the ciphertext stays
+		_, err = keyStore.GetKey(ctx, latest.GetEncryptionKeyId())
+		require.ErrorIs(t, err, encryption.ErrKeyNotFound)
+
+		remaining, err := store.GetLatestEvent(ctx, entityID)
+		require.NoError(t, err)
+		require.NotNil(t, remaining)
+	})
+
+	t.Run("erasure stops the live entity", func(t *testing.T) {
+		store := testkit.NewEventsStore()
+		require.NoError(t, store.Connect(ctx))
+		t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+		engine := newTestEngine(t, "Sample", store, WithLogger(DiscardLogger))
+		require.NoError(t, engine.Start(ctx))
+
+		entityID := uuid.NewString()
+		require.NoError(t, engine.Entity(ctx, NewEventSourcedEntity(entityID)))
+		_, _, err := engine.SendCommand(ctx, entityID, &testpb.CreateAccount{
+			AccountBalance: 100,
+		}, time.Minute)
+		require.NoError(t, err)
+
+		exists, err := engine.EntityExists(ctx, entityID)
+		require.NoError(t, err)
+		require.True(t, exists)
+
+		require.NoError(t, engine.EraseEntity(ctx, entityID, true))
+
+		require.Eventually(t, func() bool {
+			exists, existsErr := engine.EntityExists(ctx, entityID)
+			return existsErr == nil && !exists
+		}, 5*time.Second, 100*time.Millisecond, "the erased entity should have been stopped")
+
+		// a fresh Entity starts over from the initial state
+		require.NoError(t, engine.Entity(ctx, NewEventSourcedEntity(entityID)))
+		state, revision, err := engine.SendCommand(ctx, entityID, &testpb.CreateAccount{
+			AccountBalance: 100,
+		}, time.Minute)
+		require.NoError(t, err)
+		assert.EqualValues(t, 1, revision)
+		assert.InDelta(t, 100.00, state.(*testpb.Account).GetAccountBalance(), 0)
 	})
 
 	t.Run("full=true with persisted events", func(t *testing.T) {
@@ -1280,6 +1353,98 @@ func TestEngineStopReturnsStatePublisherCloseError(t *testing.T) {
 	require.NoError(t, engine.AddStatePublishers(pub))
 
 	require.ErrorIs(t, engine.Stop(ctx), closeErr)
+}
+
+// TestEngineEventPublisherRetriesBeforeDropping ensures that a transient
+// Publish failure is retried instead of the event being dropped on the first
+// error.
+func TestEngineEventPublisherRetriesBeforeDropping(t *testing.T) {
+	ctx := context.Background()
+	store := testkit.NewEventsStore()
+	require.NoError(t, store.Connect(ctx))
+	t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+	attempts := make(chan struct{}, 8)
+	pub := new(egomock.EventPublisher)
+	pub.On("ID").Return("eGo.test.RetryingPublisher")
+	pub.On("Close", mock.Anything).Return(nil)
+	pub.On("Publish", mock.Anything, mock.AnythingOfType("*egopb.Event")).
+		Run(func(_ mock.Arguments) { attempts <- struct{}{} }).
+		Return(assert.AnError).Once()
+	pub.On("Publish", mock.Anything, mock.AnythingOfType("*egopb.Event")).
+		Run(func(_ mock.Arguments) { attempts <- struct{}{} }).
+		Return(nil)
+
+	engine := newTestEngine(t, "Sample", store, WithLogger(DiscardLogger))
+	require.NoError(t, engine.Start(ctx))
+	require.NoError(t, engine.AddEventPublishers(pub))
+
+	entityID := uuid.NewString()
+	require.NoError(t, engine.Entity(ctx, NewEventSourcedEntity(entityID)))
+	_, _, err := engine.SendCommand(ctx, entityID, &testpb.CreateAccount{
+		AccountBalance: 100,
+	}, time.Minute)
+	require.NoError(t, err)
+
+	// one event, two attempts: the failure was retried, not dropped
+	for attempt := 1; attempt <= 2; attempt++ {
+		select {
+		case <-attempts:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("publish attempt %d never happened: the event was dropped instead of retried", attempt)
+		}
+	}
+}
+
+// TestEngineEventPublisherHangIsBoundedByTimeout ensures that a Publish call
+// that never returns is abandoned at the publish timeout, so the publishing
+// loop moves on to the next event instead of blocking forever.
+func TestEngineEventPublisherHangIsBoundedByTimeout(t *testing.T) {
+	const publishTimeout = 300 * time.Millisecond
+
+	ctx := context.Background()
+	store := testkit.NewEventsStore()
+	require.NoError(t, store.Connect(ctx))
+	t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+	attempts := make(chan struct{}, 8)
+	pub := new(egomock.EventPublisher)
+	pub.On("ID").Return("eGo.test.HangingPublisher")
+	pub.On("Close", mock.Anything).Return(nil)
+	pub.On("Publish", mock.Anything, mock.AnythingOfType("*egopb.Event")).
+		Run(func(args mock.Arguments) {
+			attempts <- struct{}{}
+			// hang until the engine gives up on this attempt
+			<-args.Get(0).(context.Context).Done()
+		}).
+		Return(context.DeadlineExceeded)
+
+	engine := newTestEngine(t, "Sample", store,
+		WithLogger(DiscardLogger),
+		WithPublishTimeout(publishTimeout),
+	)
+	require.NoError(t, engine.Start(ctx))
+	require.NoError(t, engine.AddEventPublishers(pub))
+
+	entityID := uuid.NewString()
+	require.NoError(t, engine.Entity(ctx, NewEventSourcedEntity(entityID)))
+	_, _, err := engine.SendCommand(ctx, entityID, &testpb.CreateAccount{
+		AccountBalance: 100,
+	}, time.Minute)
+	require.NoError(t, err)
+	_, _, err = engine.SendCommand(ctx, entityID, &testpb.CreditAccount{
+		AccountId: entityID, Balance: 25,
+	}, time.Minute)
+	require.NoError(t, err)
+
+	// both events get their attempt: the first hang is cut at the deadline
+	for attempt := 1; attempt <= 2; attempt++ {
+		select {
+		case <-attempts:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("publish attempt %d never happened: a hanging publish blocked the loop", attempt)
+		}
+	}
 }
 
 // TestEngineEventPublisherKeepsGoingOnPublishError ensures that a failing
@@ -1783,6 +1948,17 @@ func TestEngineEraseEntityStoreErrors(t *testing.T) {
 		err := engine.EraseEntity(ctx, "pid-3", true)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to delete snapshots for erasure")
+	})
+
+	t.Run("DeleteKey error", func(t *testing.T) {
+		keyStore := new(mockencryption.KeyStore)
+		keyStore.EXPECT().DeleteKey(mock.Anything, "pid-4").Return(errors.New("kms down"))
+
+		engine := synthEngineWithStores(new(mockpersistence.EventsStore), nil, nil)
+		engine.keyStore = keyStore
+		err := engine.EraseEntity(ctx, "pid-4", false)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to delete the encryption key for erasure")
 	})
 }
 

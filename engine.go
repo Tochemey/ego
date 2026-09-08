@@ -31,12 +31,14 @@ import (
 	"time"
 
 	goakt "github.com/tochemey/goakt/v4/actor"
+	gerrors "github.com/tochemey/goakt/v4/errors"
 	"github.com/tochemey/goakt/v4/extension"
 	"github.com/tochemey/goakt/v4/passivation"
 	"github.com/tochemey/goakt/v4/supervisor"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/atomic"
@@ -51,6 +53,18 @@ import (
 	"github.com/tochemey/ego/v4/persistence"
 )
 
+const (
+	// defaultPublishTimeout bounds one attempt to deliver a payload to an
+	// external publisher when WithPublishTimeout is not set.
+	defaultPublishTimeout = 30 * time.Second
+	// publisherQueueCapacity caps the payloads waiting for a publisher. A
+	// publisher that falls further behind than this drops the excess, and the
+	// drops are counted, instead of the queue growing until the process dies.
+	publisherQueueCapacity = 10_000
+	// publisherIDAttribute labels publisher metrics with the publisher ID.
+	publisherIDAttribute = "ego.publisher_id"
+)
+
 var (
 	// ErrEngineNotStarted is returned when the eGo engine has not started
 	ErrEngineNotStarted = errors.New("eGo engine has not started")
@@ -60,6 +74,9 @@ var (
 	ErrCommandReplyUnmarshalling = errors.New("failed to parse command reply")
 	// ErrDurableStateStoreRequired is returned when the eGo engine durable store is not set
 	ErrDurableStateStoreRequired = errors.New("durable state store is required")
+	// ErrKeyStoreRequired is returned by EraseEntity when crypto-shredding is
+	// requested but no key store was configured with WithKeyStore
+	ErrKeyStoreRequired = errors.New("encryption key store is required; configure it with ego.WithKeyStore")
 	// ErrProjectionNotRegistered is returned by StartProjection when the given
 	// name was never registered on the engine's Config via WithProjection.
 	ErrProjectionNotRegistered = errors.New("projection is not registered; register it with ego.WithProjection")
@@ -124,6 +141,10 @@ type Engine struct {
 	telemetry     *Telemetry
 	metrics       *metrics
 	encryptor     encryption.Encryptor
+	keyStore      encryption.KeyStore
+
+	// publishTimeout bounds each delivery attempt to an external publisher.
+	publishTimeout time.Duration
 }
 
 // NewEngine plugs eGo into an already-constructed and started goakt.ActorSystem.
@@ -188,18 +209,20 @@ func NewEngine(actorSys goakt.ActorSystem, config *Config) (*Engine, error) {
 	}
 
 	e := &Engine{
-		name:          actorSys.Name(),
-		eventsStore:   config.eventsStore,
-		stateStore:    config.stateStore,
-		offsetStore:   config.offsetStore,
-		snapshotStore: config.snapshotStore,
-		logger:        config.logger,
-		eventStream:   config.eventStream,
-		eventAdapters: config.eventAdapters,
-		telemetry:     config.telemetry,
-		encryptor:     config.encryptor,
-		eventsStreams: syncmap.New[string, *eventsStream](),
-		statesStreams: syncmap.New[string, *statesStream](),
+		name:           actorSys.Name(),
+		eventsStore:    config.eventsStore,
+		stateStore:     config.stateStore,
+		offsetStore:    config.offsetStore,
+		snapshotStore:  config.snapshotStore,
+		logger:         config.logger,
+		eventStream:    config.eventStream,
+		eventAdapters:  config.eventAdapters,
+		telemetry:      config.telemetry,
+		encryptor:      config.encryptor,
+		keyStore:       config.keyStore,
+		publishTimeout: config.publishTimeout,
+		eventsStreams:  syncmap.New[string, *eventsStream](),
+		statesStreams:  syncmap.New[string, *statesStream](),
 	}
 	e.actorSystem.Store(&actorSystemRef{
 		sys:      actorSys,
@@ -784,7 +807,7 @@ func (engine *Engine) AddEventPublishers(publishers ...EventPublisher) error {
 	defer engine.mutex.Unlock()
 
 	for _, publisher := range publishers {
-		subscriber := engine.eventStream.AddSubscriber()
+		subscriber := engine.eventStream.AddBoundedSubscriber(publisherQueueCapacity)
 		engine.logger.Debug(fmt.Sprintf("%s subscribing to topic: %s", publisher.ID(), eventsTopic))
 		engine.eventStream.Subscribe(subscriber, eventsTopic)
 
@@ -825,7 +848,7 @@ func (engine *Engine) AddStatePublishers(publishers ...StatePublisher) error {
 	defer engine.mutex.Unlock()
 
 	for _, publisher := range publishers {
-		subscriber := engine.eventStream.AddSubscriber()
+		subscriber := engine.eventStream.AddBoundedSubscriber(publisherQueueCapacity)
 		engine.logger.Debug(fmt.Sprintf("%s subscribing to topic: %s", publisher.ID(), statesTopic))
 		engine.eventStream.Subscribe(subscriber, statesTopic)
 
@@ -943,9 +966,19 @@ func (engine *Engine) SagaStatus(ctx context.Context, sagaID string, timeout tim
 }
 
 // EraseEntity performs GDPR erasure for the given persistence ID.
-// When an encryptor backed by a KeyStore is configured, this deletes the encryption
-// key (crypto-shredding), making all encrypted events and snapshots irrecoverable.
-// Optionally, it also physically deletes events and snapshots from the stores.
+//
+// The live entity, if any, is stopped first so it can neither serve nor append
+// to data that is being erased. The next Entity call recovers it from whatever
+// the stores hold afterwards.
+//
+// With full set to false the entity is crypto-shredded: its encryption key is
+// deleted through the key store configured with WithKeyStore, which makes every
+// encrypted event and snapshot irrecoverable while the ciphertext stays in the
+// stores. ErrKeyStoreRequired is returned when no key store is configured.
+//
+// With full set to true the key is deleted when a key store is configured, and
+// the events and snapshots are physically deleted from their stores as well.
+// Durable-state records are not covered.
 func (engine *Engine) EraseEntity(ctx context.Context, persistenceID string, full bool) error {
 	if !engine.Started() {
 		return ErrEngineNotStarted
@@ -954,24 +987,59 @@ func (engine *Engine) EraseEntity(ctx context.Context, persistenceID string, ful
 	engine.mutex.RLock()
 	eventsStore := engine.eventsStore
 	snapshotStore := engine.snapshotStore
+	keyStore := engine.keyStore
 	engine.mutex.RUnlock()
 
-	if full {
-		// Get the latest event to find the max sequence number
-		latestEvent, err := eventsStore.GetLatestEvent(ctx, persistenceID)
-		if err != nil {
-			return fmt.Errorf("failed to get latest event for erasure: %w", err)
+	if keyStore == nil && !full {
+		return ErrKeyStoreRequired
+	}
+
+	if err := engine.stopEntity(ctx, persistenceID); err != nil {
+		return err
+	}
+
+	if keyStore != nil {
+		if err := keyStore.DeleteKey(ctx, persistenceID); err != nil && !errors.Is(err, encryption.ErrKeyNotFound) {
+			return fmt.Errorf("failed to delete the encryption key for erasure: %w", err)
 		}
-		if latestEvent != nil {
-			if err := eventsStore.DeleteEvents(ctx, persistenceID, latestEvent.GetSequenceNumber()); err != nil {
-				return fmt.Errorf("failed to delete events for erasure: %w", err)
-			}
+	}
+
+	if !full {
+		return nil
+	}
+
+	// Get the latest event to find the max sequence number
+	latestEvent, err := eventsStore.GetLatestEvent(ctx, persistenceID)
+	if err != nil {
+		return fmt.Errorf("failed to get latest event for erasure: %w", err)
+	}
+
+	if latestEvent != nil {
+		if err := eventsStore.DeleteEvents(ctx, persistenceID, latestEvent.GetSequenceNumber()); err != nil {
+			return fmt.Errorf("failed to delete events for erasure: %w", err)
 		}
-		if snapshotStore != nil && latestEvent != nil {
-			if err := snapshotStore.DeleteSnapshots(ctx, persistenceID, latestEvent.GetSequenceNumber()); err != nil {
-				return fmt.Errorf("failed to delete snapshots for erasure: %w", err)
-			}
+	}
+
+	if snapshotStore != nil && latestEvent != nil {
+		if err := snapshotStore.DeleteSnapshots(ctx, persistenceID, latestEvent.GetSequenceNumber()); err != nil {
+			return fmt.Errorf("failed to delete snapshots for erasure: %w", err)
 		}
+	}
+
+	return nil
+}
+
+// stopEntity stops the live actor of the given entity, if there is one, so an
+// erasure cannot race with commands the entity is still serving. An entity that
+// is not running is not an error.
+func (engine *Engine) stopEntity(ctx context.Context, persistenceID string) error {
+	ref := engine.actorSystem.Load()
+	if ref == nil {
+		return nil
+	}
+
+	if err := ref.sys.Kill(ctx, persistenceID); err != nil && !errors.Is(err, gerrors.ErrActorNotFound) {
+		return fmt.Errorf("failed to stop entity %s for erasure: %w", persistenceID, err)
 	}
 
 	return nil
@@ -1160,12 +1228,16 @@ func toSupervisorDirective(directive SupervisorDirective) supervisor.Directive {
 // busy-spin a CPU core: it returns a closed snapshot channel that yields
 // nil immediately whenever the queue is empty.
 func (engine *Engine) sendEvent(stream *eventsStream) {
+	var reportedDrops uint64
+
 	for {
 		select {
 		case <-stream.done:
 			return
 		case <-stream.subscriber.Ready():
 		}
+
+		reportedDrops = engine.reportQueueDrops(stream.publisher.ID(), stream.subscriber, reportedDrops)
 
 		for message := range stream.subscriber.Iterator() {
 			select {
@@ -1183,12 +1255,16 @@ func (engine *Engine) sendEvent(stream *eventsStream) {
 				continue
 			}
 
-			if err := stream.publisher.Publish(context.Background(), event); err != nil {
-				engine.logger.Error(fmt.Sprintf("(%s) failed to publish event=[persistenceID=%s, sequenceNumber=%d]: %s",
+			err := engine.publishWithRetry(func(ctx context.Context) error {
+				return stream.publisher.Publish(ctx, event)
+			})
+			if err != nil {
+				engine.logger.Error(fmt.Sprintf("(%s) dropped event=[persistenceID=%s, sequenceNumber=%d] after retries: %s",
 					stream.publisher.ID(),
 					event.GetPersistenceId(),
 					event.GetSequenceNumber(),
 					err.Error()))
+				engine.countPublisherDrops(stream.publisher.ID(), 1)
 				continue
 			}
 
@@ -1200,18 +1276,66 @@ func (engine *Engine) sendEvent(stream *eventsStream) {
 	}
 }
 
+// publishWithRetry runs one delivery to an external publisher under the
+// configured publish timeout, retrying transient failures with backoff.
+//
+// The timeout bounds the whole attempt sequence, so a publisher that hangs
+// cannot block the publishing loop indefinitely, and a failure that outlives
+// the retries is returned to the caller, which drops the payload.
+func (engine *Engine) publishWithRetry(publish func(ctx context.Context) error) error {
+	timeout := defaultPublishTimeout
+	if engine.publishTimeout > 0 {
+		timeout = engine.publishTimeout
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	return retryWithBackoff(ctx, defaultMaxRetries, func() error {
+		return publish(ctx)
+	})
+}
+
+// reportQueueDrops logs and counts the payloads a publisher's queue discarded
+// since the previous pass, and returns the new total so the next pass reports
+// only the delta.
+func (engine *Engine) reportQueueDrops(publisherID string, subscriber eventstream.Subscriber, reported uint64) uint64 {
+	dropped := subscriber.Dropped()
+	if dropped > reported {
+		engine.logger.Error(fmt.Sprintf("(%s) dropped %d payload(s): publisher queue full", publisherID, dropped-reported))
+		engine.countPublisherDrops(publisherID, int64(dropped-reported))
+	}
+
+	return dropped
+}
+
+// countPublisherDrops records dropped payloads on the publisher drop counter
+// when telemetry is configured.
+func (engine *Engine) countPublisherDrops(publisherID string, count int64) {
+	if engine.metrics == nil {
+		return
+	}
+
+	engine.metrics.publisherDropped.Add(context.Background(), count,
+		metric.WithAttributes(attribute.String(publisherIDAttribute, publisherID)))
+}
+
 // sendState sends state changes to the state publisher.
 // It blocks on the subscriber's Ready signal when idle, then drains the
 // snapshot returned by Iterator. Selecting on Iterator directly would
 // busy-spin a CPU core: it returns a closed snapshot channel that yields
 // nil immediately whenever the queue is empty.
 func (engine *Engine) sendState(stream *statesStream) {
+	var reportedDrops uint64
+
 	for {
 		select {
 		case <-stream.done:
 			return
 		case <-stream.subscriber.Ready():
 		}
+
+		reportedDrops = engine.reportQueueDrops(stream.publisher.ID(), stream.subscriber, reportedDrops)
 
 		for message := range stream.subscriber.Iterator() {
 			select {
@@ -1230,12 +1354,16 @@ func (engine *Engine) sendState(stream *statesStream) {
 			}
 
 			publisher := stream.publisher
-			if err := publisher.Publish(context.Background(), msg); err != nil {
-				engine.logger.Error(fmt.Sprintf("(%s) failed to publish state=[persistenceID=%s, version=%d]: %s",
+			err := engine.publishWithRetry(func(ctx context.Context) error {
+				return publisher.Publish(ctx, msg)
+			})
+			if err != nil {
+				engine.logger.Error(fmt.Sprintf("(%s) dropped state=[persistenceID=%s, version=%d] after retries: %s",
 					publisher.ID(),
 					msg.GetPersistenceId(),
 					msg.GetVersionNumber(),
 					err.Error()))
+				engine.countPublisherDrops(publisher.ID(), 1)
 				continue
 			}
 

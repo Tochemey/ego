@@ -118,8 +118,18 @@ func newSagaActor() *SagaActor {
 
 // PreStart initializes the saga actor: loads stores, recovers state, subscribes to events.
 func (s *SagaActor) PreStart(ctx *goakt.Context) error {
-	s.eventsStore = ctx.Extension(extensions.EventsStoreExtensionID).(*extensions.EventsStore).Underlying()
-	s.eventsStream = ctx.Extension(extensions.EventsStreamExtensionID).(*extensions.EventsStream).Underlying()
+	eventsStore, err := requiredEventsStore(ctx)
+	if err != nil {
+		return err
+	}
+
+	eventsStream, err := requiredEventsStream(ctx)
+	if err != nil {
+		return err
+	}
+
+	s.eventsStore = eventsStore
+	s.eventsStream = eventsStream
 	s.sagaID = ctx.ActorName()
 
 	for _, dependency := range ctx.Dependencies() {

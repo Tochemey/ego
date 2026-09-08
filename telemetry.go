@@ -47,6 +47,7 @@ type metrics struct {
 	projectionLag     metric.Int64Gauge
 	projectionOffset  metric.Int64Gauge
 	projectionBehind  metric.Int64Gauge
+	publisherDropped  metric.Int64Counter
 }
 
 // newMetrics creates metric instruments from the given meter.
@@ -92,6 +93,10 @@ func newMetrics(meter metric.Meter) *metrics {
 		metric.WithDescription("Approximate number of unprocessed events per shard"),
 	)
 
+	publisherDropped, _ := meter.Int64Counter("ego.publisher.dropped.total",
+		metric.WithDescription("Total number of payloads a publisher dropped, after exhausting retries or because its queue was full"),
+	)
+
 	return &metrics{
 		commandsTotal:     commandsTotal,
 		commandsDuration:  commandsDuration,
@@ -102,5 +107,6 @@ func newMetrics(meter metric.Meter) *metrics {
 		projectionLag:     projectionLag,
 		projectionOffset:  projectionOffset,
 		projectionBehind:  projectionBehind,
+		publisherDropped:  publisherDropped,
 	}
 }

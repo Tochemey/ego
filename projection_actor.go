@@ -73,8 +73,16 @@ func NewProjectionActor() *ProjectionActor {
 
 // PreStart prepares the projection
 func (x *ProjectionActor) PreStart(ctx *goakt.Context) error {
-	offsetStore := ctx.Extension(extensions.OffsetStoreExtensionID).(*extensions.OffsetStore).Underlying()
-	eventsStore := ctx.Extension(extensions.EventsStoreExtensionID).(*extensions.EventsStore).Underlying()
+	offsetStore, err := requiredOffsetStore(ctx)
+	if err != nil {
+		return err
+	}
+
+	eventsStore, err := requiredEventsStore(ctx)
+	if err != nil {
+		return err
+	}
+
 	registry, ok := ctx.Extension(extensions.ProjectionExtensionID).(*extensions.ProjectionExtension)
 	if !ok {
 		return fmt.Errorf("projection registry extension is not available on this node")

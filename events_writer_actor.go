@@ -27,7 +27,6 @@ import (
 
 	"github.com/tochemey/ego/v4/egopb"
 	"github.com/tochemey/ego/v4/eventstream"
-	"github.com/tochemey/ego/v4/internal/extensions"
 	"github.com/tochemey/ego/v4/persistence"
 )
 
@@ -68,8 +67,18 @@ func newEventsWriterActor() *eventsWriterActor {
 
 // PreStart loads the events store and event stream from the actor system extensions.
 func (a *eventsWriterActor) PreStart(ctx *goakt.Context) error {
-	a.eventsStore = ctx.Extension(extensions.EventsStoreExtensionID).(*extensions.EventsStore).Underlying()
-	a.eventsStream = ctx.Extension(extensions.EventsStreamExtensionID).(*extensions.EventsStream).Underlying()
+	eventsStore, err := requiredEventsStore(ctx)
+	if err != nil {
+		return err
+	}
+
+	eventsStream, err := requiredEventsStream(ctx)
+	if err != nil {
+		return err
+	}
+
+	a.eventsStore = eventsStore
+	a.eventsStream = eventsStream
 	return nil
 }
 

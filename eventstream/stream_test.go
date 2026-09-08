@@ -304,3 +304,53 @@ func TestStream(t *testing.T) {
 		broker.Close()
 	})
 }
+
+// TestBoundedSubscriber asserts that a bounded subscriber keeps at most its
+// capacity of undelivered messages and counts what it discards, while an
+// unbounded one never drops.
+func TestBoundedSubscriber(t *testing.T) {
+	const capacity = 2
+
+	broker := New()
+	defer broker.Close()
+
+	bounded := broker.AddBoundedSubscriber(capacity)
+	broker.Subscribe(bounded, "t1")
+
+	unbounded := broker.AddSubscriber()
+	broker.Subscribe(unbounded, "t1")
+
+	for i := range capacity + 1 {
+		broker.Publish("t1", i)
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	var delivered []*Message
+	for message := range bounded.Iterator() {
+		delivered = append(delivered, message)
+	}
+
+	assert.Len(t, delivered, capacity)
+	assert.EqualValues(t, 1, bounded.Dropped())
+
+	delivered = nil
+	for message := range unbounded.Iterator() {
+		delivered = append(delivered, message)
+	}
+
+	assert.Len(t, delivered, capacity+1)
+	assert.Zero(t, unbounded.Dropped())
+
+	// draining frees capacity again
+	broker.Publish("t1", capacity+1)
+	time.Sleep(100 * time.Millisecond)
+
+	delivered = nil
+	for message := range bounded.Iterator() {
+		delivered = append(delivered, message)
+	}
+
+	assert.Len(t, delivered, 1)
+	assert.EqualValues(t, 1, bounded.Dropped())
+}

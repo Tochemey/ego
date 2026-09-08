@@ -232,6 +232,8 @@ Engine-wide options are passed to `ego.NewConfig`:
 - `WithEventAdapters` applies schema transformations during recovery and projection consumption.
 - `WithTelemetry` enables OpenTelemetry instrumentation.
 - `WithEncryptor` encrypts persisted event and snapshot payloads.
+- `WithKeyStore` lets `EraseEntity` delete an entity's encryption key; pass the key store the encryptor was built with.
+- `WithPublishTimeout` bounds each delivery attempt to an event or state publisher (default 30 seconds).
 - `WithEntityKinds` registers behavior types on every cluster node.
 - `WithLogger` configures logging for eGo and the underlying actor system.
 
@@ -396,6 +398,8 @@ eGo includes connector modules for:
 
 You can also implement `ego.EventPublisher` or `ego.StatePublisher`. Publisher payload timestamps are Unix nanoseconds, and each payload includes its source shard.
 
+Delivery to publishers is best-effort. Each `Publish` call runs under the timeout set with `WithPublishTimeout` (30 seconds by default) and is retried with backoff on failure. A payload that still cannot be delivered is dropped, as is any payload that arrives while a publisher already has 10,000 payloads waiting. Drops are logged and counted on the `ego.publisher.dropped.total` metric, labelled by publisher ID. Payloads produced before a publisher is added, or while the process is down, are never published.
+
 ## Sagas and process managers
 
 eGo includes first-class saga support for long-running business processes that coordinate multiple entities. You can:
@@ -531,7 +535,8 @@ eGo includes several production-focused capabilities:
 - Faster recovery through [snapshots](#snapshots-and-retention)
 - Storage cleanup through [retention policies](#snapshots-and-retention)
 - At-rest [encryption](#encryption-and-schema-evolution) for events and snapshots
-- GDPR-style erasure with `Engine.EraseEntity(...)`
+- GDPR-style erasure with `Engine.EraseEntity(...)`: the live entity is stopped, then with `full=false` its encryption key is deleted through the store configured with `WithKeyStore` (crypto-shredding), and with `full=true` its events and snapshots are deleted as well
+- Store write failures are handed to the entity's supervisor: the default `RestartDirective` replays the journal on the same PID, `StopDirective` stops the entity
 - Pluggable structured logging via `ego.WithLogger(...)`
 
 ## Testing
