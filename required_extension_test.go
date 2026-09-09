@@ -34,6 +34,7 @@ import (
 	goakt "github.com/tochemey/goakt/v4/actor"
 	"github.com/tochemey/goakt/v4/log"
 
+	"github.com/tochemey/ego/v4/egopb"
 	"github.com/tochemey/ego/v4/eventstream"
 	"github.com/tochemey/ego/v4/internal/pause"
 	"github.com/tochemey/ego/v4/offsetstore"
@@ -73,7 +74,17 @@ func TestRequiredExtensions(t *testing.T) {
 			require.NoError(t, lookupErr)
 		}
 
-		assert.Same(t, eventsStore, probe.eventsStore)
+		// The events store is served through the node-wide shard-offsets
+		// cache, which hands every other call to the registered store.
+		_, servesSharedOffsets := probe.eventsStore.(shardOffsetsInvalidator)
+		assert.True(t, servesSharedOffsets)
+
+		written := &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Timestamp: time.Now().UnixNano()}
+		require.NoError(t, eventsStore.WriteEvents(ctx, []*egopb.Event{written}))
+		latest, err := probe.eventsStore.GetLatestEvent(ctx, written.GetPersistenceId())
+		require.NoError(t, err)
+		assert.Equal(t, written.GetSequenceNumber(), latest.GetSequenceNumber())
+
 		assert.Same(t, stateStore, probe.stateStore)
 		assert.Same(t, offsetStore, probe.offsetStore)
 		assert.Same(t, cfg.eventStream, probe.eventsStream)

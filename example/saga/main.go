@@ -80,6 +80,19 @@ import (
 	"github.com/tochemey/ego/v4/testkit"
 )
 
+const (
+	// completedTransferAmount is the amount of the transfer that completes.
+	completedTransferAmount = 250.00
+	// revertedTransferAmount is the amount of the transfer whose credit fails
+	// and is refunded.
+	revertedTransferAmount = 100.00
+	// sagaTimeout is how long a transfer may take before it is compensated.
+	sagaTimeout = 30 * time.Second
+	// settlementWindow is how long main waits for a saga to react before it
+	// moves on.
+	settlementWindow = 2 * time.Second
+)
+
 func main() {
 	ctx := context.Background()
 
@@ -173,15 +186,15 @@ func main() {
 	slog.Info("--- Starting fund transfer saga ---")
 
 	transferID := uuid.NewString()
-	sagaBehavior := NewFundTransferSaga(transferID, sourceAccountID, destAccountID, 250.00)
+	sagaBehavior := NewFundTransferSaga(transferID, sourceAccountID, destAccountID, completedTransferAmount)
 
 	// Start the saga with a 30-second timeout.
 	// If the saga does not complete within this duration, compensation is triggered automatically.
-	if err := engine.Saga(ctx, sagaBehavior, 30*time.Second); err != nil {
+	if err := engine.Saga(ctx, sagaBehavior, sagaTimeout); err != nil {
 		slog.Error("failed to start saga", "err", err)
 		os.Exit(1)
 	}
-	slog.Info("Fund transfer saga started", "amount", 250.00)
+	slog.Info("Fund transfer saga started", "amount", completedTransferAmount)
 
 	// The saga reacts to the events written to the journal. To kick it off, we
 	// send a command to the source account that the saga will pick up and
@@ -193,7 +206,7 @@ func main() {
 	// The AccountDebited event the account journals will be picked up by the saga.
 	reply, _, err = engine.SendCommand(ctx, sourceAccountID, &samplepb.DebitAccount{
 		AccountId: sourceAccountID,
-		Balance:   250.00,
+		Balance:   completedTransferAmount,
 	}, time.Minute)
 	if err != nil {
 		slog.Error("failed to debit source account", "err", err)
@@ -203,9 +216,54 @@ func main() {
 	slog.Info("Source account debited", "balance", sourceAccount.GetAccountBalance())
 
 	// Give the saga time to process the event and send the credit command.
-	time.Sleep(2 * time.Second)
+	time.Sleep(settlementWindow)
 
-	// Check the final balances.
+	// A second transfer whose destination account does not exist. Its saga
+	// listens for a debit of its own amount on the same source account; the
+	// debit succeeds, the credit fails, and the saga compensates by refunding
+	// the source.
+	slog.Info("--- Starting a fund transfer saga that will be compensated ---")
+
+	revertedTransferID := uuid.NewString()
+	missingAccountID := uuid.NewString()
+	if err := engine.Saga(ctx, NewFundTransferSaga(revertedTransferID, sourceAccountID, missingAccountID, revertedTransferAmount), sagaTimeout); err != nil {
+		slog.Error("failed to start saga", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("Fund transfer saga started", "amount", revertedTransferAmount)
+
+	reply, _, err = engine.SendCommand(ctx, sourceAccountID, &samplepb.DebitAccount{
+		AccountId: sourceAccountID,
+		Balance:   revertedTransferAmount,
+	}, time.Minute)
+	if err != nil {
+		slog.Error("failed to debit source account", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("Source account debited", "balance", reply.(*samplepb.Account).GetAccountBalance())
+
+	// Give the saga time to see the debit, fail the credit and refund the source.
+	time.Sleep(settlementWindow)
+
+	// A compensated saga settles on completed as well: completed means the
+	// saga finished all it had to do, here the refund. Whether the money moved
+	// is in its state.
+	slog.Info("--- Saga outcomes ---")
+
+	for _, id := range []string{transferID, revertedTransferID} {
+		info, err := engine.SagaStatus(ctx, id, time.Minute)
+		if err != nil {
+			slog.Error("failed to read the saga status", "id", id, "err", err)
+			os.Exit(1)
+		}
+
+		transfer := info.State.(*samplepb.TransferState)
+		slog.Info("Fund transfer saga", "id", id, "status", info.Status.String(),
+			"sourceDebited", transfer.GetSourceDebited(), "destinationCredited", transfer.GetDestinationCredited())
+	}
+
+	// Check the final balances: the source paid the completed transfer only,
+	// the reverted one was debited and refunded.
 	slog.Info("--- Final account balances ---")
 
 	reply, _, err = engine.SendCommand(ctx, sourceAccountID, &samplepb.CreditAccount{
