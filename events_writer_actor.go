@@ -23,11 +23,12 @@
 package ego
 
 import (
+	"time"
+
 	goakt "github.com/tochemey/goakt/v4/actor"
 
 	"github.com/tochemey/ego/v4/egopb"
 	"github.com/tochemey/ego/v4/eventstream"
-	"github.com/tochemey/ego/v4/internal/extensions"
 	"github.com/tochemey/ego/v4/persistence"
 )
 
@@ -68,8 +69,18 @@ func newEventsWriterActor() *eventsWriterActor {
 
 // PreStart loads the events store and event stream from the actor system extensions.
 func (a *eventsWriterActor) PreStart(ctx *goakt.Context) error {
-	a.eventsStore = ctx.Extension(extensions.EventsStoreExtensionID).(*extensions.EventsStore).Underlying()
-	a.eventsStream = ctx.Extension(extensions.EventsStreamExtensionID).(*extensions.EventsStream).Underlying()
+	eventsStore, err := requiredEventsStore(ctx)
+	if err != nil {
+		return err
+	}
+
+	eventsStream, err := requiredEventsStream(ctx)
+	if err != nil {
+		return err
+	}
+
+	a.eventsStore = eventsStore
+	a.eventsStream = eventsStream
 	return nil
 }
 
@@ -90,10 +101,22 @@ func (a *eventsWriterActor) PostStop(_ *goakt.Context) error {
 	return nil
 }
 
-// handlePersistEvents writes events to the store and publishes them to the stream
-// only after the write succeeds. The result including any error is returned via
-// Response so the parent receives the reply through its Ask call.
+// handlePersistEvents stamps the events, writes them to the store and publishes
+// them to the stream only after the write succeeds. The result including any
+// error is returned via Response so the parent receives the reply through its
+// Ask call.
+//
+// Events are stamped here, just before the write, and not when their command
+// arrived: the journal is read back in timestamp order, so a stamp that
+// predates the write by the time the command took to handle lets a pull commit
+// past an event that is not in the store yet. The events of one write get
+// increasing timestamps a nanosecond apart, so no two of them share one.
 func (a *eventsWriterActor) handlePersistEvents(ctx *goakt.ReceiveContext, req *persistEventsRequest) {
+	stamp := time.Now().UnixNano()
+	for index, envelope := range req.envelopes {
+		envelope.Timestamp = stamp + int64(index)
+	}
+
 	if err := a.eventsStore.WriteEvents(ctx.Context(), req.envelopes); err != nil {
 		ctx.Response(&persistEventsResponse{Err: err})
 		return

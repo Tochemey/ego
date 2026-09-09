@@ -136,9 +136,12 @@ type EventSourcedActor struct {
 	batchTime        time.Time
 	batchNumEvents   int
 	remainingReplies int
-	shutdownOnDrain  bool
-	flushTimer       *time.Timer
-	batchMu          sync.Mutex
+	// batchFailure holds the store error of a failed batch write until every
+	// stashed caller has received its error reply, at which point the entity
+	// fails the turn with it so the configured supervisor decides its fate.
+	batchFailure error
+	flushTimer   *time.Timer
+	batchMu      sync.Mutex
 }
 
 var _ goakt.Actor = (*EventSourcedActor)(nil)
@@ -154,8 +157,18 @@ func newEventSourcedActor() *EventSourcedActor {
 // recovers the actor state from the events and snapshot stores. Child actors
 // are spawned in PostStart where [goakt.ReceiveContext] is available.
 func (entity *EventSourcedActor) PreStart(ctx *goakt.Context) error {
-	entity.eventsStore = ctx.Extension(extensions.EventsStoreExtensionID).(*extensions.EventsStore).Underlying()
-	entity.eventsStream = ctx.Extension(extensions.EventsStreamExtensionID).(*extensions.EventsStream).Underlying()
+	eventsStore, err := requiredEventsStore(ctx)
+	if err != nil {
+		return err
+	}
+
+	eventsStream, err := requiredEventsStream(ctx)
+	if err != nil {
+		return err
+	}
+
+	entity.eventsStore = eventsStore
+	entity.eventsStream = eventsStream
 	entity.persistenceID = ctx.ActorName()
 	entity.persistTimeout = defaultPersistTimeout
 
@@ -500,8 +513,11 @@ func (entity *EventSourcedActor) getStateAndReply(ctx *goakt.ReceiveContext) {
 // persisting them through the [eventsWriterActor], and applying state changes
 // only after persistence is confirmed.
 //
-// On persistence failure the actor replies with an error and shuts itself down
-// so the supervisor can restart it with clean state recovered from the store.
+// On persistence failure the actor replies with an error and fails the turn: a
+// write can fail after the store committed part of it, so the in-memory
+// sequence counter can no longer be trusted. The configured supervisor then
+// decides: the default RestartDirective replays the journal on the same PID,
+// and StopDirective stops the entity.
 func (entity *EventSourcedActor) processCommandAndReply(ctx *goakt.ReceiveContext, command Command) {
 	goCtx := ctx.Context()
 	startTime := time.Now()
@@ -543,7 +559,7 @@ func (entity *EventSourcedActor) processCommandAndReply(ctx *goakt.ReceiveContex
 
 	if err := entity.persistEvents(ctx, envelopes, eventsTopic); err != nil {
 		entity.sendErrorReply(ctx, err)
-		ctx.Shutdown()
+		ctx.Err(err)
 		return
 	}
 
@@ -900,9 +916,9 @@ func (entity *EventSourcedActor) handleBatchFlushTick(ctx *goakt.ReceiveContext)
 // caller receives its pre-computed reply.
 //
 // On failure: all pre-computed replies are replaced with error replies, the
-// stashed commands are unstashed so callers are notified, and the actor
-// shuts down after all replies have been sent so the supervisor can restart
-// it with clean state.
+// stashed commands are unstashed so callers are notified, and once the last
+// reply is out the entity fails the turn with the store error so the configured
+// supervisor decides whether it restarts from the journal or stops.
 func (entity *EventSourcedActor) handleBatchPersistResponse(ctx *goakt.ReceiveContext, resp *persistEventsResponse) {
 	if entity.phase != phaseFlushing {
 		return
@@ -924,7 +940,7 @@ func (entity *EventSourcedActor) handleBatchPersistResponse(ctx *goakt.ReceiveCo
 			entity.batchEntries[i].reply = errReply
 		}
 		entity.remainingReplies = len(entity.batchEntries)
-		entity.shutdownOnDrain = true
+		entity.batchFailure = resp.Err
 		entity.phase = phaseReplying
 		ctx.UnstashAll()
 		return
@@ -944,8 +960,8 @@ func (entity *EventSourcedActor) handleBatchPersistResponse(ctx *goakt.ReceiveCo
 
 // replyFromBatch sends the next pre-computed reply to the current (unstashed)
 // caller. When all stashed commands have been answered, the actor resets its
-// batch state and returns to phaseProcessing, or shuts down if the preceding
-// batch write failed.
+// batch state and returns to phaseProcessing, or fails the turn with the
+// store error if the preceding batch write failed.
 //
 // If more messages were unstashed than there are pending replies (e.g. commands
 // that arrived during phaseFlushing), the surplus messages are processed as new
@@ -979,11 +995,12 @@ func (entity *EventSourcedActor) replyFromBatch(ctx *goakt.ReceiveContext) {
 	entity.remainingReplies--
 
 	if entity.remainingReplies == 0 {
-		shouldShutdown := entity.shutdownOnDrain
+		failure := entity.batchFailure
 		entity.resetBatch()
 		entity.phase = phaseProcessing
-		if shouldShutdown {
-			ctx.Shutdown()
+
+		if failure != nil {
+			ctx.Err(failure)
 		}
 	}
 }
@@ -1038,5 +1055,5 @@ func (entity *EventSourcedActor) resetBatch() {
 	entity.batchTime = time.Time{}
 	entity.batchNumEvents = 0
 	entity.remainingReplies = 0
-	entity.shutdownOnDrain = false
+	entity.batchFailure = nil
 }

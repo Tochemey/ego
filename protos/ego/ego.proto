@@ -68,6 +68,33 @@ message NoReply {}
 // to reply with its latest state
 message GetStateCommand {}
 
+// SagaStatusChanged records a saga status transition in the saga's own
+// journal so the status survives a restart or a relocation
+message SagaStatusChanged {
+  // Specifies the saga status the saga moved to
+  uint32 status = 1;
+  // Specifies the timestamp of the transition
+  int64 timestamp = 2;
+  // Specifies the timestamp at which the saga first started running
+  int64 started_at = 3;
+}
+
+// GetSagaStatus tells the saga to reply with its
+// current status and state
+message GetSagaStatus {}
+
+// SagaStatusReply is the reply to a GetSagaStatus query
+message SagaStatusReply {
+  // Specifies the saga unique identifier
+  string saga_id = 1;
+  // Specifies the saga current status
+  uint32 status = 2;
+  // the saga current state
+  google.protobuf.Any state = 3;
+  // Specifies the sequence number of the saga journal
+  uint64 sequence_number = 4;
+}
+
 // Offset defines the projection offset
 message Offset {
   // Specifies the shard number

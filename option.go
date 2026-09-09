@@ -23,6 +23,8 @@
 package ego
 
 import (
+	"time"
+
 	goakt "github.com/tochemey/goakt/v4/actor"
 	"github.com/tochemey/goakt/v4/extension"
 	"github.com/tochemey/goakt/v4/supervisor"
@@ -52,7 +54,13 @@ type Config struct {
 	eventAdapters []eventadapter.EventAdapter
 	telemetry     *Telemetry
 	encryptor     encryption.Encryptor
+	keyStore      encryption.KeyStore
 	entityKinds   []EntityKind
+
+	// publishTimeout bounds every attempt to publish an event or a state to
+	// an external publisher, so a hanging broker cannot block the publishing
+	// loop indefinitely.
+	publishTimeout time.Duration
 
 	// eventStream is the in-process pub/sub stream eGo's entity actors
 	// publish to and the engine's publishers/subscribers consume from. It is
@@ -73,9 +81,10 @@ type Config struct {
 // into it always share the same configuration.
 func NewConfig(eventsStore persistence.EventsStore, opts ...Option) *Config {
 	c := &Config{
-		eventsStore: eventsStore,
-		logger:      defaultLogger{},
-		eventStream: eventstream.New(),
+		eventsStore:    eventsStore,
+		logger:         defaultLogger{},
+		eventStream:    eventstream.New(),
+		publishTimeout: defaultPublishTimeout,
 	}
 
 	for _, opt := range opts {
@@ -350,5 +359,26 @@ func WithEntityKinds(kinds ...EntityKind) Option {
 func WithEncryptor(encryptor encryption.Encryptor) Option {
 	return OptionFunc(func(c *Config) {
 		c.encryptor = encryptor
+	})
+}
+
+// WithKeyStore gives the engine access to the key store that backs the
+// configured encryptor, so Engine.EraseEntity can crypto-shred an entity by
+// deleting its key. Pass the same key store the encryptor was built with.
+func WithKeyStore(keyStore encryption.KeyStore) Option {
+	return OptionFunc(func(c *Config) {
+		c.keyStore = keyStore
+	})
+}
+
+// WithPublishTimeout bounds each attempt to deliver an event or a state to an
+// external publisher. A publisher that does not return within the timeout is
+// treated as failed and retried; the default is 30 seconds. Values of zero or
+// less keep the default.
+func WithPublishTimeout(timeout time.Duration) Option {
+	return OptionFunc(func(c *Config) {
+		if timeout > 0 {
+			c.publishTimeout = timeout
+		}
 	})
 }

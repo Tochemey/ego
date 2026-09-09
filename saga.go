@@ -36,16 +36,24 @@ import (
 //
 // A saga is itself event-sourced: it persists its own events to track
 // which steps have completed, enabling recovery after restarts.
+//
+// A saga is fed from the journal, starting at the moment it first ran, so it
+// sees the events of every entity it coordinates whichever node persisted
+// them. Delivery is at-least-once: an event already handled can be handed to
+// the saga again when it restarts before its progress was recorded.
 type SagaBehavior interface {
 	extension.Dependency
 	// ID returns the unique identifier for this saga instance.
 	ID() string
 	// InitialState returns the saga's initial state.
 	InitialState() State
-	// HandleEvent is called when an event from the event stream matches
-	// this saga's interest. It returns the saga's reaction: commands to
+	// HandleEvent is called for every event journaled since the saga started,
+	// except the saga's own. It returns the saga's reaction: commands to
 	// send to other entities, events to persist for the saga's own state,
 	// and/or signals to complete or compensate.
+	//
+	// It must be idempotent: the same event is handed to it again when the
+	// saga restarts before its progress was recorded.
 	HandleEvent(ctx context.Context, event Event, state State) (*SagaAction, error)
 	// HandleResult is called when a command sent to an entity returns a result.
 	// This allows the saga to react to entity responses.

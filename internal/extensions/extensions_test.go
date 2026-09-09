@@ -44,7 +44,11 @@ func TestEventsStore(t *testing.T) {
 
 	require.NotNil(t, ext)
 	assert.Equal(t, EventsStoreExtensionID, ext.ID())
-	assert.Equal(t, store, ext.Underlying())
+
+	// The store is served through the node-wide ShardOffsets cache.
+	cached, ok := ext.Underlying().(*cachedEventsStore)
+	require.True(t, ok)
+	assert.Equal(t, store, cached.EventsStore)
 }
 
 func TestDurableStateStore(t *testing.T) {

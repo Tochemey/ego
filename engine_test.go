@@ -46,11 +46,13 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 
 	"github.com/tochemey/ego/v4/egopb"
+	"github.com/tochemey/ego/v4/encryption"
 	samplepb "github.com/tochemey/ego/v4/example/examplepb"
 	"github.com/tochemey/ego/v4/internal/extensions"
 	"github.com/tochemey/ego/v4/internal/pause"
 	"github.com/tochemey/ego/v4/internal/syncmap"
 	egomock "github.com/tochemey/ego/v4/mocks/ego"
+	mockencryption "github.com/tochemey/ego/v4/mocks/encryption"
 	mockoffsetstore "github.com/tochemey/ego/v4/mocks/offsetstore"
 	mockpersistence "github.com/tochemey/ego/v4/mocks/persistence"
 	"github.com/tochemey/ego/v4/offsetstore"
@@ -673,6 +675,129 @@ func TestEngineMultiNodeRemoteEntitySpawn(t *testing.T) {
 	}
 }
 
+// TestEngineMultiNodeSagaSeesRemoteEvents pins the saga's reach in a cluster:
+// a saga running on one node coordinates entities wherever the cluster placed
+// them, because it reads the journal every node writes to rather than the
+// stream of its own node.
+func TestEngineMultiNodeSagaSeesRemoteEvents(t *testing.T) {
+	ctx := context.Background()
+	host := "127.0.0.1"
+
+	ports := dynaport.Get(6)
+	gossipAddrs := []string{
+		net.JoinHostPort(host, strconv.Itoa(ports[0])),
+		net.JoinHostPort(host, strconv.Itoa(ports[3])),
+	}
+
+	// Both nodes share the same store instances: a single process stands in
+	// for the database every node of a cluster reads from and writes to.
+	store := testkit.NewEventsStore()
+	require.NoError(t, store.Connect(ctx))
+	t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+	offsetStore := testkit.NewOffsetStore()
+	require.NoError(t, offsetStore.Connect(ctx))
+	t.Cleanup(func() { _ = offsetStore.Disconnect(ctx) })
+
+	newNode := func(gossipPort, peersPort, remotingPort int) (goakt.ActorSystem, *Config) {
+		cfg := NewConfig(store,
+			WithLogger(DiscardLogger),
+			WithOffsetStore(offsetStore),
+			WithEntityKinds(new(AccountEventSourcedBehavior), new(callbackSagaBehavior)),
+		)
+
+		provider := &mockClusterProvider{id: "test", peers: gossipAddrs}
+		clusterCfg := goakt.NewClusterConfig().
+			WithDiscovery(provider).
+			WithDiscoveryPort(gossipPort).
+			WithPeersPort(peersPort).
+			WithMinimumPeersQuorum(1).
+			WithReplicaCount(1).
+			WithPartitionCount(7).
+			WithKinds(ClusterKinds()...)
+
+		goaktOpts := append(cfg.GoaktOptions(),
+			goakt.WithCluster(clusterCfg),
+			goakt.WithRemote(remote.NewConfig(host, remotingPort)),
+		)
+
+		sys, err := goakt.NewActorSystem("Sample", goaktOpts...)
+		require.NoError(t, err)
+		return sys, cfg
+	}
+
+	sys1, cfg1 := newNode(ports[0], ports[1], ports[2])
+	sys2, cfg2 := newNode(ports[3], ports[4], ports[5])
+
+	errs := make(chan error, 2)
+	go func() { errs <- sys1.Start(ctx) }()
+	go func() { errs <- sys2.Start(ctx) }()
+	require.NoError(t, <-errs)
+	require.NoError(t, <-errs)
+	t.Cleanup(func() {
+		_ = sys1.Stop(context.Background())
+		_ = sys2.Stop(context.Background())
+	})
+
+	require.Eventually(t, func() bool {
+		peers1, err1 := sys1.Peers(ctx, time.Second)
+		peers2, err2 := sys2.Peers(ctx, time.Second)
+		return err1 == nil && err2 == nil && len(peers1) == 1 && len(peers2) == 1
+	}, 30*time.Second, 500*time.Millisecond, "the two nodes never formed a cluster")
+
+	engine1, err := NewEngine(sys1, cfg1)
+	require.NoError(t, err)
+	require.NoError(t, engine1.Start(ctx))
+	engine2, err := NewEngine(sys2, cfg2)
+	require.NoError(t, err)
+	require.NoError(t, engine2.Start(ctx))
+	t.Cleanup(func() {
+		_ = engine1.Stop(context.Background())
+		_ = engine2.Stop(context.Background())
+	})
+
+	// The saga lives on node2 while every entity is spawned from node1, so
+	// RoundRobin placement puts some of them on the node the saga is not on.
+	observed := make(chan string, 16)
+	sagaID := "saga-" + uuid.NewString()
+	behavior := &callbackSagaBehavior{
+		id: sagaID,
+		handleEvent: func(_ context.Context, event Event, _ State) (*SagaAction, error) {
+			if created, ok := event.(*testpb.AccountCreated); ok {
+				observed <- created.GetAccountId()
+			}
+			return &SagaAction{}, nil
+		},
+	}
+	require.NoError(t, engine2.Saga(ctx, behavior, 0))
+
+	entityIDs := make(map[string]bool, 8)
+	for range 8 {
+		entityID := uuid.NewString()
+		require.NoError(t, engine1.Entity(ctx, NewEventSourcedEntity(entityID)))
+
+		_, _, err := engine1.SendCommand(ctx, entityID, &testpb.CreateAccount{
+			AccountBalance: 100,
+		}, time.Minute)
+		require.NoError(t, err)
+		entityIDs[entityID] = false
+	}
+
+	// Every entity's event must reach the saga, whichever node persisted it.
+	deadline := time.After(time.Minute)
+	for remaining := len(entityIDs); remaining > 0; {
+		select {
+		case accountID := <-observed:
+			if seen, tracked := entityIDs[accountID]; tracked && !seen {
+				entityIDs[accountID] = true
+				remaining--
+			}
+		case <-deadline:
+			t.Fatalf("the saga on node2 missed %d of the %d entity events", remaining, len(entityIDs))
+		}
+	}
+}
+
 // TestParseCommandReply pins the reply-decoding contract.
 func TestParseCommandReply(t *testing.T) {
 	t.Run("error reply", func(t *testing.T) {
@@ -919,7 +1044,7 @@ func TestEngineStartWithTelemetry(t *testing.T) {
 func TestEngineEraseEntity(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("full=false is a no-op", func(t *testing.T) {
+	t.Run("full=false without a key store is rejected", func(t *testing.T) {
 		store := testkit.NewEventsStore()
 		require.NoError(t, store.Connect(ctx))
 		t.Cleanup(func() { _ = store.Disconnect(ctx) })
@@ -927,7 +1052,78 @@ func TestEngineEraseEntity(t *testing.T) {
 		engine := newTestEngine(t, "Sample", store, WithLogger(DiscardLogger))
 		require.NoError(t, engine.Start(ctx))
 
-		require.NoError(t, engine.EraseEntity(ctx, uuid.NewString(), false))
+		require.ErrorIs(t, engine.EraseEntity(ctx, uuid.NewString(), false), ErrKeyStoreRequired)
+	})
+
+	t.Run("full=false deletes the encryption key", func(t *testing.T) {
+		store := testkit.NewEventsStore()
+		require.NoError(t, store.Connect(ctx))
+		t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+		keyStore := testkit.NewKeyStore()
+		engine := newTestEngine(t, "Sample", store,
+			WithLogger(DiscardLogger),
+			WithEncryptor(encryption.NewAESEncryptor(keyStore)),
+			WithKeyStore(keyStore),
+		)
+		require.NoError(t, engine.Start(ctx))
+
+		entityID := uuid.NewString()
+		require.NoError(t, engine.Entity(ctx, NewEventSourcedEntity(entityID)))
+		_, _, err := engine.SendCommand(ctx, entityID, &testpb.CreateAccount{
+			AccountBalance: 100,
+		}, time.Minute)
+		require.NoError(t, err)
+
+		latest, err := store.GetLatestEvent(ctx, entityID)
+		require.NoError(t, err)
+		require.True(t, latest.GetIsEncrypted())
+
+		require.NoError(t, engine.EraseEntity(ctx, entityID, false))
+
+		// the key is gone, the ciphertext stays
+		_, err = keyStore.GetKey(ctx, latest.GetEncryptionKeyId())
+		require.ErrorIs(t, err, encryption.ErrKeyNotFound)
+
+		remaining, err := store.GetLatestEvent(ctx, entityID)
+		require.NoError(t, err)
+		require.NotNil(t, remaining)
+	})
+
+	t.Run("erasure stops the live entity", func(t *testing.T) {
+		store := testkit.NewEventsStore()
+		require.NoError(t, store.Connect(ctx))
+		t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+		engine := newTestEngine(t, "Sample", store, WithLogger(DiscardLogger))
+		require.NoError(t, engine.Start(ctx))
+
+		entityID := uuid.NewString()
+		require.NoError(t, engine.Entity(ctx, NewEventSourcedEntity(entityID)))
+		_, _, err := engine.SendCommand(ctx, entityID, &testpb.CreateAccount{
+			AccountBalance: 100,
+		}, time.Minute)
+		require.NoError(t, err)
+
+		exists, err := engine.EntityExists(ctx, entityID)
+		require.NoError(t, err)
+		require.True(t, exists)
+
+		require.NoError(t, engine.EraseEntity(ctx, entityID, true))
+
+		require.Eventually(t, func() bool {
+			exists, existsErr := engine.EntityExists(ctx, entityID)
+			return existsErr == nil && !exists
+		}, 5*time.Second, 100*time.Millisecond, "the erased entity should have been stopped")
+
+		// a fresh Entity starts over from the initial state
+		require.NoError(t, engine.Entity(ctx, NewEventSourcedEntity(entityID)))
+		state, revision, err := engine.SendCommand(ctx, entityID, &testpb.CreateAccount{
+			AccountBalance: 100,
+		}, time.Minute)
+		require.NoError(t, err)
+		assert.EqualValues(t, 1, revision)
+		assert.InDelta(t, 100.00, state.(*testpb.Account).GetAccountBalance(), 0)
 	})
 
 	t.Run("full=true with persisted events", func(t *testing.T) {
@@ -1045,7 +1241,10 @@ func TestEngineSagaHappyPath(t *testing.T) {
 	require.NoError(t, store.Connect(ctx))
 	t.Cleanup(func() { _ = store.Disconnect(ctx) })
 
-	engine := newTestEngine(t, "Sample", store, WithLogger(DiscardLogger))
+	engine := newTestEngine(t, "Sample", store,
+		WithLogger(DiscardLogger),
+		WithOffsetStore(testkit.NewOffsetStore()),
+	)
 	require.NoError(t, engine.Start(ctx))
 
 	sagaID := "saga-" + uuid.NewString()
@@ -1056,6 +1255,24 @@ func TestEngineSagaHappyPath(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, info)
 	assert.Equal(t, sagaID, info.ID)
+	assert.Equal(t, SagaRunning, info.Status)
+	assert.NotNil(t, info.State)
+}
+
+// TestEngineSagaRequiresOffsetStore pins the saga's dependency on an offset
+// store: a saga follows the journal through one, so the engine refuses to
+// start a saga that would otherwise never see an event.
+func TestEngineSagaRequiresOffsetStore(t *testing.T) {
+	ctx := context.Background()
+	store := testkit.NewEventsStore()
+	require.NoError(t, store.Connect(ctx))
+	t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+	engine := newTestEngine(t, "Sample", store, WithLogger(DiscardLogger))
+	require.NoError(t, engine.Start(ctx))
+
+	err := engine.Saga(ctx, &testSagaBehavior{sagaID: "saga-" + uuid.NewString()}, 0)
+	require.ErrorIs(t, err, ErrOffsetStoreRequired)
 }
 
 // ensure proto and context imports are not flagged when subtests vary.
@@ -1278,6 +1495,98 @@ func TestEngineStopReturnsStatePublisherCloseError(t *testing.T) {
 	require.NoError(t, engine.AddStatePublishers(pub))
 
 	require.ErrorIs(t, engine.Stop(ctx), closeErr)
+}
+
+// TestEngineEventPublisherRetriesBeforeDropping ensures that a transient
+// Publish failure is retried instead of the event being dropped on the first
+// error.
+func TestEngineEventPublisherRetriesBeforeDropping(t *testing.T) {
+	ctx := context.Background()
+	store := testkit.NewEventsStore()
+	require.NoError(t, store.Connect(ctx))
+	t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+	attempts := make(chan struct{}, 8)
+	pub := new(egomock.EventPublisher)
+	pub.On("ID").Return("eGo.test.RetryingPublisher")
+	pub.On("Close", mock.Anything).Return(nil)
+	pub.On("Publish", mock.Anything, mock.AnythingOfType("*egopb.Event")).
+		Run(func(_ mock.Arguments) { attempts <- struct{}{} }).
+		Return(assert.AnError).Once()
+	pub.On("Publish", mock.Anything, mock.AnythingOfType("*egopb.Event")).
+		Run(func(_ mock.Arguments) { attempts <- struct{}{} }).
+		Return(nil)
+
+	engine := newTestEngine(t, "Sample", store, WithLogger(DiscardLogger))
+	require.NoError(t, engine.Start(ctx))
+	require.NoError(t, engine.AddEventPublishers(pub))
+
+	entityID := uuid.NewString()
+	require.NoError(t, engine.Entity(ctx, NewEventSourcedEntity(entityID)))
+	_, _, err := engine.SendCommand(ctx, entityID, &testpb.CreateAccount{
+		AccountBalance: 100,
+	}, time.Minute)
+	require.NoError(t, err)
+
+	// one event, two attempts: the failure was retried, not dropped
+	for attempt := 1; attempt <= 2; attempt++ {
+		select {
+		case <-attempts:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("publish attempt %d never happened: the event was dropped instead of retried", attempt)
+		}
+	}
+}
+
+// TestEngineEventPublisherHangIsBoundedByTimeout ensures that a Publish call
+// that never returns is abandoned at the publish timeout, so the publishing
+// loop moves on to the next event instead of blocking forever.
+func TestEngineEventPublisherHangIsBoundedByTimeout(t *testing.T) {
+	const publishTimeout = 300 * time.Millisecond
+
+	ctx := context.Background()
+	store := testkit.NewEventsStore()
+	require.NoError(t, store.Connect(ctx))
+	t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+	attempts := make(chan struct{}, 8)
+	pub := new(egomock.EventPublisher)
+	pub.On("ID").Return("eGo.test.HangingPublisher")
+	pub.On("Close", mock.Anything).Return(nil)
+	pub.On("Publish", mock.Anything, mock.AnythingOfType("*egopb.Event")).
+		Run(func(args mock.Arguments) {
+			attempts <- struct{}{}
+			// hang until the engine gives up on this attempt
+			<-args.Get(0).(context.Context).Done()
+		}).
+		Return(context.DeadlineExceeded)
+
+	engine := newTestEngine(t, "Sample", store,
+		WithLogger(DiscardLogger),
+		WithPublishTimeout(publishTimeout),
+	)
+	require.NoError(t, engine.Start(ctx))
+	require.NoError(t, engine.AddEventPublishers(pub))
+
+	entityID := uuid.NewString()
+	require.NoError(t, engine.Entity(ctx, NewEventSourcedEntity(entityID)))
+	_, _, err := engine.SendCommand(ctx, entityID, &testpb.CreateAccount{
+		AccountBalance: 100,
+	}, time.Minute)
+	require.NoError(t, err)
+	_, _, err = engine.SendCommand(ctx, entityID, &testpb.CreditAccount{
+		AccountId: entityID, Balance: 25,
+	}, time.Minute)
+	require.NoError(t, err)
+
+	// both events get their attempt: the first hang is cut at the deadline
+	for attempt := 1; attempt <= 2; attempt++ {
+		select {
+		case <-attempts:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("publish attempt %d never happened: a hanging publish blocked the loop", attempt)
+		}
+	}
 }
 
 // TestEngineEventPublisherKeepsGoingOnPublishError ensures that a failing
@@ -1661,7 +1970,7 @@ func TestEngineSendCommandUnexpectedReply(t *testing.T) {
 
 // TestEngineSagaStatusErrorPaths covers the three error branches of
 // SagaStatus that follow the not-started guard: SendSync failure, an
-// unexpected reply type, and parseCommandReply returning an error.
+// unexpected reply type, and a reply whose state cannot be unmarshalled.
 func TestEngineSagaStatusErrorPaths(t *testing.T) {
 	ctx := context.Background()
 	store := testkit.NewEventsStore()
@@ -1699,20 +2008,20 @@ func TestEngineSagaStatusErrorPaths(t *testing.T) {
 		require.Nil(t, info)
 	})
 
-	t.Run("parseCommandReply error reply", func(t *testing.T) {
-		sagaID := "saga-error-reply-" + uuid.NewString()
-		errReply := &egopb.CommandReply{
-			Reply: &egopb.CommandReply_ErrorReply{
-				ErrorReply: &egopb.ErrorReply{Message: "saga is sick"},
-			},
+	t.Run("unreadable state in reply", func(t *testing.T) {
+		sagaID := "saga-bad-state-" + uuid.NewString()
+		statusReply := &egopb.SagaStatusReply{
+			SagaId: sagaID,
+			Status: uint32(SagaRunning),
+			State:  &anypb.Any{TypeUrl: "type.googleapis.com/nonexistent.Type"},
 		}
 		_, err := sys.Spawn(ctx, sagaID,
-			&simpleReplyActor{reply: errReply},
+			&simpleReplyActor{reply: statusReply},
 			goakt.WithLongLived())
 		require.NoError(t, err)
 		info, err := engine.SagaStatus(ctx, sagaID, time.Minute)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "saga is sick")
+		require.Contains(t, err.Error(), "failed to unmarshal the state of saga")
 		require.Nil(t, info)
 	})
 }
@@ -1782,6 +2091,17 @@ func TestEngineEraseEntityStoreErrors(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to delete snapshots for erasure")
 	})
+
+	t.Run("DeleteKey error", func(t *testing.T) {
+		keyStore := new(mockencryption.KeyStore)
+		keyStore.EXPECT().DeleteKey(mock.Anything, "pid-4").Return(errors.New("kms down"))
+
+		engine := synthEngineWithStores(new(mockpersistence.EventsStore), nil, nil)
+		engine.keyStore = keyStore
+		err := engine.EraseEntity(ctx, "pid-4", false)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to delete the encryption key for erasure")
+	})
 }
 
 // TestEngineProjectionLagStoreErrors covers ProjectionLag's per-store error
@@ -1845,7 +2165,7 @@ func TestEngineSagaSpawnError(t *testing.T) {
 	require.NoError(t, store.Connect(ctx))
 	t.Cleanup(func() { _ = store.Disconnect(ctx) })
 
-	cfg := NewConfig(store, WithLogger(DiscardLogger))
+	cfg := NewConfig(store, WithLogger(DiscardLogger), WithOffsetStore(testkit.NewOffsetStore()))
 	sys, err := goakt.NewActorSystem("Sample", cfg.GoaktOptions()...)
 	require.NoError(t, err)
 	require.NoError(t, sys.Start(ctx))
@@ -1927,6 +2247,49 @@ func TestEngineRebuildProjectionResetOffsetError(t *testing.T) {
 	err := engine.RebuildProjection(ctx, name, ZeroTime)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to reset offset")
+}
+
+// TestEngineRebuildProjectionResetsOffsetInNanoseconds asserts that a rebuild
+// resets the projection offset in the unit the events store compares against:
+// event timestamps are nanoseconds, so a millisecond value would replay the
+// whole journal instead of resuming at the requested time.
+func TestEngineRebuildProjectionResetsOffsetInNanoseconds(t *testing.T) {
+	ctx := context.Background()
+	store := testkit.NewEventsStore()
+	require.NoError(t, store.Connect(ctx))
+	t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+	offsetStore := testkit.NewOffsetStore()
+	require.NoError(t, offsetStore.Connect(ctx))
+	t.Cleanup(func() { _ = offsetStore.Disconnect(ctx) })
+
+	const name = "rebuild-nanoseconds"
+	engine := newTestEngine(t, "Sample", store,
+		WithLogger(DiscardLogger),
+		WithOffsetStore(offsetStore),
+		WithProjection(name, &projection.Options{
+			Handler:      projection.NewDiscardHandler(),
+			BufferSize:   100,
+			PullInterval: time.Second,
+		}),
+	)
+	require.NoError(t, engine.Start(ctx))
+	require.NoError(t, engine.StartProjection(ctx, name))
+	pause.For(200 * time.Millisecond)
+
+	from := time.Now().Add(-time.Hour)
+
+	// Swap the offset store for a mock that only accepts the nanosecond value;
+	// the restarted projection keeps reading its own offsets from the store
+	// registered on the actor system.
+	recording := new(mockoffsetstore.OffsetStore)
+	recording.EXPECT().ResetOffset(mock.Anything, name, from.UnixNano()).Return(nil)
+	engine.mutex.Lock()
+	engine.offsetStore = recording
+	engine.mutex.Unlock()
+
+	require.NoError(t, engine.RebuildProjection(ctx, name, from))
+	recording.AssertExpectations(t)
 }
 
 // TestEngineRebuildProjectionRestartError covers the

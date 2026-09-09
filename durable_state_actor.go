@@ -76,8 +76,18 @@ func newDurableStateActor() *DurableStateActor {
 
 // PreStart pre-starts the actor
 func (entity *DurableStateActor) PreStart(ctx *goakt.Context) error {
-	entity.stateStore = ctx.Extension(extensions.DurableStateStoreExtensionID).(*extensions.DurableStateStore).Underlying()
-	entity.eventsStream = ctx.Extension(extensions.EventsStreamExtensionID).(*extensions.EventsStream).Underlying()
+	stateStore, err := requiredStateStore(ctx)
+	if err != nil {
+		return err
+	}
+
+	eventsStream, err := requiredEventsStream(ctx)
+	if err != nil {
+		return err
+	}
+
+	entity.stateStore = stateStore
+	entity.eventsStream = eventsStream
 	entity.persistenceID = ctx.ActorName()
 
 	for _, dependency := range ctx.Dependencies() {
@@ -139,7 +149,9 @@ func (entity *DurableStateActor) PostStop(ctx *goakt.Context) error {
 	return runner.
 		New(runner.WithFailFast()).
 		AddRunner(func() error { return entity.stateStore.Ping(ctx.Context()) }).
-		AddRunner(func() error { return entity.persistStateAndPublish(ctx.Context()) }).
+		AddRunner(func() error {
+			return entity.persistStateAndPublish(ctx.Context(), entity.currentStateAny(), entity.currentVersion, entity.lastCommandTime)
+		}).
 		Run()
 }
 
@@ -203,16 +215,20 @@ func (entity *DurableStateActor) processCommand(receiveContext *goakt.ReceiveCon
 		return
 	}
 
-	// set the current state with the newState
-	entity.currentState = newState
-	entity.cachedStateAny, _ = anypb.New(newState) // eagerly cache for the reply and persist that follow
-	entity.lastCommandTime = time.Now()
-	entity.currentVersion = newVersion
+	// Persist before mutating the entity: a failed write must leave the
+	// in-memory state, version and timestamp exactly as the store has them.
+	pendingStateAny, _ := anypb.New(newState)
+	pendingCommandTime := time.Now()
 
-	if err := entity.persistStateAndPublish(ctx); err != nil {
+	if err := entity.persistStateAndPublish(ctx, pendingStateAny, newVersion, pendingCommandTime); err != nil {
 		entity.sendErrorReply(receiveContext, err)
 		return
 	}
+
+	entity.currentState = newState
+	entity.cachedStateAny = pendingStateAny
+	entity.lastCommandTime = pendingCommandTime
+	entity.currentVersion = newVersion
 
 	entity.sendStateReply(receiveContext)
 }
@@ -278,13 +294,15 @@ func (entity *DurableStateActor) durableStateRequired() error {
 	return nil
 }
 
-// persistStateAndPublish persists the actor state and publishes it to the stream.
-func (entity *DurableStateActor) persistStateAndPublish(ctx context.Context) error {
+// persistStateAndPublish persists the given state version and publishes it to
+// the stream. The state, version and command time are passed in so the caller
+// can write them before committing them to the entity's own fields.
+func (entity *DurableStateActor) persistStateAndPublish(ctx context.Context, stateAny *anypb.Any, version uint64, commandTime time.Time) error {
 	durableState := &egopb.DurableState{
 		PersistenceId:  entity.persistenceID,
-		VersionNumber:  entity.currentVersion,
-		ResultingState: entity.currentStateAny(),
-		Timestamp:      entity.lastCommandTime.UnixNano(),
+		VersionNumber:  version,
+		ResultingState: stateAny,
+		Timestamp:      commandTime.UnixNano(),
 		Shard:          entity.shardNumber,
 	}
 

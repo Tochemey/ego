@@ -90,7 +90,7 @@ var _ extension.Extension = (*EventsStore)(nil)
 // NewEventsStore creates a new events store
 func NewEventsStore(store persistence.EventsStore) *EventsStore {
 	return &EventsStore{
-		underlying: store,
+		underlying: newCachedEventsStore(store),
 	}
 }
 

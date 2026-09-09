@@ -42,6 +42,54 @@ import (
 	"github.com/tochemey/ego/v4/testkit"
 )
 
+// TestEventsWriterActorStampsEventsAtWriteTime asserts that the writer stamps
+// every event just before it writes it, with distinct timestamps within one
+// write, so an event's timestamp never predates its write by the time the
+// command took to handle.
+func TestEventsWriterActorStampsEventsAtWriteTime(t *testing.T) {
+	ctx := context.TODO()
+
+	eventStore := testkit.NewEventsStore()
+	require.NoError(t, eventStore.Connect(ctx))
+
+	actorSystem, err := goakt.NewActorSystem("TestWriterSystem",
+		goakt.WithLogger(log.DiscardLogger),
+		goakt.WithExtensions(
+			extensions.NewEventsStore(eventStore),
+			extensions.NewEventsStream(eventstream.New()),
+		),
+		goakt.WithActorInitMaxRetries(1))
+	require.NoError(t, err)
+	require.NoError(t, actorSystem.Start(ctx))
+	pause.For(time.Second)
+
+	pid, err := actorSystem.Spawn(ctx, "event-writer-stamp-test", newEventsWriterActor())
+	require.NoError(t, err)
+	pause.For(time.Second)
+
+	// The entity stamped these when the command arrived, long before the write.
+	stampedAt := time.Now().Add(-5 * time.Second).UnixNano()
+	eventAny, _ := anypb.New(&egopb.NoReply{})
+	envelopes := []*egopb.Event{
+		{PersistenceId: "entity-1", SequenceNumber: 1, Event: eventAny, Timestamp: stampedAt},
+		{PersistenceId: "entity-1", SequenceNumber: 2, Event: eventAny, Timestamp: stampedAt},
+	}
+
+	before := time.Now().UnixNano()
+	reply, err := goakt.Ask(ctx, pid, &persistEventsRequest{envelopes: envelopes, topic: "topic.events.0"}, 5*time.Second)
+	require.NoError(t, err)
+	require.Nil(t, reply.(*persistEventsResponse).Err)
+
+	events, err := eventStore.ReplayEvents(ctx, "entity-1", 1, 2, 2)
+	require.NoError(t, err)
+	require.Len(t, events, 2)
+
+	assert.GreaterOrEqual(t, events[0].GetTimestamp(), before, "the first event keeps the command time instead of the write time")
+	assert.Greater(t, events[1].GetTimestamp(), events[0].GetTimestamp(), "events of one write must carry distinct, increasing timestamps")
+
+	require.NoError(t, actorSystem.Stop(ctx))
+}
+
 func TestEventsWriterActor(t *testing.T) {
 	t.Run("persists events and publishes to stream on success", func(t *testing.T) {
 		ctx := context.TODO()

@@ -29,6 +29,11 @@ import (
 type Stream interface {
 	// AddSubscriber adds a subscriber
 	AddSubscriber() Subscriber
+	// AddBoundedSubscriber adds a subscriber that keeps at most capacity
+	// undelivered messages. Messages published while the subscriber is full
+	// are dropped and counted, so a slow consumer cannot grow memory without
+	// bound. A capacity of zero or less means unbounded.
+	AddBoundedSubscriber(capacity int) Subscriber
 	// RemoveSubscriber removes a subscriber
 	RemoveSubscriber(sub Subscriber)
 	// SubscribersCount returns the number of subscribers for a given topic
@@ -65,6 +70,15 @@ func New() Stream {
 // AddSubscriber adds a subscriber
 func (b *EventsStream) AddSubscriber() Subscriber {
 	subscriber := newSubscriber()
+	b.subscribers.Set(subscriber.ID(), subscriber)
+	return subscriber
+}
+
+// AddBoundedSubscriber adds a subscriber whose queue holds at most capacity
+// undelivered messages
+func (b *EventsStream) AddBoundedSubscriber(capacity int) Subscriber {
+	subscriber := newSubscriber()
+	subscriber.capacity = capacity
 	b.subscribers.Set(subscriber.ID(), subscriber)
 	return subscriber
 }

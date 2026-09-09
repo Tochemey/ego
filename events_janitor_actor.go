@@ -61,7 +61,12 @@ func newEventsJanitorActor() *eventsJanitorActor {
 
 // PreStart loads the events store and snapshot store from the actor system extensions.
 func (a *eventsJanitorActor) PreStart(ctx *goakt.Context) error {
-	a.eventsStore = ctx.Extension(extensions.EventsStoreExtensionID).(*extensions.EventsStore).Underlying()
+	eventsStore, err := requiredEventsStore(ctx)
+	if err != nil {
+		return err
+	}
+
+	a.eventsStore = eventsStore
 	if ext := ctx.Extension(extensions.SnapshotStoreExtensionID); ext != nil {
 		a.snapshotStore = ext.(*extensions.SnapshotStoreExt).Underlying()
 	}

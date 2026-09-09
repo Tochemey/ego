@@ -715,3 +715,70 @@ func (x *badVersionDurableStateBehavior) UnmarshalBinary(data []byte) error {
 	x.id = aux.ID
 	return nil
 }
+
+// TestDurableStateWriteFailureKeepsState asserts that a durable-state entity
+// does not advance its in-memory state or version when the state store write
+// fails, so a later command starts from the state the store actually holds.
+func TestDurableStateWriteFailureKeepsState(t *testing.T) {
+	ctx := context.TODO()
+
+	persistenceID := uuid.NewString()
+	behavior := NewAccountDurableStateBehavior(persistenceID)
+
+	stateStore := new(mocks.StateStore)
+	stateStore.EXPECT().Ping(mock.Anything).Return(nil)
+	stateStore.EXPECT().GetLatestState(mock.Anything, persistenceID).Return(nil, nil)
+	stateStore.EXPECT().WriteState(mock.Anything, mock.Anything).Return(assert.AnError).Once()
+	stateStore.EXPECT().WriteState(mock.Anything, mock.Anything).Return(nil)
+
+	eventStream := eventstream.New()
+
+	actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+		goakt.WithLogger(log.DiscardLogger),
+		goakt.WithExtensions(
+			extensions.NewDurableStateStore(stateStore),
+			extensions.NewEventsStream(eventStream),
+		),
+		goakt.WithActorInitMaxRetries(1))
+	require.NoError(t, err)
+	require.NoError(t, actorSystem.Start(ctx))
+
+	pause.For(time.Second)
+
+	pid, err := actorSystem.Spawn(ctx, behavior.ID(), newDurableStateActor(),
+		goakt.WithDependencies(behavior),
+		goakt.WithLongLived())
+	require.NoError(t, err)
+	require.NotNil(t, pid)
+
+	pause.For(time.Second)
+
+	// the write fails: the caller is told so
+	reply, err := goakt.Ask(ctx, pid, &testpb.CreateAccount{AccountBalance: 500.00}, 5*time.Second)
+	require.NoError(t, err)
+	require.IsType(t, new(egopb.CommandReply_ErrorReply), reply.(*egopb.CommandReply).GetReply())
+
+	// the entity still answers from the state the store holds
+	reply, err = goakt.Ask(ctx, pid, new(egopb.GetStateCommand), 5*time.Second)
+	require.NoError(t, err)
+	stateReply := reply.(*egopb.CommandReply).GetReply().(*egopb.CommandReply_StateReply)
+	assert.EqualValues(t, 0, stateReply.StateReply.GetSequenceNumber())
+
+	currentState := new(testpb.Account)
+	require.NoError(t, stateReply.StateReply.GetState().UnmarshalTo(currentState))
+	assert.True(t, proto.Equal(new(testpb.Account), currentState))
+
+	// the next successful command bumps the version by exactly one
+	reply, err = goakt.Ask(ctx, pid, &testpb.CreditAccount{AccountId: persistenceID, Balance: 250}, 5*time.Second)
+	require.NoError(t, err)
+	stateReply = reply.(*egopb.CommandReply).GetReply().(*egopb.CommandReply_StateReply)
+	assert.EqualValues(t, 1, stateReply.StateReply.GetSequenceNumber())
+
+	currentState = new(testpb.Account)
+	require.NoError(t, stateReply.StateReply.GetState().UnmarshalTo(currentState))
+	assert.InDelta(t, 250.00, currentState.GetAccountBalance(), 0)
+
+	require.NoError(t, actorSystem.Stop(ctx))
+	pause.For(time.Second)
+	eventStream.Close()
+}

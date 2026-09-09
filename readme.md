@@ -11,7 +11,6 @@
   <a href="https://codecov.io/gh/Tochemey/ego"><img src="https://codecov.io/gh/Tochemey/ego/branch/main/graph/badge.svg?token=Z5b9gM6Mnt" alt="Code coverage"></a>
   <a href="https://github.com/Tochemey/ego/releases/latest"><img src="https://img.shields.io/github/v/release/Tochemey/ego?label=release" alt="Latest release"></a>
   <a href="https://github.com/Tochemey/ego/tags"><img src="https://img.shields.io/github/v/tag/Tochemey/ego?label=tag" alt="Pre-release"></a>
-  <a href="https://human-oss.dev"><img src="https://human-oss.dev/badge.svg" alt="Open Source AI Manifesto"></a>
 </p>
 
 eGo is a protobuf-first framework for building event-sourced and durable-state CQRS applications in Go. It runs on [Go-Akt](https://github.com/Tochemey/goakt) and adds persistence, projections, publishers, sagas, encryption, and observability to an actor system that your application owns.
@@ -232,6 +231,8 @@ Engine-wide options are passed to `ego.NewConfig`:
 - `WithEventAdapters` applies schema transformations during recovery and projection consumption.
 - `WithTelemetry` enables OpenTelemetry instrumentation.
 - `WithEncryptor` encrypts persisted event and snapshot payloads.
+- `WithKeyStore` lets `EraseEntity` delete an entity's encryption key; pass the key store the encryptor was built with.
+- `WithPublishTimeout` bounds each delivery attempt to an event or state publisher (default 30 seconds).
 - `WithEntityKinds` registers behavior types on every cluster node.
 - `WithLogger` configures logging for eGo and the underlying actor system.
 
@@ -365,6 +366,8 @@ The two projections consume the same event journal independently. Each uses its 
 
 Projection handlers receive events with at-least-once delivery. They must be idempotent and safe for concurrent calls across different shards; events within one shard are delivered sequentially.
 
+Offsets are event timestamps, taken just before the event is written by the node that persists it. The runner reads 100 ms behind the current time: an event reaches the handler only once it is at least that old, so an event that lands in the store after a pull already passed its timestamp, because its write was still in flight or because a peer's clock lags slightly, is still ahead of the committed offset when it becomes visible. A write that takes longer than that window, or skew beyond it, can still cause an event to be skipped, so keep node clocks synchronized. All events of one entity land on the same shard and are delivered in order; events of different entities carry no ordering guarantee.
+
 The engine also supports:
 
 - `StopProjection` to stop a running projection
@@ -396,6 +399,8 @@ eGo includes connector modules for:
 
 You can also implement `ego.EventPublisher` or `ego.StatePublisher`. Publisher payload timestamps are Unix nanoseconds, and each payload includes its source shard.
 
+Delivery to publishers is best-effort. Each `Publish` call runs under the timeout set with `WithPublishTimeout` (30 seconds by default) and is retried with backoff on failure. A payload that still cannot be delivered is dropped, as is any payload that arrives while a publisher already has 10,000 payloads waiting. Drops are logged and counted on the `ego.publisher.dropped.total` metric, labelled by publisher ID. Payloads produced before a publisher is added, or while the process is down, are never published.
+
 ## Sagas and process managers
 
 eGo includes first-class saga support for long-running business processes that coordinate multiple entities. You can:
@@ -404,6 +409,12 @@ eGo includes first-class saga support for long-running business processes that c
 - Inspect it with `Engine.SagaStatus(...)`
 - Model compensation logic for timeouts and failures
 - Persist saga state using the same event-sourced foundations
+
+A saga consumes the journal, starting at the moment it first ran, and records how far it has read in the offset store. Configure one with `ego.WithOffsetStore(...)`; without it `Engine.Saga` returns `ego.ErrOffsetStoreRequired`. Reading the journal is what lets a saga see the events of every entity it coordinates, whichever cluster node persisted them: events written on the saga's own node reach it immediately, events written by a peer within the poll interval.
+
+Delivery is at-least-once, so `SagaBehavior.HandleEvent` must be idempotent: an event already handled is handed to the saga again when it restarts before its progress was recorded. A saga that completes or fails leaves its offset rows in the offset store.
+
+A saga is fed through the same runner as a projection, so the same read lag and ordering apply: the events of one entity reach the saga in the order they were persisted, but events of different entities may arrive in another order than they happened. A saga coordinating several entities has to tolerate a step arriving before the one it logically follows, for instance by tracking in its own state which steps it still expects.
 
 See the [fund-transfer saga example](./example/saga) for a complete implementation.
 
@@ -486,8 +497,10 @@ eGo defines small interfaces for:
 
 Applications may implement these interfaces directly. The [ego-contrib](https://github.com/Tochemey/ego-contrib) project provides ready-to-use implementations:
 
-- **Postgres** event store, snapshot store, offset store, and durable state store
-- **MongoDB** event store, snapshot store, offset store, and durable state store
+- **Event stores**: memory, Postgres, SQLite
+- **Offset stores**: memory, Postgres, SQLite
+- **Snapshot stores**: Postgres, SQLite
+- **Durable state stores**: memory, Postgres, SQLite, Cassandra, DynamoDB
 
 To use a contrib store, import the relevant module alongside eGo:
 
@@ -529,7 +542,8 @@ eGo includes several production-focused capabilities:
 - Faster recovery through [snapshots](#snapshots-and-retention)
 - Storage cleanup through [retention policies](#snapshots-and-retention)
 - At-rest [encryption](#encryption-and-schema-evolution) for events and snapshots
-- GDPR-style erasure with `Engine.EraseEntity(...)`
+- GDPR-style erasure with `Engine.EraseEntity(...)`: the live entity is stopped, then with `full=false` its encryption key is deleted through the store configured with `WithKeyStore` (crypto-shredding), and with `full=true` its events and snapshots are deleted as well
+- Store write failures are handed to the entity's supervisor: the default `RestartDirective` replays the journal on the same PID, `StopDirective` stops the entity
 - Pluggable structured logging via `ego.WithLogger(...)`
 
 ## Testing

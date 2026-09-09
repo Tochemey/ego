@@ -51,6 +51,7 @@ func retryWithBackoff(ctx context.Context, maxRetries int, op func() error) erro
 				float64(retryBaseDelay)*math.Pow(2, float64(attempt)),
 				float64(retryMaxDelay),
 			))
+
 			jitter := 0.5 + rand.Float64() //nolint:gosec // cryptographic randomness is not needed for backoff jitter
 			delay = time.Duration(float64(delay) * jitter)
 
