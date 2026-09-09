@@ -4360,3 +4360,50 @@ func findSpan(spans tracetest.SpanStubs, name string) *tracetest.SpanStub {
 	}
 	return nil
 }
+
+// slowAccountBehavior is an account whose command handler takes a while, the
+// way a handler that validates against an external service would.
+type slowAccountBehavior struct {
+	*AccountEventSourcedBehavior
+	delay time.Duration
+}
+
+// HandleCommand waits for the configured delay before handling the command.
+func (b *slowAccountBehavior) HandleCommand(ctx context.Context, command Command, state State) ([]Event, error) {
+	time.Sleep(b.delay)
+	return b.AccountEventSourcedBehavior.HandleCommand(ctx, command, state)
+}
+
+// TestEventSourcedActorStampsEventsAfterHandling asserts that a journaled
+// event carries the time it was written, not the time its command arrived: a
+// slow handler must not leave the event stamped before the write by its own
+// duration, or a projection pull could commit past it while it is in flight.
+func TestEventSourcedActorStampsEventsAfterHandling(t *testing.T) {
+	const handlerDelay = 500 * time.Millisecond
+
+	ctx := context.Background()
+	store := testkit.NewEventsStore()
+	require.NoError(t, store.Connect(ctx))
+	t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+	engine := newTestEngine(t, "Sample", store, WithLogger(DiscardLogger))
+	require.NoError(t, engine.Start(ctx))
+
+	entityID := uuid.NewString()
+	require.NoError(t, engine.Entity(ctx, &slowAccountBehavior{
+		AccountEventSourcedBehavior: NewEventSourcedEntity(entityID),
+		delay:                       handlerDelay,
+	}))
+
+	_, _, err := engine.SendCommand(ctx, entityID, &testpb.CreateAccount{AccountBalance: 100}, time.Minute)
+	require.NoError(t, err)
+	repliedAt := time.Now().UnixNano()
+
+	latest, err := store.GetLatestEvent(ctx, entityID)
+	require.NoError(t, err)
+	require.NotNil(t, latest)
+
+	// Stamped after the handler ran: the event is younger than the handler's
+	// delay at the time the command was answered.
+	assert.Less(t, repliedAt-latest.GetTimestamp(), int64(handlerDelay))
+}
