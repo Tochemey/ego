@@ -211,9 +211,7 @@ func (x *EventStore) GetShardEvents(_ context.Context, shardNumber uint64, offse
 	var events []*egopb.Event
 	for _, event := range shardEvents {
 		if event.GetTimestamp() > offset {
-			if len(events) <= int(limit) {
-				events = append(events, event)
-			}
+			events = append(events, event)
 		}
 	}
 
@@ -221,9 +219,16 @@ func (x *EventStore) GetShardEvents(_ context.Context, shardNumber uint64, offse
 		return nil, 0, nil
 	}
 
+	// The map iterates in no particular order: sort before cutting to the
+	// limit, so a limited read returns the oldest pending events and the
+	// offset it reports never skips any.
 	sort.SliceStable(events, func(i, j int) bool {
-		return events[i].GetTimestamp() <= events[j].GetTimestamp()
+		return events[i].GetTimestamp() < events[j].GetTimestamp()
 	})
+
+	if uint64(len(events)) > limit {
+		events = events[:limit]
+	}
 
 	nextOffset := events[len(events)-1].GetTimestamp()
 	return events, nextOffset, nil

@@ -366,7 +366,7 @@ The two projections consume the same event journal independently. Each uses its 
 
 Projection handlers receive events with at-least-once delivery. They must be idempotent and safe for concurrent calls across different shards; events within one shard are delivered sequentially.
 
-Offsets are event timestamps taken from the clock of the node that persisted the event. The runner reads 100 ms behind the current time: an event reaches the handler only once it is at least that old, so an event stamped slightly earlier by a peer whose clock lags, or committed to the store just after a pull passed its timestamp, is still ahead of the committed offset when it becomes visible. Skew beyond that window can still cause an event to be skipped, so keep node clocks synchronized. All events of one entity land on the same shard and are delivered in order; events of different entities carry no ordering guarantee.
+Offsets are event timestamps, taken when the command arrives on the node that persists the event, so an event is written some time after it is stamped. The runner reads 100 ms behind the current time: an event reaches the handler only once it is at least that old, so an event that lands in the store after a pull already passed its timestamp, because two entities' writes landed out of order or because a peer's clock lags slightly, is still ahead of the committed offset when it becomes visible. Write latency or skew beyond that window can still cause an event to be skipped, so keep node clocks synchronized. All events of one entity land on the same shard and are delivered in order; events of different entities carry no ordering guarantee.
 
 The engine also supports:
 

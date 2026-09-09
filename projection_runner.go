@@ -61,11 +61,12 @@ const (
 	// storeRetryMaxDelay caps the exponential backoff delay between
 	// consecutive store retry attempts.
 	storeRetryMaxDelay = 30 * time.Second
-	// readLag is how far behind the current time the runner reads. An event
-	// is delivered only once it is at least this old, so an event stamped
-	// slightly earlier by a peer node whose clock lags, or committed to the
-	// store just after a pull passed its timestamp, is still ahead of the
-	// committed offset when it becomes visible.
+	// readLag is how far behind the current time the runner reads. Events are
+	// stamped when their command arrives and written afterwards, so one can
+	// land in the store after a pull already passed its timestamp. An event
+	// is delivered only once it is at least this old, so such an event, or
+	// one stamped slightly earlier by a peer node whose clock lags, is still
+	// ahead of the committed offset when it becomes visible.
 	readLag = 100 * time.Millisecond
 )
 

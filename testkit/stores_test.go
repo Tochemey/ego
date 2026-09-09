@@ -240,6 +240,23 @@ func TestEventStore_GetShardEvents(t *testing.T) {
 		assert.Greater(t, nextOffset, int64(0))
 	})
 
+	t.Run("honors the limit and returns the oldest events first", func(t *testing.T) {
+		anyEvent, _ := anypb.New(&testpb.AccountCreated{AccountId: "acc-2", AccountBalance: 100})
+		ts := time.Now().UnixMilli()
+		require.NoError(t, store.WriteEvents(ctx, []*egopb.Event{
+			{PersistenceId: "limit-test-1", SequenceNumber: 1, Event: anyEvent, Timestamp: ts, Shard: 7},
+			{PersistenceId: "limit-test-2", SequenceNumber: 1, Event: anyEvent, Timestamp: ts + 1, Shard: 7},
+			{PersistenceId: "limit-test-3", SequenceNumber: 1, Event: anyEvent, Timestamp: ts + 2, Shard: 7},
+		}))
+
+		result, nextOffset, err := store.GetShardEvents(ctx, 7, 0, 2)
+		require.NoError(t, err)
+		require.Len(t, result, 2)
+		assert.Equal(t, ts, result[0].GetTimestamp())
+		assert.Equal(t, ts+1, result[1].GetTimestamp())
+		assert.Equal(t, ts+1, nextOffset)
+	})
+
 	require.NoError(t, store.Disconnect(ctx))
 }
 
