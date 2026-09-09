@@ -78,6 +78,14 @@ const (
 // prefix a type URL happens to carry.
 var frameworkEventPackage = egopb.File_ego_ego_proto.Package()
 
+// shardOffsetsInvalidator is implemented by an events store that serves
+// ShardOffsets from an answer shared across the node. A nudged pull drops that
+// answer before reading: a nudge means events were just written on this node,
+// and an answer taken before that write would hide them until the next tick.
+type shardOffsetsInvalidator interface {
+	InvalidateShardOffsets()
+}
+
 // shardItem is a unit of work dispatched to the persistent worker pool.
 // The embedded WaitGroup pointer lets processingLoop wait for a whole batch.
 type shardItem struct {
@@ -348,6 +356,7 @@ func (x *projectionRunner) processingLoop(ctx context.Context) {
 			return
 		case <-x.ticker.Ticks:
 		case <-x.nudge:
+			x.invalidateShardOffsets()
 		}
 
 		if !x.running.Load() {
@@ -940,4 +949,13 @@ func (x *projectionRunner) preStart(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+// invalidateShardOffsets drops the events store's shared shard-offsets answer
+// when the store keeps one, so a nudged pull reads the journal's current state
+// rather than an answer taken before the write that nudged it.
+func (x *projectionRunner) invalidateShardOffsets() {
+	if invalidator, ok := x.eventsStore.(shardOffsetsInvalidator); ok {
+		invalidator.InvalidateShardOffsets()
+	}
 }

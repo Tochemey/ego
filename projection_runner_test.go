@@ -49,6 +49,7 @@ import (
 	mockadapter "github.com/tochemey/ego/v4/mocks/eventadapter"
 	mocksoffsetstore "github.com/tochemey/ego/v4/mocks/offsetstore"
 	mockseventstore "github.com/tochemey/ego/v4/mocks/persistence"
+	"github.com/tochemey/ego/v4/persistence"
 	"github.com/tochemey/ego/v4/projection"
 	testpb "github.com/tochemey/ego/v4/test/data/testpb"
 	testkit2 "github.com/tochemey/ego/v4/testkit"
@@ -2071,6 +2072,65 @@ func TestProjectionRunnerReadLag(t *testing.T) {
 		require.NoError(t, offsetStore.Disconnect(ctx))
 		require.NoError(t, runner.Stop())
 	})
+}
+
+// invalidatingEventsStore is an events store that records the order of the
+// shard-offsets invalidations and reads a runner makes against it.
+type invalidatingEventsStore struct {
+	persistence.EventsStore
+	mutex sync.Mutex
+	calls []string
+}
+
+func (s *invalidatingEventsStore) record(call string) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.calls = append(s.calls, call)
+}
+
+func (s *invalidatingEventsStore) recorded() []string {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	return append([]string(nil), s.calls...)
+}
+
+func (s *invalidatingEventsStore) Ping(context.Context) error { return nil }
+
+func (s *invalidatingEventsStore) InvalidateShardOffsets() { s.record("invalidate") }
+
+func (s *invalidatingEventsStore) ShardOffsets(context.Context) (map[uint64]int64, error) {
+	s.record("shard-offsets")
+	return map[uint64]int64{}, nil
+}
+
+// TestProjectionRunnerNudgeInvalidatesShardOffsets asserts that a pull
+// triggered by a nudge drops the store's shared shard-offsets answer before
+// reading it: a nudge means events were just written on this node, and a
+// stale answer would hide them until the next tick.
+func TestProjectionRunnerNudgeInvalidatesShardOffsets(t *testing.T) {
+	ctx := context.TODO()
+
+	eventsStore := &invalidatingEventsStore{}
+	offsetStore := testkit2.NewOffsetStore()
+	require.NoError(t, offsetStore.Connect(ctx))
+
+	// The pull interval is far longer than the test: every pass is nudged.
+	runner := newProjectionRunner("db-writer", projection.NewDiscardHandler(), eventsStore, offsetStore,
+		withPullInterval(time.Hour),
+		withLogger(log.DiscardLogger))
+
+	require.NoError(t, runner.Start(ctx))
+	runner.Run(ctx)
+	runner.requestPull()
+
+	require.Eventually(t, func() bool {
+		return len(eventsStore.recorded()) >= 2
+	}, 5*time.Second, 10*time.Millisecond)
+
+	assert.Equal(t, []string{"invalidate", "shard-offsets"}, eventsStore.recorded())
+
+	require.NoError(t, runner.Stop())
+	require.NoError(t, offsetStore.Disconnect(ctx))
 }
 
 // recordingHandler is a projection handler that records the type URL of every

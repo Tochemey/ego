@@ -91,4 +91,11 @@ func TestCachedEventsStoreShardOffsets(t *testing.T) {
 	_, err = cached.ShardOffsets(ctx)
 	require.NoError(t, err)
 	assert.EqualValues(t, 3, store.calls.Load())
+
+	// A runner that was nudged by a local write drops the answer explicitly,
+	// whether or not that write went through this store.
+	cached.InvalidateShardOffsets()
+	_, err = cached.ShardOffsets(ctx)
+	require.NoError(t, err)
+	assert.EqualValues(t, 4, store.calls.Load())
 }

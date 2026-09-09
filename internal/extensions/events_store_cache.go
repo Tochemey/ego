@@ -35,10 +35,11 @@ import (
 
 const (
 	// shardOffsetsCacheLifetime is how long a ShardOffsets answer is served
-	// to every runner on the node before the store is asked again. It is
-	// shorter than the default pull interval, so a runner never waits a full
-	// extra pull for events persisted by a peer node.
-	shardOffsetsCacheLifetime = 500 * time.Millisecond
+	// to every runner on the node before the store is asked again. It bounds
+	// both the polling load, at a few round trips per second however many
+	// runners the node hosts, and the extra delay before events persisted by
+	// a peer node are noticed.
+	shardOffsetsCacheLifetime = 250 * time.Millisecond
 	// shardOffsetsFlightKey groups the concurrent ShardOffsets callers that
 	// share one round trip to the store.
 	shardOffsetsFlightKey = "shard-offsets"
@@ -46,10 +47,10 @@ const (
 
 // cachedEventsStore serves ShardOffsets from an answer shared by every runner
 // on the node, so the polling load on the store does not grow with the number
-// of projections and sagas hosted here. A local write invalidates the answer,
-// so events persisted on this node are noticed by the next pull; events
-// persisted by peers are noticed once the answer expires. Every other call
-// reaches the store untouched.
+// of projections and sagas hosted here. A local write, or a runner nudged by
+// one, invalidates the answer, so events persisted on this node are noticed
+// by the next pull; events persisted by peers are noticed once the answer
+// expires. Every other call reaches the store untouched.
 type cachedEventsStore struct {
 	persistence.EventsStore
 
@@ -76,12 +77,18 @@ func newCachedEventsStore(store persistence.EventsStore) *cachedEventsStore {
 // which the write has just made stale.
 func (s *cachedEventsStore) WriteEvents(ctx context.Context, events []*egopb.Event) error {
 	err := s.EventsStore.WriteEvents(ctx, events)
+	s.InvalidateShardOffsets()
+	return err
+}
 
+// InvalidateShardOffsets drops the shared ShardOffsets answer so the next
+// caller reads the journal's current state. A runner calls it when it is
+// nudged by events written on this node, whether or not that write went
+// through this store.
+func (s *cachedEventsStore) InvalidateShardOffsets() {
 	s.mutex.Lock()
 	s.fetchedAt = time.Time{}
 	s.mutex.Unlock()
-
-	return err
 }
 
 // ShardOffsets returns the shared answer while it is fresh and otherwise asks
