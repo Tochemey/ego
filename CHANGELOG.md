@@ -12,6 +12,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **`SagaBehavior.HandleEvent` must be idempotent.** Journal delivery is at-least-once: an event already handled is handed to the saga again when it restarts before its progress was recorded. A handler that assumed exactly-once delivery has to be made idempotent.
 
+- **`offsetstore.OffsetStore` gains `DeleteOffset`.** `DeleteOffset(ctx, projectionName)` removes the offset of a projection across all shards, and deleting the offset of a projection that has none is not an error. Every implementor must add it; the SQL stores implement it as a delete by projection name, next to the `ResetOffset` they already have.
+
+### ✨ Features
+
+- **A saga's offsets can be deleted once it settles.** A saga records how far it has read under `ego.saga.<saga id>`, one row per shard, and a saga that completed or failed never reads the journal again, so those rows keep a store that has no reader for them. The new `WithOffsetRemoval` option makes eGo delete them when the saga reaches `SagaCompleted` or `SagaFailed`. Only the saga's own rows are removed; projection offsets are never touched. Without the option the rows are kept, as they are today, and a saga that is still running always resumes from its offsets whenever it is restarted or relocated.
+
 ### 🐛 Bug Fixes
 
 - **Durable-state entities no longer advance their in-memory state on a failed write.** `processCommand` assigned the new state, version, and timestamp before `WriteState` ran, so after one store error the entity answered later commands from state the store never saw, and reverted to the stored state on restart. The write now happens first and the entity's fields are updated only once it succeeds, matching what event-sourced entities already did.
@@ -49,6 +55,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **The testkit stores behave like real ones under a rebuild and a full buffer.** `testkit.OffsetStore.ResetOffset` read its map values as keys and panicked as soon as the store held a row, so `RebuildProjection` could not be exercised against it. `testkit.EventStore.GetShardEvents` applied the limit before sorting events whose map iterates in random order, returning one event more than asked and not necessarily the oldest, so a limited read could report an offset past events it never returned. The reset now rewrites every row of the projection, and a shard read sorts first and then cuts to the limit.
 
 - **The README lists the ego-contrib stores that exist.** MongoDB event, snapshot, offset, and durable-state stores were listed but have never shipped; the Persistence section now shows the actual coverage per backend.
+
+- **A settled saga no longer polls the journal after a restart.** A completed or failed saga that restarted or relocated started its journal runner again, so it kept pulling events it discarded on arrival and rewriting its offsets for as long as it was hosted. Such a saga now starts no runner at all, which is also what keeps a saga with `WithOffsetRemoval` from recording new rows under the offsets it deleted when it settled.
 
 ## [v4.4.3] - 2026-08-15
 

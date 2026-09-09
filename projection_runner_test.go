@@ -2349,3 +2349,123 @@ func TestRunnerPullEfficiency(t *testing.T) {
 		require.NoError(t, runner.Stop())
 	})
 }
+
+// TestProjectionRunnerWaitForWorkers asserts that the wait returns only once
+// the workers have left the handler, and that the offset they were processing
+// has landed in the store by then: a worker can still commit after Stop
+// returns, so a task that must run after the last commit waits for them.
+func TestProjectionRunnerWaitForWorkers(t *testing.T) {
+	const (
+		projectionName = "worker-wait"
+		shardNumber    = uint64(3)
+	)
+
+	ctx := context.TODO()
+
+	eventsStore := testkit2.NewEventsStore()
+	require.NoError(t, eventsStore.Connect(ctx))
+	t.Cleanup(func() { _ = eventsStore.Disconnect(ctx) })
+
+	offsetStore := testkit2.NewOffsetStore()
+	require.NoError(t, offsetStore.Connect(ctx))
+	t.Cleanup(func() { _ = offsetStore.Disconnect(ctx) })
+
+	handler := &blockingHandler{
+		entered: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+
+	runner := newProjectionRunner(projectionName, handler, eventsStore, offsetStore,
+		withPullInterval(10*time.Millisecond),
+		withLogger(log.DiscardLogger),
+	)
+	require.NoError(t, runner.Start(ctx))
+	runner.Run(ctx)
+
+	event, err := anypb.New(&testpb.AccountCredited{})
+	require.NoError(t, err)
+	require.NoError(t, eventsStore.WriteEvents(ctx, []*egopb.Event{
+		{
+			PersistenceId:  uuid.NewString(),
+			SequenceNumber: 1,
+			Event:          event,
+			Timestamp:      time.Now().Add(-time.Second).UnixNano(),
+			Shard:          shardNumber,
+		},
+	}))
+
+	select {
+	case <-handler.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the handler was never called")
+	}
+
+	require.NoError(t, runner.Stop())
+
+	waited := make(chan struct{})
+	go func() {
+		runner.waitForWorkers()
+		close(waited)
+	}()
+
+	select {
+	case <-waited:
+		t.Fatal("the wait returned while a worker was still processing")
+	case <-time.After(500 * time.Millisecond):
+	}
+
+	close(handler.release)
+
+	select {
+	case <-waited:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the wait did not return once the worker was released")
+	}
+
+	offset, err := offsetStore.GetCurrentOffset(ctx, &egopb.ProjectionId{
+		ProjectionName: projectionName,
+		ShardNumber:    shardNumber,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, offset, "the worker committed its offset after the wait returned")
+}
+
+// TestProjectionRunnerWaitForWorkersNeverStarted asserts that the wait returns
+// at once for a runner that never started its pool.
+func TestProjectionRunnerWaitForWorkersNeverStarted(t *testing.T) {
+	runner := newProjectionRunner("never-started", &blockingHandler{}, testkit2.NewEventsStore(), testkit2.NewOffsetStore())
+
+	waited := make(chan struct{})
+	go func() {
+		runner.waitForWorkers()
+		close(waited)
+	}()
+
+	select {
+	case <-waited:
+	case <-time.After(time.Second):
+		t.Fatal("the wait blocked for a runner that was never started")
+	}
+}
+
+// blockingHandler holds every event it is given until it is released, so a
+// test can keep a runner worker inside the handler.
+type blockingHandler struct {
+	// entered is signalled once, when the handler is first called.
+	entered chan struct{}
+	// release lets the handler return; close it to unblock the worker.
+	release chan struct{}
+}
+
+var _ projection.Handler = (*blockingHandler)(nil)
+
+// Handle blocks until the handler is released.
+func (x *blockingHandler) Handle(_ context.Context, _ string, _ *anypb.Any, _ uint64) error {
+	select {
+	case x.entered <- struct{}{}:
+	default:
+	}
+
+	<-x.release
+	return nil
+}

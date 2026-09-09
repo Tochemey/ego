@@ -44,4 +44,7 @@ type OffsetStore interface {
 	GetCurrentOffset(ctx context.Context, projectionID *egopb.ProjectionId) (currentOffset *egopb.Offset, err error)
 	// ResetOffset resets the offset of given projection to a given value across all shards
 	ResetOffset(ctx context.Context, projectionName string, value int64) error
+	// DeleteOffset deletes the offset of the given projection across all shards.
+	// Deleting the offset of a projection that has none is not an error.
+	DeleteOffset(ctx context.Context, projectionName string) error
 }

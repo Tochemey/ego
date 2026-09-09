@@ -76,6 +76,17 @@ type sagaCommandResult struct {
 	compensation bool
 }
 
+// sagaOffsetsDeleted carries the outcome of the deletion of the saga's offsets
+// back to the saga mailbox. The deletion runs off the actor goroutine, so the
+// saga keeps answering while the store is slow, and the outcome is logged on
+// the actor's serialized message loop.
+type sagaOffsetsDeleted struct {
+	// projectionName is the name the offsets were recorded under.
+	projectionName string
+	// err is the failure the deletion returned after its retries, if any.
+	err error
+}
+
 // SagaActor implements a saga/process manager as a Go-Akt actor.
 // It reads the journal, reacts to events via the SagaBehavior, persists its
 // own events, and coordinates commands to other entities.
@@ -89,6 +100,12 @@ type SagaActor struct {
 	status        SagaStatus
 	sagaID        string
 	timeout       time.Duration
+
+	// offsetRemoval reports whether the offsets recorded while the saga read
+	// the journal are deleted once the saga settles. It travels with the saga
+	// in its SagaConfig, so a relocated saga keeps the retention policy of the
+	// deployment.
+	offsetRemoval bool
 
 	// runner reads the journal on the saga's behalf and hands every event
 	// written since the saga started to eventHandler. It is the saga's only
@@ -128,6 +145,10 @@ type SagaActor struct {
 	// from PostStart has been returned to the pool.
 	actorSystem goakt.ActorSystem
 	logger      log.Logger
+
+	// self is the saga's own PID, captured in PostStart so that work started
+	// outside a receive turn can be piped back to the mailbox.
+	self *goakt.PID
 }
 
 // implements the goakt.Actor interface
@@ -174,6 +195,7 @@ func (s *SagaActor) PreStart(ctx *goakt.Context) error {
 
 		if cfg, ok := dependency.(*extensions.SagaConfig); ok {
 			s.timeout = cfg.Timeout
+			s.offsetRemoval = cfg.OffsetRemoval
 		}
 	}
 
@@ -195,6 +217,13 @@ func (s *SagaActor) PreStart(ctx *goakt.Context) error {
 	s.firstStart = s.startedAt == 0
 	if s.firstStart {
 		s.startedAt = time.Now().UnixNano()
+	}
+
+	// A settled saga is never fed the journal again, so it starts no runner: a
+	// completed or failed saga that restarts or relocates neither polls the
+	// journal nor records offsets for events it would only discard.
+	if s.status == SagaCompleted || s.status == SagaFailed {
+		return nil
 	}
 
 	s.eventHandler = &sagaEventHandler{sagaID: s.sagaID}
@@ -246,7 +275,14 @@ func (s *SagaActor) Receive(ctx *goakt.ReceiveContext) {
 		// Capture stable references before the ReceiveContext is returned to the pool.
 		s.actorSystem = ctx.ActorSystem()
 		s.logger = ctx.Logger()
+		s.self = ctx.Self()
 		s.shard = ctx.ActorSystem().Partition(s.sagaID)
+
+		// A saga recovered as settled has no runner and nothing left to do
+		// beyond answering status queries.
+		if s.status == SagaCompleted || s.status == SagaFailed {
+			return
+		}
 
 		// Hand the actor PID to the runner and its handler before the journal
 		// is read: the handler delivers through it, and a runner that dies on
@@ -271,6 +307,8 @@ func (s *SagaActor) Receive(ctx *goakt.ReceiveContext) {
 		ctx.Response(new(egopb.NoReply))
 	case *runnerFailed:
 		s.handleRunnerFailure(ctx, message.err)
+	case *sagaOffsetsDeleted:
+		s.handleOffsetsDeleted(message)
 	case *sagaCommandResult:
 		s.handleCommandResult(ctx, message)
 	case *sagaTimeoutMsg:
@@ -694,6 +732,10 @@ func (s *SagaActor) recordStatus(ctx context.Context, status SagaStatus) {
 		if s.runner != nil {
 			_ = s.runner.Stop()
 		}
+
+		if s.offsetRemoval {
+			s.cleanupOffsets()
+		}
 	}
 }
 
@@ -789,4 +831,55 @@ func (s *SagaActor) replyWithState(ctx *goakt.ReceiveContext) {
 		},
 	}
 	ctx.Response(reply)
+}
+
+// cleanupOffsets runs the deletion of the offsets the saga recorded
+// while it read the journal, under its own projection name. Only the saga's
+// own rows are removed; the offsets of projections are never touched.
+//
+// The deletion is piped: it runs off the actor loop, touches no saga state,
+// and its outcome comes back to the mailbox as a sagaOffsetsDeleted. When the
+// saga has a runner, the task first waits for its workers: a worker can still
+// commit an offset after Stop has returned, and it may be waiting on an ask
+// that only the actor loop can answer.
+func (s *SagaActor) cleanupOffsets() {
+	projectionName := sagaRunnerNamePrefix + s.sagaID
+	offsetStore := s.offsetStore
+	runner := s.runner
+
+	// The PID and the logger are both captured in PostStart, and a saga cannot
+	// settle before it has started, so there is nothing to pipe to, and no
+	// logger to say so, only when the actor is driven outside a running actor
+	// system.
+	if s.self == nil {
+		return
+	}
+
+	err := s.self.PipeTo(context.Background(), s.self, func() (any, error) {
+		if runner != nil {
+			runner.waitForWorkers()
+		}
+
+		ctx := context.Background()
+		err := retryWithBackoff(ctx, defaultMaxRetries, func() error {
+			return offsetStore.DeleteOffset(ctx, projectionName)
+		})
+
+		return &sagaOffsetsDeleted{projectionName: projectionName, err: err}, nil
+	})
+	if err != nil {
+		s.logger.Errorf("saga %s: failed to start the deletion of the offsets of %s: %v", s.sagaID, projectionName, err)
+	}
+}
+
+// handleOffsetsDeleted logs the outcome of the deletion of the saga's offsets.
+// A failed deletion leaves the rows in place, exactly as they are without the
+// option, and is logged for the operator.
+func (s *SagaActor) handleOffsetsDeleted(outcome *sagaOffsetsDeleted) {
+	if outcome.err != nil {
+		s.logger.Errorf("saga %s: failed to delete the offsets of %s: %v", s.sagaID, outcome.projectionName, outcome.err)
+		return
+	}
+
+	s.logger.Debugf("saga %s: deleted the offsets of %s", s.sagaID, outcome.projectionName)
 }

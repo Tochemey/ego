@@ -99,6 +99,20 @@ func (x *OffsetStore) GetCurrentOffset(_ context.Context, projectionID *egopb.Pr
 	return value.(*egopb.Offset), nil
 }
 
+// DeleteOffset removes every offset row recorded under the given projection
+// name. A projection that has no offset is not an error.
+func (x *OffsetStore) DeleteOffset(_ context.Context, projectionName string) error {
+	x.db.Range(func(k interface{}, _ interface{}) bool {
+		key := k.(OffsetKey)
+		if key.ProjectionName == projectionName {
+			x.db.Delete(key)
+		}
+
+		return true
+	})
+	return nil
+}
+
 func (x *OffsetStore) ResetOffset(_ context.Context, projectionName string, value int64) error {
 	ts := time.Now().UnixMilli()
 	x.db.Range(func(k interface{}, _ interface{}) bool {

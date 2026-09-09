@@ -24,6 +24,7 @@ package ego
 
 import (
 	"context"
+	"math"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -45,9 +46,26 @@ import (
 	"github.com/tochemey/ego/v4/internal/extensions"
 	"github.com/tochemey/ego/v4/internal/pause"
 	mocks "github.com/tochemey/ego/v4/mocks/persistence"
+	"github.com/tochemey/ego/v4/offsetstore"
 	"github.com/tochemey/ego/v4/persistence"
 	testpb "github.com/tochemey/ego/v4/test/data/testpb"
 	"github.com/tochemey/ego/v4/testkit"
+)
+
+const (
+	// sagaTestEventShard is the journal shard the offset tests write their
+	// events to, so the offset rows a saga records for them are known upfront.
+	sagaTestEventShard = 3
+	// sagaOffsetWait bounds how long a test waits for a saga to record an
+	// offset, or for the offsets of a settled saga to be gone.
+	sagaOffsetWait = 10 * time.Second
+	// sagaOffsetPollInterval is how often those waits read the offset store.
+	sagaOffsetPollInterval = 100 * time.Millisecond
+	// sagaTestTimeout is the deadline given to a saga whose timeout is meant
+	// to fire during the test, long enough for it to record an offset first.
+	sagaTestTimeout = 5 * time.Second
+	// sagaTestCommandTimeout bounds a saga command sent to a test participant.
+	sagaTestCommandTimeout = time.Second
 )
 
 func TestSagaStatus_String(t *testing.T) {
@@ -123,7 +141,7 @@ func TestSagaActor(t *testing.T) {
 		pause.For(time.Second)
 
 		behavior := &callbackSagaBehavior{id: sagaID}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -158,7 +176,7 @@ func TestSagaActor(t *testing.T) {
 		pause.For(time.Second)
 
 		behavior := &callbackSagaBehavior{id: sagaID}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -199,7 +217,7 @@ func TestSagaActor(t *testing.T) {
 		pause.For(time.Second)
 
 		behavior := &callbackSagaBehavior{id: sagaID}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -243,7 +261,7 @@ func TestSagaActor(t *testing.T) {
 		pause.For(time.Second)
 
 		behavior := &callbackSagaBehavior{id: sagaID}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -293,7 +311,7 @@ func TestSagaActor(t *testing.T) {
 				return nil, assert.AnError
 			},
 		}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -354,7 +372,7 @@ func TestSagaActor(t *testing.T) {
 				return state, nil
 			},
 		}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -397,7 +415,7 @@ func TestSagaActor(t *testing.T) {
 		pause.For(time.Second)
 
 		behavior := &callbackSagaBehavior{id: sagaID}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -457,7 +475,7 @@ func TestSagaActor(t *testing.T) {
 			},
 		}
 		// 200ms timeout so the test runs quickly
-		sagaCfg := extensions.NewSagaConfig(200 * time.Millisecond)
+		sagaCfg := extensions.NewSagaConfig(200*time.Millisecond, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -509,7 +527,7 @@ func TestSagaActor(t *testing.T) {
 				return nil, nil
 			},
 		}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -569,7 +587,7 @@ func TestSagaActor(t *testing.T) {
 		pause.For(time.Second)
 
 		behavior := &callbackSagaBehavior{id: sagaID}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -620,7 +638,7 @@ func TestSagaActor(t *testing.T) {
 				return &SagaAction{}, nil
 			},
 		}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -675,7 +693,7 @@ func TestSagaActor(t *testing.T) {
 				return &SagaAction{}, nil
 			},
 		}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -737,7 +755,7 @@ func TestSagaActor(t *testing.T) {
 				return &SagaAction{Complete: true}, nil
 			},
 		}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -812,7 +830,7 @@ func TestSagaActor(t *testing.T) {
 				return &SagaAction{}, nil
 			},
 		}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -887,7 +905,7 @@ func TestSagaActor(t *testing.T) {
 				return &SagaAction{}, nil
 			},
 		}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -944,7 +962,7 @@ func TestSagaActor(t *testing.T) {
 				return nil, nil // nil action
 			},
 		}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -999,7 +1017,7 @@ func TestSagaActor(t *testing.T) {
 				return &SagaAction{Complete: true}, nil
 			},
 		}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -1062,7 +1080,7 @@ func TestSagaActor(t *testing.T) {
 				return nil, assert.AnError
 			},
 		}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -1128,7 +1146,7 @@ func TestSagaActor(t *testing.T) {
 				return &SagaAction{Events: []Event{event}}, nil
 			},
 		}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -1193,7 +1211,7 @@ func TestSagaActor(t *testing.T) {
 				return &samplepb.Account{AccountBalance: 100}, nil
 			},
 		}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -1257,7 +1275,7 @@ func TestSagaActor(t *testing.T) {
 				return nil, assert.AnError
 			},
 		}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -1311,7 +1329,7 @@ func TestSagaActor(t *testing.T) {
 				}, nil
 			},
 		}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -1390,7 +1408,7 @@ func TestSagaActor(t *testing.T) {
 				return state, nil
 			},
 		}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -1449,7 +1467,7 @@ func TestSagaActor(t *testing.T) {
 				return &SagaAction{Complete: true}, nil
 			},
 		}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -1511,7 +1529,7 @@ func TestSagaActor(t *testing.T) {
 				return nil, assert.AnError
 			},
 		}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -1580,7 +1598,7 @@ func TestSagaActor(t *testing.T) {
 				}}, nil
 			},
 		}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -1659,7 +1677,7 @@ func TestSagaActor(t *testing.T) {
 				return &SagaAction{Complete: true}, nil
 			},
 		}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -1733,7 +1751,7 @@ func TestSagaActor(t *testing.T) {
 				return nil, assert.AnError
 			},
 		}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -1814,7 +1832,7 @@ func TestSagaActor(t *testing.T) {
 				return nil, assert.AnError
 			},
 		}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -1894,7 +1912,7 @@ func TestSagaActor(t *testing.T) {
 				return &SagaAction{Complete: true}, nil
 			},
 		}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -1959,7 +1977,7 @@ func TestSagaActor(t *testing.T) {
 				return &SagaAction{Complete: true}, nil
 			},
 		}
-		sagaCfg := extensions.NewSagaConfig(0)
+		sagaCfg := extensions.NewSagaConfig(0, false)
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
@@ -2082,17 +2100,8 @@ func TestSagaStatusSurvivesRestart(t *testing.T) {
 	stream := eventstream.New()
 	defer stream.Close()
 
-	actorSystem, err := goakt.NewActorSystem("TestSystem",
-		goakt.WithLogger(log.DiscardLogger),
-		goakt.WithExtensions(
-			extensions.NewEventsStore(eventStore),
-			extensions.NewEventsStream(stream),
-			extensions.NewOffsetStore(newTestOffsetStore(t)),
-		),
-		goakt.WithActorInitMaxRetries(1))
-	require.NoError(t, err)
-	require.NoError(t, actorSystem.Start(ctx))
-	pause.For(time.Second)
+	offsetStore := newTestOffsetStore(t)
+	actorSystem := newSagaTestSystemWithOffsetStore(t, ctx, eventStore, stream, offsetStore)
 
 	handled := make(chan struct{}, 8)
 	behavior := &callbackSagaBehavior{
@@ -2102,9 +2111,9 @@ func TestSagaStatusSurvivesRestart(t *testing.T) {
 			return &SagaAction{Complete: true}, nil
 		},
 	}
-	sagaCfg := extensions.NewSagaConfig(0)
+	sagaCfg := extensions.NewSagaConfig(0, false)
 
-	_, err = actorSystem.Spawn(ctx, sagaID, newSagaActor(),
+	_, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 		goakt.WithLongLived(),
 		goakt.WithDependencies(behavior, sagaCfg))
 	require.NoError(t, err)
@@ -2112,7 +2121,7 @@ func TestSagaStatusSurvivesRestart(t *testing.T) {
 
 	eventAny, err := anypb.New(&testpb.AccountCreated{AccountId: uuid.NewString()})
 	require.NoError(t, err)
-	journalEvent(t, eventStore, stream, &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny})
+	journalEvent(t, eventStore, stream, &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 1, Event: eventAny, Shard: sagaTestEventShard})
 
 	select {
 	case <-handled:
@@ -2138,8 +2147,10 @@ func TestSagaStatusSurvivesRestart(t *testing.T) {
 	require.True(t, ok)
 	assert.EqualValues(t, SagaCompleted, statusReply.GetStatus())
 
-	// a completed saga must not react to new events
-	journalEvent(t, eventStore, stream, &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 2, Event: eventAny})
+	// a completed saga reads the journal no more: it neither reacts to a new
+	// event nor records an offset for it
+	offsetBefore := sagaOffset(offsetStore, sagaID, sagaTestEventShard)
+	journalEvent(t, eventStore, stream, &egopb.Event{PersistenceId: uuid.NewString(), SequenceNumber: 2, Event: eventAny, Shard: sagaTestEventShard})
 	pause.For(time.Second)
 
 	select {
@@ -2147,6 +2158,9 @@ func TestSagaStatusSurvivesRestart(t *testing.T) {
 		t.Fatal("a completed saga reacted to a new event")
 	default:
 	}
+
+	assert.Equal(t, offsetBefore.GetValue(), sagaOffset(offsetStore, sagaID, sagaTestEventShard).GetValue(),
+		"the restarted saga recorded an offset for an event it never handled")
 
 	stream.Close()
 	require.NoError(t, actorSystem.Stop(ctx))
@@ -2180,7 +2194,7 @@ func TestSagaStatusReportsTransitions(t *testing.T) {
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
-			goakt.WithDependencies(behavior, extensions.NewSagaConfig(0)))
+			goakt.WithDependencies(behavior, extensions.NewSagaConfig(0, false)))
 		require.NoError(t, err)
 		pause.For(time.Second)
 
@@ -2229,7 +2243,7 @@ func TestSagaStatusReportsTransitions(t *testing.T) {
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
-			goakt.WithDependencies(behavior, extensions.NewSagaConfig(0)))
+			goakt.WithDependencies(behavior, extensions.NewSagaConfig(0, false)))
 		require.NoError(t, err)
 		pause.For(time.Second)
 
@@ -2288,7 +2302,7 @@ func TestSagaTimeoutSurvivesRestart(t *testing.T) {
 			return nil, nil
 		},
 	}
-	sagaCfg := extensions.NewSagaConfig(sagaTimeout)
+	sagaCfg := extensions.NewSagaConfig(sagaTimeout, false)
 
 	_, err = actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 		goakt.WithLongLived(),
@@ -2364,7 +2378,7 @@ func TestSagaTimesOutOnRestartWhenDeadlinePassed(t *testing.T) {
 			return nil, nil
 		},
 	}
-	sagaCfg := extensions.NewSagaConfig(sagaTimeout)
+	sagaCfg := extensions.NewSagaConfig(sagaTimeout, false)
 
 	_, err = actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 		goakt.WithLongLived(),
@@ -2459,7 +2473,7 @@ func TestSagaRemainsResponsiveDuringParticipantCall(t *testing.T) {
 
 	pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 		goakt.WithLongLived(),
-		goakt.WithDependencies(behavior, extensions.NewSagaConfig(0)))
+		goakt.WithDependencies(behavior, extensions.NewSagaConfig(0, false)))
 	require.NoError(t, err)
 	pause.For(time.Second)
 
@@ -2549,7 +2563,7 @@ func TestSagaCompensation(t *testing.T) {
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
-			goakt.WithDependencies(behavior, extensions.NewSagaConfig(0)))
+			goakt.WithDependencies(behavior, extensions.NewSagaConfig(0, false)))
 		require.NoError(t, err)
 		pause.For(time.Second)
 
@@ -2609,7 +2623,7 @@ func TestSagaCompensation(t *testing.T) {
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
-			goakt.WithDependencies(behavior, extensions.NewSagaConfig(0)))
+			goakt.WithDependencies(behavior, extensions.NewSagaConfig(0, false)))
 		require.NoError(t, err)
 		pause.For(time.Second)
 
@@ -2701,7 +2715,7 @@ func TestSagaRetriesHandlerErrors(t *testing.T) {
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
-			goakt.WithDependencies(behavior, extensions.NewSagaConfig(0)))
+			goakt.WithDependencies(behavior, extensions.NewSagaConfig(0, false)))
 		require.NoError(t, err)
 		pause.For(time.Second)
 
@@ -2746,7 +2760,7 @@ func TestSagaRetriesHandlerErrors(t *testing.T) {
 
 		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 			goakt.WithLongLived(),
-			goakt.WithDependencies(behavior, extensions.NewSagaConfig(0)))
+			goakt.WithDependencies(behavior, extensions.NewSagaConfig(0, false)))
 		require.NoError(t, err)
 		pause.For(time.Second)
 
@@ -2874,7 +2888,7 @@ func TestSagaIgnoresLateResultsAfterCompletion(t *testing.T) {
 
 	pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 		goakt.WithLongLived(),
-		goakt.WithDependencies(behavior, extensions.NewSagaConfig(0)))
+		goakt.WithDependencies(behavior, extensions.NewSagaConfig(0, false)))
 	require.NoError(t, err)
 	pause.For(time.Second)
 
@@ -2955,7 +2969,7 @@ func TestSagaCompensationRejectedByParticipantFails(t *testing.T) {
 
 	pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 		goakt.WithLongLived(),
-		goakt.WithDependencies(behavior, extensions.NewSagaConfig(0)))
+		goakt.WithDependencies(behavior, extensions.NewSagaConfig(0, false)))
 	require.NoError(t, err)
 	pause.For(time.Second)
 
@@ -3043,7 +3057,7 @@ func TestSagaReactsToJournaledEventsWithoutNudge(t *testing.T) {
 
 	pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 		goakt.WithLongLived(),
-		goakt.WithDependencies(behavior, extensions.NewSagaConfig(0)))
+		goakt.WithDependencies(behavior, extensions.NewSagaConfig(0, false)))
 	require.NoError(t, err)
 	require.NotNil(t, pid)
 	pause.For(time.Second)
@@ -3111,7 +3125,7 @@ func TestSagaIgnoresEventsBeforeItsStart(t *testing.T) {
 
 	pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 		goakt.WithLongLived(),
-		goakt.WithDependencies(behavior, extensions.NewSagaConfig(0)))
+		goakt.WithDependencies(behavior, extensions.NewSagaConfig(0, false)))
 	require.NoError(t, err)
 	require.NotNil(t, pid)
 	pause.For(time.Second)
@@ -3255,7 +3269,7 @@ func TestSagaRunnerFailureDoesNotOverrideCompensation(t *testing.T) {
 
 	pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
 		goakt.WithLongLived(),
-		goakt.WithDependencies(behavior, extensions.NewSagaConfig(0)))
+		goakt.WithDependencies(behavior, extensions.NewSagaConfig(0, false)))
 	require.NoError(t, err)
 	pause.For(time.Second)
 
@@ -3289,4 +3303,686 @@ func TestSagaRunnerFailureDoesNotOverrideCompensation(t *testing.T) {
 	}, 10*time.Second, 200*time.Millisecond)
 
 	require.NoError(t, actorSystem.Stop(ctx))
+}
+
+// TestSagaOffsetRemoval asserts what eGo does with the offsets a saga recorded
+// while it read the journal, once the saga has settled.
+func TestSagaOffsetRemoval(t *testing.T) {
+	ctx := context.TODO()
+
+	t.Run("a completed saga's offsets are deleted", func(t *testing.T) {
+		sagaID := uuid.NewString()
+
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+		defer eventStore.Disconnect(ctx) //nolint:errcheck
+
+		stream := eventstream.New()
+		defer stream.Close()
+
+		offsetStore := newTestOffsetStore(t)
+		actorSystem := newSagaTestSystemWithOffsetStore(t, ctx, eventStore, stream, offsetStore)
+
+		behavior := &callbackSagaBehavior{
+			id:          sagaID,
+			handleEvent: completeOnCredit,
+		}
+
+		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
+			goakt.WithLongLived(),
+			goakt.WithDependencies(behavior, extensions.NewSagaConfig(0, true)))
+		require.NoError(t, err)
+		pause.For(time.Second)
+
+		journalSagaTestEvent(t, eventStore, stream, &testpb.AccountCreated{AccountId: uuid.NewString()})
+
+		require.Eventually(t, func() bool {
+			return sagaOffset(offsetStore, sagaID, sagaTestEventShard) != nil
+		}, sagaOffsetWait, sagaOffsetPollInterval, "the saga recorded no offset while it ran")
+
+		journalSagaTestEvent(t, eventStore, stream, &testpb.AccountCredited{AccountId: uuid.NewString()})
+
+		require.Eventually(t, func() bool {
+			return sagaStatusOf(t, ctx, pid) == SagaCompleted
+		}, sagaOffsetWait, sagaOffsetPollInterval)
+
+		require.Eventually(t, func() bool {
+			return sagaOffset(offsetStore, sagaID, sagaTestEventShard) == nil
+		}, sagaOffsetWait, sagaOffsetPollInterval, "the offsets of the completed saga were not deleted")
+
+		stream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("a failed saga's offsets are deleted", func(t *testing.T) {
+		sagaID := uuid.NewString()
+
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+		defer eventStore.Disconnect(ctx) //nolint:errcheck
+
+		stream := eventstream.New()
+		defer stream.Close()
+
+		offsetStore := newTestOffsetStore(t)
+		actorSystem := newSagaTestSystemWithOffsetStore(t, ctx, eventStore, stream, offsetStore)
+
+		behavior := &callbackSagaBehavior{
+			id: sagaID,
+			handleEvent: func(_ context.Context, event Event, _ State) (*SagaAction, error) {
+				// the credit event exhausts the handler retries, which fails the saga
+				if _, ok := event.(*testpb.AccountCredited); ok {
+					return nil, assert.AnError
+				}
+
+				return &SagaAction{}, nil
+			},
+		}
+
+		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
+			goakt.WithLongLived(),
+			goakt.WithDependencies(behavior, extensions.NewSagaConfig(0, true)))
+		require.NoError(t, err)
+		pause.For(time.Second)
+
+		journalSagaTestEvent(t, eventStore, stream, &testpb.AccountCreated{AccountId: uuid.NewString()})
+
+		require.Eventually(t, func() bool {
+			return sagaOffset(offsetStore, sagaID, sagaTestEventShard) != nil
+		}, sagaOffsetWait, sagaOffsetPollInterval, "the saga recorded no offset while it ran")
+
+		journalSagaTestEvent(t, eventStore, stream, &testpb.AccountCredited{AccountId: uuid.NewString()})
+
+		require.Eventually(t, func() bool {
+			return sagaStatusOf(t, ctx, pid) == SagaFailed
+		}, sagaOffsetWait, sagaOffsetPollInterval)
+
+		require.Eventually(t, func() bool {
+			return sagaOffset(offsetStore, sagaID, sagaTestEventShard) == nil
+		}, sagaOffsetWait, sagaOffsetPollInterval, "the offsets of the failed saga were not deleted")
+
+		stream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("the offsets are kept without the option", func(t *testing.T) {
+		sagaID := uuid.NewString()
+
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+		defer eventStore.Disconnect(ctx) //nolint:errcheck
+
+		stream := eventstream.New()
+		defer stream.Close()
+
+		offsetStore := newTestOffsetStore(t)
+		actorSystem := newSagaTestSystemWithOffsetStore(t, ctx, eventStore, stream, offsetStore)
+
+		behavior := &callbackSagaBehavior{
+			id:          sagaID,
+			handleEvent: completeOnCredit,
+		}
+
+		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
+			goakt.WithLongLived(),
+			goakt.WithDependencies(behavior, extensions.NewSagaConfig(0, false)))
+		require.NoError(t, err)
+		pause.For(time.Second)
+
+		journalSagaTestEvent(t, eventStore, stream, &testpb.AccountCreated{AccountId: uuid.NewString()})
+
+		require.Eventually(t, func() bool {
+			return sagaOffset(offsetStore, sagaID, sagaTestEventShard) != nil
+		}, sagaOffsetWait, sagaOffsetPollInterval, "the saga recorded no offset while it ran")
+
+		journalSagaTestEvent(t, eventStore, stream, &testpb.AccountCredited{AccountId: uuid.NewString()})
+
+		require.Eventually(t, func() bool {
+			return sagaStatusOf(t, ctx, pid) == SagaCompleted
+		}, sagaOffsetWait, sagaOffsetPollInterval)
+
+		pause.For(time.Second)
+		assert.NotNil(t, sagaOffset(offsetStore, sagaID, sagaTestEventShard), "the offsets of the completed saga were deleted")
+
+		stream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("a deletion that fails once is retried", func(t *testing.T) {
+		sagaID := uuid.NewString()
+
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+		defer eventStore.Disconnect(ctx) //nolint:errcheck
+
+		stream := eventstream.New()
+		defer stream.Close()
+
+		offsetStore := &failingOffsetStore{OffsetStore: newTestOffsetStore(t), failures: 1}
+		actorSystem := newSagaTestSystemWithOffsetStore(t, ctx, eventStore, stream, offsetStore)
+
+		behavior := &callbackSagaBehavior{
+			id:          sagaID,
+			handleEvent: completeOnCredit,
+		}
+
+		pid, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
+			goakt.WithLongLived(),
+			goakt.WithDependencies(behavior, extensions.NewSagaConfig(0, true)))
+		require.NoError(t, err)
+		pause.For(time.Second)
+
+		journalSagaTestEvent(t, eventStore, stream, &testpb.AccountCreated{AccountId: uuid.NewString()})
+
+		require.Eventually(t, func() bool {
+			return sagaOffset(offsetStore, sagaID, sagaTestEventShard) != nil
+		}, sagaOffsetWait, sagaOffsetPollInterval, "the saga recorded no offset while it ran")
+
+		journalSagaTestEvent(t, eventStore, stream, &testpb.AccountCredited{AccountId: uuid.NewString()})
+
+		require.Eventually(t, func() bool {
+			return sagaStatusOf(t, ctx, pid) == SagaCompleted
+		}, sagaOffsetWait, sagaOffsetPollInterval)
+
+		require.Eventually(t, func() bool {
+			return sagaOffset(offsetStore, sagaID, sagaTestEventShard) == nil
+		}, sagaOffsetWait, sagaOffsetPollInterval, "the deletion was not retried after it failed")
+
+		assert.GreaterOrEqual(t, offsetStore.deletions.Load(), int32(2))
+
+		stream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("a compensated saga deletes its offsets once its compensations answer", func(t *testing.T) {
+		sagaID := uuid.NewString()
+		targetID := uuid.NewString()
+
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+		defer eventStore.Disconnect(ctx) //nolint:errcheck
+
+		stream := eventstream.New()
+		defer stream.Close()
+
+		offsetStore := newTestOffsetStore(t)
+		actorSystem := newSagaTestSystemWithOffsetStore(t, ctx, eventStore, stream, offsetStore)
+
+		_, err := actorSystem.Spawn(ctx, targetID, &simpleReplyActor{reply: participantReply(t, targetID)}, goakt.WithLongLived())
+		require.NoError(t, err)
+		pause.For(500 * time.Millisecond)
+
+		behavior := &callbackSagaBehavior{
+			id:          sagaID,
+			handleEvent: compensateOnCredit,
+			compensate: func(_ context.Context, _ State) ([]SagaCommand, error) {
+				return []SagaCommand{{EntityID: targetID, Command: new(emptypb.Empty), Timeout: sagaTestCommandTimeout}}, nil
+			},
+		}
+
+		pid := spawnSaga(t, ctx, actorSystem, behavior, extensions.NewSagaConfig(0, true))
+
+		journalSagaTestEvent(t, eventStore, stream, &testpb.AccountCreated{AccountId: uuid.NewString()})
+		awaitSagaOffset(t, offsetStore, sagaID)
+
+		journalSagaTestEvent(t, eventStore, stream, &testpb.AccountCredited{AccountId: uuid.NewString()})
+		awaitSagaStatus(t, ctx, pid, SagaCompleted)
+		awaitSagaOffsetDeleted(t, offsetStore, sagaID)
+
+		stream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("a saga whose compensation fails deletes its offsets", func(t *testing.T) {
+		sagaID := uuid.NewString()
+
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+		defer eventStore.Disconnect(ctx) //nolint:errcheck
+
+		stream := eventstream.New()
+		defer stream.Close()
+
+		offsetStore := newTestOffsetStore(t)
+		actorSystem := newSagaTestSystemWithOffsetStore(t, ctx, eventStore, stream, offsetStore)
+
+		behavior := &callbackSagaBehavior{
+			id:          sagaID,
+			handleEvent: compensateOnCredit,
+			compensate: func(_ context.Context, _ State) ([]SagaCommand, error) {
+				// the participant does not exist, so the compensation cannot be delivered
+				return []SagaCommand{{EntityID: uuid.NewString(), Command: new(emptypb.Empty), Timeout: sagaTestCommandTimeout}}, nil
+			},
+		}
+
+		pid := spawnSaga(t, ctx, actorSystem, behavior, extensions.NewSagaConfig(0, true))
+
+		journalSagaTestEvent(t, eventStore, stream, &testpb.AccountCreated{AccountId: uuid.NewString()})
+		awaitSagaOffset(t, offsetStore, sagaID)
+
+		journalSagaTestEvent(t, eventStore, stream, &testpb.AccountCredited{AccountId: uuid.NewString()})
+		awaitSagaStatus(t, ctx, pid, SagaFailed)
+		awaitSagaOffsetDeleted(t, offsetStore, sagaID)
+
+		stream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("a timed-out saga deletes its offsets", func(t *testing.T) {
+		sagaID := uuid.NewString()
+
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+		defer eventStore.Disconnect(ctx) //nolint:errcheck
+
+		stream := eventstream.New()
+		defer stream.Close()
+
+		offsetStore := newTestOffsetStore(t)
+		actorSystem := newSagaTestSystemWithOffsetStore(t, ctx, eventStore, stream, offsetStore)
+
+		// nothing to compensate: the timeout settles the saga on completed
+		behavior := &callbackSagaBehavior{id: sagaID}
+
+		pid := spawnSaga(t, ctx, actorSystem, behavior, extensions.NewSagaConfig(sagaTestTimeout, true))
+
+		journalSagaTestEvent(t, eventStore, stream, &testpb.AccountCreated{AccountId: uuid.NewString()})
+		awaitSagaOffset(t, offsetStore, sagaID)
+
+		awaitSagaStatus(t, ctx, pid, SagaCompleted)
+		awaitSagaOffsetDeleted(t, offsetStore, sagaID)
+
+		stream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("a saga failed by its journal runner deletes its offsets", func(t *testing.T) {
+		sagaID := uuid.NewString()
+
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+		defer eventStore.Disconnect(ctx) //nolint:errcheck
+
+		stream := eventstream.New()
+		defer stream.Close()
+
+		offsetStore := newTestOffsetStore(t)
+		actorSystem := newSagaTestSystemWithOffsetStore(t, ctx, eventStore, stream, offsetStore)
+
+		behavior := &callbackSagaBehavior{id: sagaID}
+
+		pid := spawnSaga(t, ctx, actorSystem, behavior, extensions.NewSagaConfig(0, true))
+
+		journalSagaTestEvent(t, eventStore, stream, &testpb.AccountCreated{AccountId: uuid.NewString()})
+		awaitSagaOffset(t, offsetStore, sagaID)
+
+		// the runner gives up on the journal while the saga is still running
+		require.NoError(t, goakt.Tell(ctx, pid, &runnerFailed{err: assert.AnError}))
+		awaitSagaStatus(t, ctx, pid, SagaFailed)
+		awaitSagaOffsetDeleted(t, offsetStore, sagaID)
+
+		stream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("a running saga that restarts keeps its offsets and resumes", func(t *testing.T) {
+		sagaID := uuid.NewString()
+
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+		defer eventStore.Disconnect(ctx) //nolint:errcheck
+
+		stream := eventstream.New()
+		defer stream.Close()
+
+		offsetStore := &failingOffsetStore{OffsetStore: newTestOffsetStore(t)}
+		actorSystem := newSagaTestSystemWithOffsetStore(t, ctx, eventStore, stream, offsetStore)
+
+		behavior := &callbackSagaBehavior{
+			id:          sagaID,
+			handleEvent: completeOnCredit,
+		}
+		sagaCfg := extensions.NewSagaConfig(0, true)
+
+		spawnSaga(t, ctx, actorSystem, behavior, sagaCfg)
+
+		journalSagaTestEvent(t, eventStore, stream, &testpb.AccountCreated{AccountId: uuid.NewString()})
+		awaitSagaOffset(t, offsetStore, sagaID)
+
+		// stopping a running saga is not settling it: its offsets stay
+		require.NoError(t, actorSystem.Kill(ctx, sagaID))
+		pause.For(500 * time.Millisecond)
+		require.NotNil(t, sagaOffset(offsetStore, sagaID, sagaTestEventShard), "stopping the saga deleted its offsets")
+		require.Zero(t, offsetStore.deletions.Load(), "stopping the saga asked the store for a deletion")
+
+		pid := spawnSaga(t, ctx, actorSystem, behavior, sagaCfg)
+		require.Equal(t, SagaRunning, sagaStatusOf(t, ctx, pid))
+		require.NotNil(t, sagaOffset(offsetStore, sagaID, sagaTestEventShard), "restarting the saga deleted its offsets")
+
+		// the restarted saga picks the journal up where it left it and settles
+		journalSagaTestEvent(t, eventStore, stream, &testpb.AccountCredited{AccountId: uuid.NewString()})
+		awaitSagaStatus(t, ctx, pid, SagaCompleted)
+		awaitSagaOffsetDeleted(t, offsetStore, sagaID)
+
+		stream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("a settled saga that restarts deletes nothing more", func(t *testing.T) {
+		sagaID := uuid.NewString()
+
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+		defer eventStore.Disconnect(ctx) //nolint:errcheck
+
+		stream := eventstream.New()
+		defer stream.Close()
+
+		offsetStore := &failingOffsetStore{OffsetStore: newTestOffsetStore(t)}
+		actorSystem := newSagaTestSystemWithOffsetStore(t, ctx, eventStore, stream, offsetStore)
+
+		handled := make(chan struct{}, 8)
+		behavior := &callbackSagaBehavior{
+			id: sagaID,
+			handleEvent: func(ctx context.Context, event Event, state State) (*SagaAction, error) {
+				handled <- struct{}{}
+				return completeOnCredit(ctx, event, state)
+			},
+		}
+		sagaCfg := extensions.NewSagaConfig(0, true)
+
+		pid := spawnSaga(t, ctx, actorSystem, behavior, sagaCfg)
+
+		journalSagaTestEvent(t, eventStore, stream, &testpb.AccountCreated{AccountId: uuid.NewString()})
+		awaitSagaOffset(t, offsetStore, sagaID)
+
+		journalSagaTestEvent(t, eventStore, stream, &testpb.AccountCredited{AccountId: uuid.NewString()})
+		awaitSagaStatus(t, ctx, pid, SagaCompleted)
+		awaitSagaOffsetDeleted(t, offsetStore, sagaID)
+		require.EqualValues(t, 1, offsetStore.deletions.Load())
+
+		for len(handled) > 0 {
+			<-handled
+		}
+
+		require.NoError(t, actorSystem.Kill(ctx, sagaID))
+		pause.For(500 * time.Millisecond)
+
+		pid = spawnSaga(t, ctx, actorSystem, behavior, sagaCfg)
+		require.Equal(t, SagaCompleted, sagaStatusOf(t, ctx, pid))
+
+		// the restarted saga neither reads the journal nor touches the store
+		journalSagaTestEvent(t, eventStore, stream, &testpb.AccountCreated{AccountId: uuid.NewString()})
+		pause.For(time.Second)
+
+		select {
+		case <-handled:
+			t.Fatal("a completed saga reacted to a new event after its restart")
+		default:
+		}
+
+		assert.Nil(t, sagaOffset(offsetStore, sagaID, sagaTestEventShard), "the restarted saga recorded an offset")
+		assert.EqualValues(t, 1, offsetStore.deletions.Load(), "the restarted saga asked the store for another deletion")
+
+		stream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("the saga answers status queries while its offsets are being deleted", func(t *testing.T) {
+		sagaID := uuid.NewString()
+
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+		defer eventStore.Disconnect(ctx) //nolint:errcheck
+
+		stream := eventstream.New()
+		defer stream.Close()
+
+		offsetStore := &blockingOffsetStore{
+			OffsetStore: newTestOffsetStore(t),
+			entered:     make(chan struct{}, 1),
+			release:     make(chan struct{}),
+		}
+		actorSystem := newSagaTestSystemWithOffsetStore(t, ctx, eventStore, stream, offsetStore)
+
+		behavior := &callbackSagaBehavior{
+			id:          sagaID,
+			handleEvent: completeOnCredit,
+		}
+
+		pid := spawnSaga(t, ctx, actorSystem, behavior, extensions.NewSagaConfig(0, true))
+
+		journalSagaTestEvent(t, eventStore, stream, &testpb.AccountCreated{AccountId: uuid.NewString()})
+		awaitSagaOffset(t, offsetStore, sagaID)
+
+		journalSagaTestEvent(t, eventStore, stream, &testpb.AccountCredited{AccountId: uuid.NewString()})
+
+		select {
+		case <-offsetStore.entered:
+		case <-time.After(sagaOffsetWait):
+			t.Fatal("the deletion never started")
+		}
+
+		// the deletion is held: the saga must still answer from its mailbox
+		require.Equal(t, SagaCompleted, sagaStatusOf(t, ctx, pid))
+		require.NotNil(t, sagaOffset(offsetStore, sagaID, sagaTestEventShard))
+
+		close(offsetStore.release)
+		awaitSagaOffsetDeleted(t, offsetStore, sagaID)
+
+		stream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("a deletion that keeps failing leaves the rows and the saga settled", func(t *testing.T) {
+		sagaID := uuid.NewString()
+
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+		defer eventStore.Disconnect(ctx) //nolint:errcheck
+
+		stream := eventstream.New()
+		defer stream.Close()
+
+		offsetStore := &failingOffsetStore{OffsetStore: newTestOffsetStore(t), failures: math.MaxInt32}
+		actorSystem := newSagaTestSystemWithOffsetStore(t, ctx, eventStore, stream, offsetStore)
+
+		behavior := &callbackSagaBehavior{
+			id:          sagaID,
+			handleEvent: completeOnCredit,
+		}
+
+		pid := spawnSaga(t, ctx, actorSystem, behavior, extensions.NewSagaConfig(0, true))
+
+		journalSagaTestEvent(t, eventStore, stream, &testpb.AccountCreated{AccountId: uuid.NewString()})
+		awaitSagaOffset(t, offsetStore, sagaID)
+
+		journalSagaTestEvent(t, eventStore, stream, &testpb.AccountCredited{AccountId: uuid.NewString()})
+		awaitSagaStatus(t, ctx, pid, SagaCompleted)
+
+		// every attempt fails: the first call plus the retries
+		require.Eventually(t, func() bool {
+			return offsetStore.deletions.Load() == defaultMaxRetries+1
+		}, sagaOffsetWait, sagaOffsetPollInterval, "the deletion was not retried the expected number of times")
+
+		pause.For(time.Second)
+		assert.EqualValues(t, defaultMaxRetries+1, offsetStore.deletions.Load(), "the deletion kept being retried")
+		assert.NotNil(t, sagaOffset(offsetStore, sagaID, sagaTestEventShard), "a failed deletion removed the offsets")
+		assert.Equal(t, SagaCompleted, sagaStatusOf(t, ctx, pid))
+		assert.True(t, pid.IsRunning(), "a failed deletion stopped the saga")
+
+		stream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+}
+
+// newSagaTestSystemWithOffsetStore starts an actor system wired with the given
+// events store, event stream and offset store, ready to host a saga actor. The
+// offset store is the caller's, so a test can read the offsets the saga records.
+func newSagaTestSystemWithOffsetStore(t *testing.T, ctx context.Context, eventStore persistence.EventsStore, stream eventstream.Stream, offsetStore offsetstore.OffsetStore) goakt.ActorSystem {
+	t.Helper()
+
+	actorSystem, err := goakt.NewActorSystem("TestSystem",
+		goakt.WithLogger(log.DiscardLogger),
+		goakt.WithExtensions(
+			extensions.NewEventsStore(eventStore),
+			extensions.NewEventsStream(stream),
+			extensions.NewOffsetStore(offsetStore),
+		),
+		goakt.WithActorInitMaxRetries(1))
+	require.NoError(t, err)
+	require.NoError(t, actorSystem.Start(ctx))
+	pause.For(time.Second)
+
+	return actorSystem
+}
+
+// journalSagaTestEvent persists a domain event on the shard the offset tests
+// read, exactly as an entity does.
+func journalSagaTestEvent(t *testing.T, eventsStore persistence.EventsStore, stream eventstream.Stream, event proto.Message) {
+	t.Helper()
+
+	journalEvent(t, eventsStore, stream, &egopb.Event{
+		PersistenceId:  uuid.NewString(),
+		SequenceNumber: 1,
+		Event:          mustAny(t, event),
+		Shard:          sagaTestEventShard,
+	})
+}
+
+// sagaOffset returns the offset a saga's journal runner recorded for the given
+// shard, or nil when the offset store holds no such row.
+func sagaOffset(store offsetstore.OffsetStore, sagaID string, shard uint64) *egopb.Offset {
+	offset, _ := store.GetCurrentOffset(context.Background(), &egopb.ProjectionId{
+		ProjectionName: sagaRunnerNamePrefix + sagaID,
+		ShardNumber:    shard,
+	})
+
+	return offset
+}
+
+// completeOnCredit is a saga event handler that completes the saga on an
+// account credit and lets every other event pass, so a test can have the saga
+// record an offset before it settles.
+func completeOnCredit(_ context.Context, event Event, _ State) (*SagaAction, error) {
+	if _, ok := event.(*testpb.AccountCredited); ok {
+		return &SagaAction{Complete: true}, nil
+	}
+
+	return &SagaAction{}, nil
+}
+
+// failingOffsetStore fails the first deletions it is asked for and delegates
+// every call afterwards, so a test can assert how a deletion failure is
+// handled. It also counts the deletions, so a test can assert none happened.
+type failingOffsetStore struct {
+	*testkit.OffsetStore
+	// failures is how many leading deletions fail.
+	failures int32
+	// deletions counts the deletions the store was asked for.
+	deletions atomic.Int32
+}
+
+var _ offsetstore.OffsetStore = (*failingOffsetStore)(nil)
+
+// DeleteOffset fails while the failure budget lasts and delegates afterwards.
+func (x *failingOffsetStore) DeleteOffset(ctx context.Context, projectionName string) error {
+	if x.deletions.Add(1) <= x.failures {
+		return assert.AnError
+	}
+
+	return x.OffsetStore.DeleteOffset(ctx, projectionName)
+}
+
+// blockingOffsetStore holds every deletion until it is released, so a test can
+// observe the saga while its offsets are being deleted.
+type blockingOffsetStore struct {
+	*testkit.OffsetStore
+	// entered is signalled once, when the first deletion starts.
+	entered chan struct{}
+	// release lets the deletions proceed; close it to unblock them.
+	release chan struct{}
+}
+
+var _ offsetstore.OffsetStore = (*blockingOffsetStore)(nil)
+
+// DeleteOffset blocks until the store is released, then delegates.
+func (x *blockingOffsetStore) DeleteOffset(ctx context.Context, projectionName string) error {
+	select {
+	case x.entered <- struct{}{}:
+	default:
+	}
+
+	<-x.release
+	return x.OffsetStore.DeleteOffset(ctx, projectionName)
+}
+
+// participantReply is what a test participant answers to a saga command: the
+// state it holds once the command is applied.
+func participantReply(t *testing.T, entityID string) *egopb.CommandReply {
+	t.Helper()
+
+	return &egopb.CommandReply{
+		Reply: &egopb.CommandReply_StateReply{
+			StateReply: &egopb.StateReply{
+				PersistenceId:  entityID,
+				SequenceNumber: 1,
+				State:          mustAny(t, &samplepb.Account{}),
+			},
+		},
+	}
+}
+
+// compensateOnCredit is a saga event handler that starts compensation on an
+// account credit and lets every other event pass, so a test can have the saga
+// record an offset before it compensates.
+func compensateOnCredit(_ context.Context, event Event, _ State) (*SagaAction, error) {
+	if _, ok := event.(*testpb.AccountCredited); ok {
+		return &SagaAction{Compensate: true}, nil
+	}
+
+	return &SagaAction{}, nil
+}
+
+// spawnSaga starts a saga actor for the behavior with the given config and
+// gives it a moment to come up.
+func spawnSaga(t *testing.T, ctx context.Context, actorSystem goakt.ActorSystem, behavior SagaBehavior, cfg *extensions.SagaConfig) *goakt.PID {
+	t.Helper()
+
+	pid, err := actorSystem.Spawn(ctx, behavior.ID(), newSagaActor(),
+		goakt.WithLongLived(),
+		goakt.WithDependencies(behavior, cfg))
+	require.NoError(t, err)
+	pause.For(time.Second)
+
+	return pid
+}
+
+// awaitSagaStatus waits until the saga reports the given status.
+func awaitSagaStatus(t *testing.T, ctx context.Context, pid *goakt.PID, status SagaStatus) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		return sagaStatusOf(t, ctx, pid) == status
+	}, sagaOffsetWait, sagaOffsetPollInterval, "the saga never reported %s", status)
+}
+
+// awaitSagaOffset waits until the saga has recorded an offset for the test
+// shard.
+func awaitSagaOffset(t *testing.T, offsetStore offsetstore.OffsetStore, sagaID string) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		return sagaOffset(offsetStore, sagaID, sagaTestEventShard) != nil
+	}, sagaOffsetWait, sagaOffsetPollInterval, "the saga recorded no offset while it ran")
+}
+
+// awaitSagaOffsetDeleted waits until the saga's offset for the test shard is
+// gone from the store.
+func awaitSagaOffsetDeleted(t *testing.T, offsetStore offsetstore.OffsetStore, sagaID string) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		return sagaOffset(offsetStore, sagaID, sagaTestEventShard) == nil
+	}, sagaOffsetWait, sagaOffsetPollInterval, "the offsets of the settled saga were not deleted")
 }

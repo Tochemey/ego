@@ -165,10 +165,11 @@ func TestEntityConfig(t *testing.T) {
 }
 
 func TestSagaConfig(t *testing.T) {
-	cfg := NewSagaConfig(5 * time.Second)
+	cfg := NewSagaConfig(5*time.Second, true)
 	require.NotNil(t, cfg)
 	assert.Equal(t, SagaConfigID, cfg.ID())
 	assert.Equal(t, 5*time.Second, cfg.Timeout)
+	assert.True(t, cfg.OffsetRemoval)
 
 	t.Run("marshal and unmarshal round-trip", func(t *testing.T) {
 		data, err := cfg.MarshalBinary()

@@ -149,6 +149,10 @@ type Engine struct {
 
 	// publishTimeout bounds each delivery attempt to an external publisher.
 	publishTimeout time.Duration
+
+	// offsetRemoval reports whether the offsets a saga recorded are deleted
+	// once the saga settles. It is set with WithOffsetRemoval.
+	offsetRemoval bool
 }
 
 // NewEngine plugs eGo into an already-constructed and started goakt.ActorSystem.
@@ -217,6 +221,7 @@ func NewEngine(actorSys goakt.ActorSystem, config *Config) (*Engine, error) {
 		eventsStore:    config.eventsStore,
 		stateStore:     config.stateStore,
 		offsetStore:    config.offsetStore,
+		offsetRemoval:  config.offsetRemoval,
 		snapshotStore:  config.snapshotStore,
 		logger:         config.logger,
 		eventStream:    config.eventStream,
@@ -881,6 +886,8 @@ func (engine *Engine) AddStatePublishers(publishers ...StatePublisher) error {
 // recovery, and supports compensation logic for rollback on failures. It reads
 // the journal from the moment it first ran and records its progress in the
 // offset store, so an offset store must be configured with WithOffsetStore.
+// Those offsets are kept once the saga completes or fails, unless the engine
+// was configured with WithOffsetRemoval, in which case eGo deletes them then.
 //
 // Parameters:
 //   - ctx: Execution context for controlling the saga lifecycle.
@@ -902,6 +909,7 @@ func (engine *Engine) Saga(ctx context.Context, behavior SagaBehavior, timeout t
 
 	engine.mutex.RLock()
 	offsetStore := engine.offsetStore
+	offsetRemoval := engine.offsetRemoval
 	engine.mutex.RUnlock()
 
 	if offsetStore == nil {
@@ -914,7 +922,7 @@ func (engine *Engine) Saga(ctx context.Context, behavior SagaBehavior, timeout t
 	// actor system is not started, which the Started check above rules out.
 	_ = actorSystem.Inject(behavior)
 
-	sagaCfg := extensions.NewSagaConfig(timeout)
+	sagaCfg := extensions.NewSagaConfig(timeout, offsetRemoval)
 	_ = actorSystem.Inject(sagaCfg)
 	actor := newSagaActor()
 

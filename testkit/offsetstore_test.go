@@ -56,3 +56,31 @@ func TestOffsetStoreResetOffset(t *testing.T) {
 	require.NoError(t, err)
 	assert.EqualValues(t, 30, offset.GetValue())
 }
+
+// TestOffsetStoreDeleteOffset asserts that a deletion drops every shard of the
+// named projection, leaves other projections alone, and accepts a projection
+// that has no offset at all.
+func TestOffsetStoreDeleteOffset(t *testing.T) {
+	ctx := context.Background()
+	store := NewOffsetStore()
+	require.NoError(t, store.Connect(ctx))
+	t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+	require.NoError(t, store.WriteOffset(ctx, &egopb.Offset{ProjectionName: "balances", ShardNumber: 1, Value: 10}))
+	require.NoError(t, store.WriteOffset(ctx, &egopb.Offset{ProjectionName: "balances", ShardNumber: 2, Value: 20}))
+	require.NoError(t, store.WriteOffset(ctx, &egopb.Offset{ProjectionName: "audit", ShardNumber: 1, Value: 30}))
+
+	require.NoError(t, store.DeleteOffset(ctx, "balances"))
+
+	for _, shard := range []uint64{1, 2} {
+		offset, err := store.GetCurrentOffset(ctx, &egopb.ProjectionId{ProjectionName: "balances", ShardNumber: shard})
+		require.NoError(t, err)
+		assert.Nil(t, offset)
+	}
+
+	offset, err := store.GetCurrentOffset(ctx, &egopb.ProjectionId{ProjectionName: "audit", ShardNumber: 1})
+	require.NoError(t, err)
+	assert.EqualValues(t, 30, offset.GetValue())
+
+	require.NoError(t, store.DeleteOffset(ctx, "unknown"))
+}

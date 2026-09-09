@@ -1259,6 +1259,74 @@ func TestEngineSagaHappyPath(t *testing.T) {
 	assert.NotNil(t, info.State)
 }
 
+// TestEngineSagaOffsetRemoval asserts, through the engine, what happens to the
+// offsets a saga recorded while it followed an entity, once the saga completes:
+// they are deleted when the engine is configured with WithOffsetRemoval and
+// kept otherwise.
+func TestEngineSagaOffsetRemoval(t *testing.T) {
+	ctx := context.Background()
+
+	for _, tc := range []struct {
+		name    string
+		options []Option
+		deleted bool
+	}{
+		{name: "the offsets are deleted with WithOffsetRemoval", options: []Option{WithOffsetRemoval()}, deleted: true},
+		{name: "the offsets are kept without it"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := testkit.NewEventsStore()
+			require.NoError(t, store.Connect(ctx))
+			t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+			offsetStore := testkit.NewOffsetStore()
+			require.NoError(t, offsetStore.Connect(ctx))
+			t.Cleanup(func() { _ = offsetStore.Disconnect(ctx) })
+
+			options := append([]Option{WithLogger(DiscardLogger), WithOffsetStore(offsetStore)}, tc.options...)
+			engine := newTestEngine(t, "Sample", store, options...)
+			require.NoError(t, engine.Start(ctx))
+
+			sagaID := "saga-" + uuid.NewString()
+			require.NoError(t, engine.Saga(ctx, &callbackSagaBehavior{id: sagaID, handleEvent: completeOnCredit}, 0))
+			pause.For(time.Second)
+
+			entityID := uuid.NewString()
+			require.NoError(t, engine.Entity(ctx, NewEventSourcedEntity(entityID)))
+			_, _, err := engine.SendCommand(ctx, entityID, &testpb.CreateAccount{AccountBalance: 100}, time.Minute)
+			require.NoError(t, err)
+
+			// the saga records its progress on the shard the entity's events land on
+			created, err := store.GetLatestEvent(ctx, entityID)
+			require.NoError(t, err)
+			shard := created.GetShard()
+
+			require.Eventually(t, func() bool {
+				return sagaOffset(offsetStore, sagaID, shard) != nil
+			}, sagaOffsetWait, sagaOffsetPollInterval, "the saga recorded no offset while it ran")
+
+			_, _, err = engine.SendCommand(ctx, entityID, &testpb.CreditAccount{AccountId: entityID, Balance: 50}, time.Minute)
+			require.NoError(t, err)
+
+			require.Eventually(t, func() bool {
+				info, statusErr := engine.SagaStatus(ctx, sagaID, time.Second)
+				return statusErr == nil && info.Status == SagaCompleted
+			}, sagaOffsetWait, sagaOffsetPollInterval, "the saga did not complete")
+
+			if tc.deleted {
+				require.Eventually(t, func() bool {
+					return sagaOffset(offsetStore, sagaID, shard) == nil
+				}, sagaOffsetWait, sagaOffsetPollInterval, "the offsets of the completed saga were not deleted")
+
+				return
+			}
+
+			pause.For(time.Second)
+			assert.NotNil(t, sagaOffset(offsetStore, sagaID, shard), "the offsets of the completed saga were deleted")
+		})
+	}
+}
+
 // TestEngineSagaRequiresOffsetStore pins the saga's dependency on an offset
 // store: a saga follows the journal through one, so the engine refuses to
 // start a saga that would otherwise never see an event.

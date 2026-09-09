@@ -412,7 +412,7 @@ eGo includes first-class saga support for long-running business processes that c
 
 A saga consumes the journal, starting at the moment it first ran, and records how far it has read in the offset store. Configure one with `ego.WithOffsetStore(...)`; without it `Engine.Saga` returns `ego.ErrOffsetStoreRequired`. Reading the journal is what lets a saga see the events of every entity it coordinates, whichever cluster node persisted them: events written on the saga's own node reach it immediately, events written by a peer within the poll interval.
 
-Delivery is at-least-once, so `SagaBehavior.HandleEvent` must be idempotent: an event already handled is handed to the saga again when it restarts before its progress was recorded. A saga that completes or fails leaves its offset rows in the offset store.
+Delivery is at-least-once, so `SagaBehavior.HandleEvent` must be idempotent: an event already handled is handed to the saga again when it restarts before its progress was recorded. By default a saga that completes or fails leaves its offset rows in the offset store. Configure the engine with `ego.WithOffsetRemoval()` to have eGo delete them once the saga completes or fails: a settled saga never reads the journal again, so nothing consumes those rows.
 
 A saga is fed through the same runner as a projection, so the same read lag and ordering apply: the events of one entity reach the saga in the order they were persisted, but events of different entities may arrive in another order than they happened. A saga coordinating several entities has to tolerate a step arriving before the one it logically follows, for instance by tracking in its own state which steps it still expects.
 
