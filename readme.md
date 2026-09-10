@@ -208,6 +208,8 @@ if err := engine.DurableStateEntity(ctx, behavior); err != nil {
 }
 ```
 
+A durable-state command handler deletes the entity's state by returning `egopb.DeletedState` as the new state with the next version: the state store keeps a tombstone carrying that version and no state, the deletion is published to the state subscribers under that version, and the entity continues from its initial state at that version, so its versions keep increasing across the deletion. A later recovery finds the tombstone and continues the same way.
+
 Behavior values are Go-Akt dependencies. In addition to the methods above, they provide an `ID` and binary marshalling methods so they can travel with cluster spawn requests. See the [event-sourced](./example/eventssourced), [durable-state](./example/durablestate), and [saga](./example/saga) examples for complete implementations.
 
 ### Event-sourced vs durable-state
@@ -401,6 +403,8 @@ You can also implement `ego.EventPublisher` or `ego.StatePublisher`. Publisher p
 
 Delivery to publishers is best-effort. Each `Publish` call runs under the timeout set with `WithPublishTimeout` (30 seconds by default) and is retried with backoff on failure. A payload that still cannot be delivered is dropped, as is any payload that arrives while a publisher already has 10,000 payloads waiting. Drops are logged and counted on the `ego.publisher.dropped.total` metric, labelled by publisher ID. Payloads produced before a publisher is added, or while the process is down, are never published.
 
+When every event must reach its destination, publish from a projection instead: register one with `WithProjection` whose handler calls the publisher. It reads the journal, so it delivers at least once, in order per shard, resumes after an outage from the offset it recorded, runs as a single instance in a cluster, and keeps one set of offset rows like any other projection. State publishers have no such path, since durable state is not journaled.
+
 ## Sagas and process managers
 
 eGo includes first-class saga support for long-running business processes that coordinate multiple entities. You can:
@@ -412,7 +416,9 @@ eGo includes first-class saga support for long-running business processes that c
 
 A saga consumes the journal, starting at the moment it first ran, and records how far it has read in the offset store. Configure one with `ego.WithOffsetStore(...)`; without it `Engine.Saga` returns `ego.ErrOffsetStoreRequired`. Reading the journal is what lets a saga see the events of every entity it coordinates, whichever cluster node persisted them: events written on the saga's own node reach it immediately, events written by a peer within the poll interval.
 
-Delivery is at-least-once, so `SagaBehavior.HandleEvent` must be idempotent: an event already handled is handed to the saga again when it restarts before its progress was recorded. A saga that completes or fails leaves its offset rows in the offset store.
+Delivery is at-least-once, so `SagaBehavior.HandleEvent` must be idempotent: an event already handled is handed to the saga again when it restarts before its progress was recorded. By default a saga that completes or fails leaves its offset rows in the offset store. Start the saga with `ego.WithOffsetRemoval()`, as in `engine.Saga(ctx, behavior, timeout, ego.WithOffsetRemoval())`, to have eGo delete them once the saga completes or fails: a settled saga never reads the journal again, so nothing consumes those rows.
+
+Compensation commands must be idempotent as well: a saga restarted while it compensates sends again every compensation its journal does not record as applied, so a participant can receive one twice.
 
 A saga is fed through the same runner as a projection, so the same read lag and ordering apply: the events of one entity reach the saga in the order they were persisted, but events of different entities may arrive in another order than they happened. A saga coordinating several entities has to tolerate a step arriving before the one it logically follows, for instance by tracking in its own state which steps it still expects.
 
@@ -542,7 +548,7 @@ eGo includes several production-focused capabilities:
 - Faster recovery through [snapshots](#snapshots-and-retention)
 - Storage cleanup through [retention policies](#snapshots-and-retention)
 - At-rest [encryption](#encryption-and-schema-evolution) for events and snapshots
-- GDPR-style erasure with `Engine.EraseEntity(...)`: the live entity is stopped, then with `full=false` its encryption key is deleted through the store configured with `WithKeyStore` (crypto-shredding), and with `full=true` its events and snapshots are deleted as well
+- GDPR-style erasure with `Engine.EraseEntity(...)`: the live entity is stopped, then with `full=false` its encryption key is deleted through the store configured with `WithKeyStore` (crypto-shredding), and with `full=true` its events and snapshots are deleted as well, and the durable state from its store when one is configured with `WithStateStore`.
 - Store write failures are handed to the entity's supervisor: the default `RestartDirective` replays the journal on the same PID, `StopDirective` stops the entity
 - Pluggable structured logging via `ego.WithLogger(...)`
 

@@ -129,6 +129,10 @@ type projectionRunner struct {
 	workerCtx    context.Context
 	workerCancel context.CancelFunc
 
+	// workers tracks the worker goroutines started in Start, so that a caller
+	// can wait for the last of them to exit. See waitForWorkers.
+	workers sync.WaitGroup
+
 	// retrier is pre-created once for RetryAndFail / RetryAndSkip policies to
 	// avoid allocating a new retrier on every event.
 	retrier *retry.Retrier
@@ -303,6 +307,7 @@ func (x *projectionRunner) Start(ctx context.Context) error {
 		go x.nudgeLoop(x.workerCtx)
 	}
 
+	x.workers.Add(numWorkers)
 	for range numWorkers {
 		go x.worker(x.workerCtx)
 	}
@@ -586,6 +591,8 @@ func (x *projectionRunner) nudgeLoop(ctx context.Context) {
 // worker is one member of the persistent goroutine pool.  It reads shard items
 // from workCh and processes them until the pool context is cancelled.
 func (x *projectionRunner) worker(ctx context.Context) {
+	defer x.workers.Done()
+
 	for {
 		select {
 		case item, ok := <-x.workCh:
@@ -958,4 +965,14 @@ func (x *projectionRunner) invalidateShardOffsets() {
 	if invalidator, ok := x.eventsStore.(shardOffsetsInvalidator); ok {
 		invalidator.InvalidateShardOffsets()
 	}
+}
+
+// waitForWorkers blocks until every worker goroutine of the pool has exited.
+//
+// Stop only signals the pool: a worker that is already processing a batch runs
+// it to the end and can still commit an offset after Stop has returned.
+// Anything that must happen after the runner's very last commit waits here
+// first. A runner that was never started returns immediately.
+func (x *projectionRunner) waitForWorkers() {
+	x.workers.Wait()
 }

@@ -68,6 +68,53 @@ func (_c *OffsetStore_Connect_Call) RunAndReturn(run func(context.Context) error
 	return _c
 }
 
+// DeleteOffset provides a mock function with given fields: ctx, projectionName
+func (_m *OffsetStore) DeleteOffset(ctx context.Context, projectionName string) error {
+	ret := _m.Called(ctx, projectionName)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteOffset")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, projectionName)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// OffsetStore_DeleteOffset_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteOffset'
+type OffsetStore_DeleteOffset_Call struct {
+	*mock.Call
+}
+
+// DeleteOffset is a helper method to define mock.On call
+//   - ctx context.Context
+//   - projectionName string
+func (_e *OffsetStore_Expecter) DeleteOffset(ctx interface{}, projectionName interface{}) *OffsetStore_DeleteOffset_Call {
+	return &OffsetStore_DeleteOffset_Call{Call: _e.mock.On("DeleteOffset", ctx, projectionName)}
+}
+
+func (_c *OffsetStore_DeleteOffset_Call) Run(run func(ctx context.Context, projectionName string)) *OffsetStore_DeleteOffset_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *OffsetStore_DeleteOffset_Call) Return(_a0 error) *OffsetStore_DeleteOffset_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *OffsetStore_DeleteOffset_Call) RunAndReturn(run func(context.Context, string) error) *OffsetStore_DeleteOffset_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Disconnect provides a mock function with given fields: ctx
 func (_m *OffsetStore) Disconnect(ctx context.Context) error {
 	ret := _m.Called(ctx)

@@ -79,9 +79,29 @@ message SagaStatusChanged {
   int64 started_at = 3;
 }
 
+// SagaCompensationConfirmed is written to the saga's own journal once a
+// participant has applied the compensation command the saga sent it.
+// A saga that restarts while it is still compensating replays these
+// records and does not send a compensation again to the participants
+// they name
+message SagaCompensationConfirmed {
+  // Specifies the persistence id of the participant that was compensated
+  string entity_id = 1;
+  // Specifies the timestamp of the confirmation
+  int64 timestamp = 2;
+}
+
 // GetSagaStatus tells the saga to reply with its
 // current status and state
 message GetSagaStatus {}
+
+// DeletedState is the state a durable-state command handler returns, with
+// the next version, to delete the entity's durable state. The durable state
+// store keeps a tombstone carrying that version and no state, the deletion
+// is published to the state subscribers under that version, and the entity
+// continues from its initial state at that version, so its versions keep
+// increasing. A later recovery finds the tombstone and continues the same way
+message DeletedState {}
 
 // SagaStatusReply is the reply to a GetSagaStatus query
 message SagaStatusReply {

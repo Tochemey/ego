@@ -57,6 +57,10 @@ const (
 	// defaultPublishTimeout bounds one attempt to deliver a payload to an
 	// external publisher when WithPublishTimeout is not set.
 	defaultPublishTimeout = 30 * time.Second
+	// removeStateVersion is the version passed to StateStore.DeleteState so
+	// the record is removed instead of being kept as a tombstone: an erasure
+	// leaves nothing behind.
+	removeStateVersion uint64 = 0
 	// publisherQueueCapacity caps the payloads waiting for a publisher. A
 	// publisher that falls further behind than this drops the excess, and the
 	// drops are counted, instead of the queue growing until the process dies.
@@ -881,15 +885,18 @@ func (engine *Engine) AddStatePublishers(publishers ...StatePublisher) error {
 // recovery, and supports compensation logic for rollback on failures. It reads
 // the journal from the moment it first ran and records its progress in the
 // offset store, so an offset store must be configured with WithOffsetStore.
+// Those offsets are kept once the saga completes or fails, unless the saga is
+// started with WithOffsetRemoval, in which case eGo deletes them then.
 //
 // Parameters:
 //   - ctx: Execution context for controlling the saga lifecycle.
 //   - behavior: Defines the saga's logic including event handling, command dispatch, and compensation.
 //   - timeout: Maximum duration for the saga. Zero means no timeout.
+//   - opts: Options for this saga, such as WithOffsetRemoval.
 //
 // Returns ErrOffsetStoreRequired when no offset store is configured, or an
 // error if the saga fails to initialize.
-func (engine *Engine) Saga(ctx context.Context, behavior SagaBehavior, timeout time.Duration) error {
+func (engine *Engine) Saga(ctx context.Context, behavior SagaBehavior, timeout time.Duration, opts ...SagaOption) error {
 	if !engine.Started() {
 		return ErrEngineNotStarted
 	}
@@ -914,7 +921,8 @@ func (engine *Engine) Saga(ctx context.Context, behavior SagaBehavior, timeout t
 	// actor system is not started, which the Started check above rules out.
 	_ = actorSystem.Inject(behavior)
 
-	sagaCfg := extensions.NewSagaConfig(timeout)
+	config := newSagaConfig(opts...)
+	sagaCfg := extensions.NewSagaConfig(timeout, config.offsetRemoval)
 	_ = actorSystem.Inject(sagaCfg)
 	actor := newSagaActor()
 
@@ -992,8 +1000,8 @@ func (engine *Engine) SagaStatus(ctx context.Context, sagaID string, timeout tim
 // stores. ErrKeyStoreRequired is returned when no key store is configured.
 //
 // With full set to true the key is deleted when a key store is configured, and
-// the events and snapshots are physically deleted from their stores as well.
-// Durable-state records are not covered.
+// the events and snapshots are physically deleted from their stores as well,
+// as is the durable state when a state store is configured with WithStateStore.
 func (engine *Engine) EraseEntity(ctx context.Context, persistenceID string, full bool) error {
 	if !engine.Started() {
 		return ErrEngineNotStarted
@@ -1002,6 +1010,7 @@ func (engine *Engine) EraseEntity(ctx context.Context, persistenceID string, ful
 	engine.mutex.RLock()
 	eventsStore := engine.eventsStore
 	snapshotStore := engine.snapshotStore
+	stateStore := engine.stateStore
 	keyStore := engine.keyStore
 	engine.mutex.RUnlock()
 
@@ -1038,6 +1047,12 @@ func (engine *Engine) EraseEntity(ctx context.Context, persistenceID string, ful
 	if snapshotStore != nil && latestEvent != nil {
 		if err := snapshotStore.DeleteSnapshots(ctx, persistenceID, latestEvent.GetSequenceNumber()); err != nil {
 			return fmt.Errorf("failed to delete snapshots for erasure: %w", err)
+		}
+	}
+
+	if stateStore != nil {
+		if err := stateStore.DeleteState(ctx, persistenceID, removeStateVersion); err != nil {
+			return fmt.Errorf("failed to delete the durable state for erasure: %w", err)
 		}
 	}
 

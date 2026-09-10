@@ -30,6 +30,7 @@ import (
 
 	goakt "github.com/tochemey/goakt/v4/actor"
 	"github.com/tochemey/goakt/v4/log"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
 	"github.com/tochemey/ego/v4/egopb"
@@ -76,6 +77,17 @@ type sagaCommandResult struct {
 	compensation bool
 }
 
+// sagaOffsetsDeleted carries the outcome of the deletion of the saga's offsets
+// back to the saga mailbox. The deletion runs off the actor goroutine, so the
+// saga keeps answering while the store is slow, and the outcome is logged on
+// the actor's serialized message loop.
+type sagaOffsetsDeleted struct {
+	// projectionName is the name the offsets were recorded under.
+	projectionName string
+	// err is the failure the deletion returned after its retries, if any.
+	err error
+}
+
 // SagaActor implements a saga/process manager as a Go-Akt actor.
 // It reads the journal, reacts to events via the SagaBehavior, persists its
 // own events, and coordinates commands to other entities.
@@ -89,6 +101,12 @@ type SagaActor struct {
 	status        SagaStatus
 	sagaID        string
 	timeout       time.Duration
+
+	// offsetRemoval reports whether the offsets recorded while the saga read
+	// the journal are deleted once the saga settles. It travels with the saga
+	// in its SagaConfig, so a relocated saga keeps the retention policy of the
+	// deployment.
+	offsetRemoval bool
 
 	// runner reads the journal on the saga's behalf and hands every event
 	// written since the saga started to eventHandler. It is the saga's only
@@ -123,11 +141,20 @@ type SagaActor struct {
 	// compensation has answered.
 	compensationFailed bool
 
+	// confirmedCompensations holds the participants whose compensation the
+	// journal records as applied. A saga restarted while compensating sends
+	// again only the compensations that are not in it.
+	confirmedCompensations map[string]struct{}
+
 	// actorSystem and logger are stored during PostStart so that code running
 	// outside a receive turn can use them safely after the ReceiveContext
 	// from PostStart has been returned to the pool.
 	actorSystem goakt.ActorSystem
 	logger      log.Logger
+
+	// self is the saga's own PID, captured in PostStart so that work started
+	// outside a receive turn can be piped back to the mailbox.
+	self *goakt.PID
 }
 
 // implements the goakt.Actor interface
@@ -174,6 +201,7 @@ func (s *SagaActor) PreStart(ctx *goakt.Context) error {
 
 		if cfg, ok := dependency.(*extensions.SagaConfig); ok {
 			s.timeout = cfg.Timeout
+			s.offsetRemoval = cfg.OffsetRemoval
 		}
 	}
 
@@ -195,6 +223,13 @@ func (s *SagaActor) PreStart(ctx *goakt.Context) error {
 	s.firstStart = s.startedAt == 0
 	if s.firstStart {
 		s.startedAt = time.Now().UnixNano()
+	}
+
+	// A settled saga is never fed the journal again, so it starts no runner: a
+	// completed or failed saga that restarts or relocates neither polls the
+	// journal nor records offsets for events it would only discard.
+	if s.status == SagaCompleted || s.status == SagaFailed {
+		return nil
 	}
 
 	s.eventHandler = &sagaEventHandler{sagaID: s.sagaID}
@@ -246,7 +281,14 @@ func (s *SagaActor) Receive(ctx *goakt.ReceiveContext) {
 		// Capture stable references before the ReceiveContext is returned to the pool.
 		s.actorSystem = ctx.ActorSystem()
 		s.logger = ctx.Logger()
+		s.self = ctx.Self()
 		s.shard = ctx.ActorSystem().Partition(s.sagaID)
+
+		// A saga recovered as settled has no runner and nothing left to do
+		// beyond answering status queries.
+		if s.status == SagaCompleted || s.status == SagaFailed {
+			return
+		}
 
 		// Hand the actor PID to the runner and its handler before the journal
 		// is read: the handler delivers through it, and a runner that dies on
@@ -262,6 +304,14 @@ func (s *SagaActor) Receive(ctx *goakt.ReceiveContext) {
 
 		s.runner.Run(ctx.Context())
 		s.armTimeout(ctx)
+
+		// A saga recovered while compensating lost, with the process, the
+		// replies it was waiting for. It issues its compensations again,
+		// except those the journal records as confirmed, and settles on
+		// their outcome as the live path does.
+		if s.status == SagaCompensating {
+			s.compensate(ctx)
+		}
 	case *egopb.Event:
 		s.handleJournalEvent(ctx, message)
 
@@ -271,6 +321,8 @@ func (s *SagaActor) Receive(ctx *goakt.ReceiveContext) {
 		ctx.Response(new(egopb.NoReply))
 	case *runnerFailed:
 		s.handleRunnerFailure(ctx, message.err)
+	case *sagaOffsetsDeleted:
+		s.handleOffsetsDeleted(message)
 	case *sagaCommandResult:
 		s.handleCommandResult(ctx, message)
 	case *sagaTimeoutMsg:
@@ -304,6 +356,7 @@ func (s *SagaActor) PostStop(ctx *goakt.Context) error {
 func (s *SagaActor) recover(ctx context.Context) error {
 	s.currentState = s.behavior.InitialState()
 	s.status = SagaRunning
+	s.confirmedCompensations = make(map[string]struct{})
 
 	latestEvent, err := s.eventsStore.GetLatestEvent(ctx, s.sagaID)
 	if err != nil {
@@ -331,6 +384,13 @@ func (s *SagaActor) recover(ctx context.Context) error {
 		if statusChanged, ok := eventMsg.(*egopb.SagaStatusChanged); ok {
 			s.status = SagaStatus(statusChanged.GetStatus())
 			s.startedAt = statusChanged.GetStartedAt()
+			continue
+		}
+
+		// A confirmed compensation is bookkeeping as well: it names a
+		// participant that must not be compensated again after a restart.
+		if confirmed, ok := eventMsg.(*egopb.SagaCompensationConfirmed); ok {
+			s.confirmedCompensations[confirmed.GetEntityId()] = struct{}{}
 			continue
 		}
 
@@ -622,6 +682,10 @@ func participantState(result *sagaCommandResult) (State, error) {
 // participant must not be left uncompensated because an earlier one could not
 // be reached. The outcomes come back through the mailbox and the saga settles
 // its status once the last one has answered.
+//
+// A compensation the journal records as confirmed is not issued again: a saga
+// restarted while compensating resumes with the ones still unanswered, and
+// settles at once when none is left.
 func (s *SagaActor) compensate(ctx *goakt.ReceiveContext) {
 	commands, err := s.behavior.Compensate(context.Background(), s.currentState)
 	if err != nil {
@@ -630,15 +694,24 @@ func (s *SagaActor) compensate(ctx *goakt.ReceiveContext) {
 		return
 	}
 
-	if len(commands) == 0 {
+	pending := make([]SagaCommand, 0, len(commands))
+	for _, cmd := range commands {
+		if _, confirmed := s.confirmedCompensations[cmd.EntityID]; confirmed {
+			continue
+		}
+
+		pending = append(pending, cmd)
+	}
+
+	if len(pending) == 0 {
 		s.recordStatus(ctx.Context(), SagaCompleted)
 		return
 	}
 
-	s.pendingCompensations = len(commands)
+	s.pendingCompensations = len(pending)
 	s.compensationFailed = false
 
-	for _, cmd := range commands {
+	for _, cmd := range pending {
 		s.askParticipant(ctx, cmd, true)
 	}
 }
@@ -648,11 +721,15 @@ func (s *SagaActor) compensate(ctx *goakt.ReceiveContext) {
 //
 // A compensation fails when the participant could not be reached and also when
 // it answered with an error reply: a rejected compensation leaves the
-// participant uncompensated just as an unreachable one does.
+// participant uncompensated just as an unreachable one does. A compensation
+// the participant applied is journaled as confirmed before it is counted, so
+// a saga restarted before the round is over does not send it again.
 func (s *SagaActor) handleCompensationResult(ctx *goakt.ReceiveContext, result *sagaCommandResult) {
 	if _, err := participantState(result); err != nil {
 		s.logger.Errorf("saga %s: compensation command to %s failed: %v", s.sagaID, result.entityID, err)
 		s.compensationFailed = true
+	} else {
+		s.recordCompensation(ctx.Context(), result.entityID)
 	}
 
 	s.pendingCompensations--
@@ -694,26 +771,55 @@ func (s *SagaActor) recordStatus(ctx context.Context, status SagaStatus) {
 		if s.runner != nil {
 			_ = s.runner.Stop()
 		}
+
+		if s.offsetRemoval {
+			s.cleanupOffsets()
+		}
 	}
 }
 
-// journalStatus appends a SagaStatusChanged envelope to the saga journal and
-// advances the sequence counter once the write succeeds.
+// journalStatus appends a SagaStatusChanged envelope to the saga journal.
 func (s *SagaActor) journalStatus(ctx context.Context, status SagaStatus) error {
-	statusAny, err := anypb.New(&egopb.SagaStatusChanged{
+	return s.journalBookkeeping(ctx, &egopb.SagaStatusChanged{
 		Status:    uint32(status),
 		Timestamp: time.Now().UnixNano(),
 		StartedAt: s.startedAt,
 	})
+}
+
+// recordCompensation journals that a participant applied its compensation and
+// remembers it, so the compensation is not sent again after a restart.
+//
+// The write is retried with backoff. When every attempt fails the compensation
+// is still counted, since the participant did apply it; the failure is logged
+// and a later restart sends that compensation once more.
+func (s *SagaActor) recordCompensation(ctx context.Context, entityID string) {
+	err := retryWithBackoff(ctx, defaultMaxRetries, func() error {
+		return s.journalBookkeeping(ctx, &egopb.SagaCompensationConfirmed{
+			EntityId:  entityID,
+			Timestamp: time.Now().UnixNano(),
+		})
+	})
 	if err != nil {
-		return fmt.Errorf("failed to marshal the saga status: %w", err)
+		s.logger.Errorf("saga %s: failed to journal the compensation of %s: %v", s.sagaID, entityID, err)
+	}
+
+	s.confirmedCompensations[entityID] = struct{}{}
+}
+
+// journalBookkeeping appends one of eGo's own bookkeeping messages to the saga
+// journal and advances the sequence counter once the write succeeds.
+func (s *SagaActor) journalBookkeeping(ctx context.Context, message proto.Message) error {
+	messageAny, err := anypb.New(message)
+	if err != nil {
+		return fmt.Errorf("failed to marshal the saga bookkeeping: %w", err)
 	}
 
 	sequenceNumber := s.eventsCounter + 1
 	envelope := &egopb.Event{
 		PersistenceId:  s.sagaID,
 		SequenceNumber: sequenceNumber,
-		Event:          statusAny,
+		Event:          messageAny,
 		Timestamp:      time.Now().UnixNano(),
 		Shard:          s.shard,
 	}
@@ -789,4 +895,55 @@ func (s *SagaActor) replyWithState(ctx *goakt.ReceiveContext) {
 		},
 	}
 	ctx.Response(reply)
+}
+
+// cleanupOffsets runs the deletion of the offsets the saga recorded
+// while it read the journal, under its own projection name. Only the saga's
+// own rows are removed; the offsets of projections are never touched.
+//
+// The deletion is piped: it runs off the actor loop, touches no saga state,
+// and its outcome comes back to the mailbox as a sagaOffsetsDeleted. When the
+// saga has a runner, the task first waits for its workers: a worker can still
+// commit an offset after Stop has returned, and it may be waiting on an ask
+// that only the actor loop can answer.
+func (s *SagaActor) cleanupOffsets() {
+	projectionName := sagaRunnerNamePrefix + s.sagaID
+	offsetStore := s.offsetStore
+	runner := s.runner
+
+	// The PID and the logger are both captured in PostStart, and a saga cannot
+	// settle before it has started, so there is nothing to pipe to, and no
+	// logger to say so, only when the actor is driven outside a running actor
+	// system.
+	if s.self == nil {
+		return
+	}
+
+	err := s.self.PipeTo(context.Background(), s.self, func() (any, error) {
+		if runner != nil {
+			runner.waitForWorkers()
+		}
+
+		ctx := context.Background()
+		err := retryWithBackoff(ctx, defaultMaxRetries, func() error {
+			return offsetStore.DeleteOffset(ctx, projectionName)
+		})
+
+		return &sagaOffsetsDeleted{projectionName: projectionName, err: err}, nil
+	})
+	if err != nil {
+		s.logger.Errorf("saga %s: failed to start the deletion of the offsets of %s: %v", s.sagaID, projectionName, err)
+	}
+}
+
+// handleOffsetsDeleted logs the outcome of the deletion of the saga's offsets.
+// A failed deletion leaves the rows in place, exactly as they are without the
+// option, and is logged for the operator.
+func (s *SagaActor) handleOffsetsDeleted(outcome *sagaOffsetsDeleted) {
+	if outcome.err != nil {
+		s.logger.Errorf("saga %s: failed to delete the offsets of %s: %v", s.sagaID, outcome.projectionName, outcome.err)
+		return
+	}
+
+	s.logger.Debugf("saga %s: deleted the offsets of %s", s.sagaID, outcome.projectionName)
 }

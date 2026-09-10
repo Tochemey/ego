@@ -66,6 +66,10 @@ type SagaBehavior interface {
 	ApplyEvent(ctx context.Context, event Event, state State) (State, error)
 	// Compensate is called when the saga needs to roll back completed steps.
 	// It receives the current saga state and returns commands to undo prior work.
+	//
+	// Compensation commands must be idempotent: a saga restarted while it
+	// compensates sends again every compensation its journal does not record
+	// as applied, so a participant can receive one twice.
 	Compensate(ctx context.Context, state State) ([]SagaCommand, error)
 }
 

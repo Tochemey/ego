@@ -481,6 +481,65 @@ func (x *SagaStatusChanged) GetStartedAt() int64 {
 	return 0
 }
 
+// SagaCompensationConfirmed is written to the saga's own journal once a
+// participant has applied the compensation command the saga sent it.
+// A saga that restarts while it is still compensating replays these
+// records and does not send a compensation again to the participants
+// they name
+type SagaCompensationConfirmed struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Specifies the persistence id of the participant that was compensated
+	EntityId string `protobuf:"bytes,1,opt,name=entity_id,json=entityId,proto3" json:"entity_id,omitempty"`
+	// Specifies the timestamp of the confirmation
+	Timestamp     int64 `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SagaCompensationConfirmed) Reset() {
+	*x = SagaCompensationConfirmed{}
+	mi := &file_ego_ego_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SagaCompensationConfirmed) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SagaCompensationConfirmed) ProtoMessage() {}
+
+func (x *SagaCompensationConfirmed) ProtoReflect() protoreflect.Message {
+	mi := &file_ego_ego_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SagaCompensationConfirmed.ProtoReflect.Descriptor instead.
+func (*SagaCompensationConfirmed) Descriptor() ([]byte, []int) {
+	return file_ego_ego_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *SagaCompensationConfirmed) GetEntityId() string {
+	if x != nil {
+		return x.EntityId
+	}
+	return ""
+}
+
+func (x *SagaCompensationConfirmed) GetTimestamp() int64 {
+	if x != nil {
+		return x.Timestamp
+	}
+	return 0
+}
+
 // GetSagaStatus tells the saga to reply with its
 // current status and state
 type GetSagaStatus struct {
@@ -491,7 +550,7 @@ type GetSagaStatus struct {
 
 func (x *GetSagaStatus) Reset() {
 	*x = GetSagaStatus{}
-	mi := &file_ego_ego_proto_msgTypes[7]
+	mi := &file_ego_ego_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -503,7 +562,7 @@ func (x *GetSagaStatus) String() string {
 func (*GetSagaStatus) ProtoMessage() {}
 
 func (x *GetSagaStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_ego_ego_proto_msgTypes[7]
+	mi := &file_ego_ego_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -516,7 +575,49 @@ func (x *GetSagaStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSagaStatus.ProtoReflect.Descriptor instead.
 func (*GetSagaStatus) Descriptor() ([]byte, []int) {
-	return file_ego_ego_proto_rawDescGZIP(), []int{7}
+	return file_ego_ego_proto_rawDescGZIP(), []int{8}
+}
+
+// DeletedState is the state a durable-state command handler returns, with
+// the next version, to delete the entity's durable state. The durable state
+// store keeps a tombstone carrying that version and no state, the deletion
+// is published to the state subscribers under that version, and the entity
+// continues from its initial state at that version, so its versions keep
+// increasing. A later recovery finds the tombstone and continues the same way
+type DeletedState struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DeletedState) Reset() {
+	*x = DeletedState{}
+	mi := &file_ego_ego_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DeletedState) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DeletedState) ProtoMessage() {}
+
+func (x *DeletedState) ProtoReflect() protoreflect.Message {
+	mi := &file_ego_ego_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DeletedState.ProtoReflect.Descriptor instead.
+func (*DeletedState) Descriptor() ([]byte, []int) {
+	return file_ego_ego_proto_rawDescGZIP(), []int{9}
 }
 
 // SagaStatusReply is the reply to a GetSagaStatus query
@@ -536,7 +637,7 @@ type SagaStatusReply struct {
 
 func (x *SagaStatusReply) Reset() {
 	*x = SagaStatusReply{}
-	mi := &file_ego_ego_proto_msgTypes[8]
+	mi := &file_ego_ego_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -548,7 +649,7 @@ func (x *SagaStatusReply) String() string {
 func (*SagaStatusReply) ProtoMessage() {}
 
 func (x *SagaStatusReply) ProtoReflect() protoreflect.Message {
-	mi := &file_ego_ego_proto_msgTypes[8]
+	mi := &file_ego_ego_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -561,7 +662,7 @@ func (x *SagaStatusReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SagaStatusReply.ProtoReflect.Descriptor instead.
 func (*SagaStatusReply) Descriptor() ([]byte, []int) {
-	return file_ego_ego_proto_rawDescGZIP(), []int{8}
+	return file_ego_ego_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *SagaStatusReply) GetSagaId() string {
@@ -609,7 +710,7 @@ type Offset struct {
 
 func (x *Offset) Reset() {
 	*x = Offset{}
-	mi := &file_ego_ego_proto_msgTypes[9]
+	mi := &file_ego_ego_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -621,7 +722,7 @@ func (x *Offset) String() string {
 func (*Offset) ProtoMessage() {}
 
 func (x *Offset) ProtoReflect() protoreflect.Message {
-	mi := &file_ego_ego_proto_msgTypes[9]
+	mi := &file_ego_ego_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -634,7 +735,7 @@ func (x *Offset) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Offset.ProtoReflect.Descriptor instead.
 func (*Offset) Descriptor() ([]byte, []int) {
-	return file_ego_ego_proto_rawDescGZIP(), []int{9}
+	return file_ego_ego_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *Offset) GetShardNumber() uint64 {
@@ -678,7 +779,7 @@ type ProjectionId struct {
 
 func (x *ProjectionId) Reset() {
 	*x = ProjectionId{}
-	mi := &file_ego_ego_proto_msgTypes[10]
+	mi := &file_ego_ego_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -690,7 +791,7 @@ func (x *ProjectionId) String() string {
 func (*ProjectionId) ProtoMessage() {}
 
 func (x *ProjectionId) ProtoReflect() protoreflect.Message {
-	mi := &file_ego_ego_proto_msgTypes[10]
+	mi := &file_ego_ego_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -703,7 +804,7 @@ func (x *ProjectionId) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProjectionId.ProtoReflect.Descriptor instead.
 func (*ProjectionId) Descriptor() ([]byte, []int) {
-	return file_ego_ego_proto_rawDescGZIP(), []int{10}
+	return file_ego_ego_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ProjectionId) GetProjectionName() string {
@@ -744,7 +845,7 @@ type Snapshot struct {
 
 func (x *Snapshot) Reset() {
 	*x = Snapshot{}
-	mi := &file_ego_ego_proto_msgTypes[11]
+	mi := &file_ego_ego_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -756,7 +857,7 @@ func (x *Snapshot) String() string {
 func (*Snapshot) ProtoMessage() {}
 
 func (x *Snapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_ego_ego_proto_msgTypes[11]
+	mi := &file_ego_ego_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -769,7 +870,7 @@ func (x *Snapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Snapshot.ProtoReflect.Descriptor instead.
 func (*Snapshot) Descriptor() ([]byte, []int) {
-	return file_ego_ego_proto_rawDescGZIP(), []int{11}
+	return file_ego_ego_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *Snapshot) GetPersistenceId() string {
@@ -834,7 +935,7 @@ type DurableState struct {
 
 func (x *DurableState) Reset() {
 	*x = DurableState{}
-	mi := &file_ego_ego_proto_msgTypes[12]
+	mi := &file_ego_ego_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -846,7 +947,7 @@ func (x *DurableState) String() string {
 func (*DurableState) ProtoMessage() {}
 
 func (x *DurableState) ProtoReflect() protoreflect.Message {
-	mi := &file_ego_ego_proto_msgTypes[12]
+	mi := &file_ego_ego_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -859,7 +960,7 @@ func (x *DurableState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DurableState.ProtoReflect.Descriptor instead.
 func (*DurableState) Descriptor() ([]byte, []int) {
-	return file_ego_ego_proto_rawDescGZIP(), []int{12}
+	return file_ego_ego_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *DurableState) GetPersistenceId() string {
@@ -933,8 +1034,12 @@ const file_ego_ego_proto_rawDesc = "" +
 	"\x06status\x18\x01 \x01(\rR\x06status\x12\x1c\n" +
 	"\ttimestamp\x18\x02 \x01(\x03R\ttimestamp\x12\x1d\n" +
 	"\n" +
-	"started_at\x18\x03 \x01(\x03R\tstartedAt\"\x0f\n" +
-	"\rGetSagaStatus\"\x97\x01\n" +
+	"started_at\x18\x03 \x01(\x03R\tstartedAt\"V\n" +
+	"\x19SagaCompensationConfirmed\x12\x1b\n" +
+	"\tentity_id\x18\x01 \x01(\tR\bentityId\x12\x1c\n" +
+	"\ttimestamp\x18\x02 \x01(\x03R\ttimestamp\"\x0f\n" +
+	"\rGetSagaStatus\"\x0e\n" +
+	"\fDeletedState\"\x97\x01\n" +
 	"\x0fSagaStatusReply\x12\x17\n" +
 	"\asaga_id\x18\x01 \x01(\tR\x06sagaId\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\rR\x06status\x12*\n" +
@@ -975,31 +1080,33 @@ func file_ego_ego_proto_rawDescGZIP() []byte {
 	return file_ego_ego_proto_rawDescData
 }
 
-var file_ego_ego_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_ego_ego_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_ego_ego_proto_goTypes = []any{
-	(*Event)(nil),             // 0: egopb.Event
-	(*CommandReply)(nil),      // 1: egopb.CommandReply
-	(*StateReply)(nil),        // 2: egopb.StateReply
-	(*ErrorReply)(nil),        // 3: egopb.ErrorReply
-	(*NoReply)(nil),           // 4: egopb.NoReply
-	(*GetStateCommand)(nil),   // 5: egopb.GetStateCommand
-	(*SagaStatusChanged)(nil), // 6: egopb.SagaStatusChanged
-	(*GetSagaStatus)(nil),     // 7: egopb.GetSagaStatus
-	(*SagaStatusReply)(nil),   // 8: egopb.SagaStatusReply
-	(*Offset)(nil),            // 9: egopb.Offset
-	(*ProjectionId)(nil),      // 10: egopb.ProjectionId
-	(*Snapshot)(nil),          // 11: egopb.Snapshot
-	(*DurableState)(nil),      // 12: egopb.DurableState
-	(*anypb.Any)(nil),         // 13: google.protobuf.Any
+	(*Event)(nil),                     // 0: egopb.Event
+	(*CommandReply)(nil),              // 1: egopb.CommandReply
+	(*StateReply)(nil),                // 2: egopb.StateReply
+	(*ErrorReply)(nil),                // 3: egopb.ErrorReply
+	(*NoReply)(nil),                   // 4: egopb.NoReply
+	(*GetStateCommand)(nil),           // 5: egopb.GetStateCommand
+	(*SagaStatusChanged)(nil),         // 6: egopb.SagaStatusChanged
+	(*SagaCompensationConfirmed)(nil), // 7: egopb.SagaCompensationConfirmed
+	(*GetSagaStatus)(nil),             // 8: egopb.GetSagaStatus
+	(*DeletedState)(nil),              // 9: egopb.DeletedState
+	(*SagaStatusReply)(nil),           // 10: egopb.SagaStatusReply
+	(*Offset)(nil),                    // 11: egopb.Offset
+	(*ProjectionId)(nil),              // 12: egopb.ProjectionId
+	(*Snapshot)(nil),                  // 13: egopb.Snapshot
+	(*DurableState)(nil),              // 14: egopb.DurableState
+	(*anypb.Any)(nil),                 // 15: google.protobuf.Any
 }
 var file_ego_ego_proto_depIdxs = []int32{
-	13, // 0: egopb.Event.event:type_name -> google.protobuf.Any
+	15, // 0: egopb.Event.event:type_name -> google.protobuf.Any
 	2,  // 1: egopb.CommandReply.state_reply:type_name -> egopb.StateReply
 	3,  // 2: egopb.CommandReply.error_reply:type_name -> egopb.ErrorReply
-	13, // 3: egopb.StateReply.state:type_name -> google.protobuf.Any
-	13, // 4: egopb.SagaStatusReply.state:type_name -> google.protobuf.Any
-	13, // 5: egopb.Snapshot.state:type_name -> google.protobuf.Any
-	13, // 6: egopb.DurableState.resulting_state:type_name -> google.protobuf.Any
+	15, // 3: egopb.StateReply.state:type_name -> google.protobuf.Any
+	15, // 4: egopb.SagaStatusReply.state:type_name -> google.protobuf.Any
+	15, // 5: egopb.Snapshot.state:type_name -> google.protobuf.Any
+	15, // 6: egopb.DurableState.resulting_state:type_name -> google.protobuf.Any
 	7,  // [7:7] is the sub-list for method output_type
 	7,  // [7:7] is the sub-list for method input_type
 	7,  // [7:7] is the sub-list for extension type_name
@@ -1022,7 +1129,7 @@ func file_ego_ego_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ego_ego_proto_rawDesc), len(file_ego_ego_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

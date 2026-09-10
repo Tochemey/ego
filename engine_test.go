@@ -1090,6 +1090,34 @@ func TestEngineEraseEntity(t *testing.T) {
 		require.NotNil(t, remaining)
 	})
 
+	t.Run("full=true deletes the durable state", func(t *testing.T) {
+		store := testkit.NewEventsStore()
+		require.NoError(t, store.Connect(ctx))
+		t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+		durableStore := testkit.NewDurableStore()
+		require.NoError(t, durableStore.Connect(ctx))
+		t.Cleanup(func() { _ = durableStore.Disconnect(ctx) })
+
+		engine := newTestEngine(t, "Sample", store, WithLogger(DiscardLogger), WithStateStore(durableStore))
+		require.NoError(t, engine.Start(ctx))
+
+		entityID := uuid.NewString()
+		require.NoError(t, engine.DurableStateEntity(ctx, NewAccountDurableStateBehavior(entityID)))
+		_, _, err := engine.SendCommand(ctx, entityID, &testpb.CreateAccount{AccountBalance: 100}, time.Minute)
+		require.NoError(t, err)
+
+		stored, err := durableStore.GetLatestState(ctx, entityID)
+		require.NoError(t, err)
+		require.NotNil(t, stored)
+
+		require.NoError(t, engine.EraseEntity(ctx, entityID, true))
+
+		stored, err = durableStore.GetLatestState(ctx, entityID)
+		require.NoError(t, err)
+		assert.Nil(t, stored, "the durable state survived the erasure")
+	})
+
 	t.Run("erasure stops the live entity", func(t *testing.T) {
 		store := testkit.NewEventsStore()
 		require.NoError(t, store.Connect(ctx))
@@ -1257,6 +1285,73 @@ func TestEngineSagaHappyPath(t *testing.T) {
 	assert.Equal(t, sagaID, info.ID)
 	assert.Equal(t, SagaRunning, info.Status)
 	assert.NotNil(t, info.State)
+}
+
+// TestEngineSagaOffsetRemoval asserts, through the engine, what happens to the
+// offsets a saga recorded while it followed an entity, once the saga completes:
+// they are deleted when the saga is started with WithOffsetRemoval and kept
+// otherwise.
+func TestEngineSagaOffsetRemoval(t *testing.T) {
+	ctx := context.Background()
+
+	for _, tc := range []struct {
+		name    string
+		options []SagaOption
+		deleted bool
+	}{
+		{name: "the offsets are deleted with WithOffsetRemoval", options: []SagaOption{WithOffsetRemoval()}, deleted: true},
+		{name: "the offsets are kept without it"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := testkit.NewEventsStore()
+			require.NoError(t, store.Connect(ctx))
+			t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+			offsetStore := testkit.NewOffsetStore()
+			require.NoError(t, offsetStore.Connect(ctx))
+			t.Cleanup(func() { _ = offsetStore.Disconnect(ctx) })
+
+			engine := newTestEngine(t, "Sample", store, WithLogger(DiscardLogger), WithOffsetStore(offsetStore))
+			require.NoError(t, engine.Start(ctx))
+
+			sagaID := "saga-" + uuid.NewString()
+			require.NoError(t, engine.Saga(ctx, &callbackSagaBehavior{id: sagaID, handleEvent: completeOnCredit}, 0, tc.options...))
+			pause.For(time.Second)
+
+			entityID := uuid.NewString()
+			require.NoError(t, engine.Entity(ctx, NewEventSourcedEntity(entityID)))
+			_, _, err := engine.SendCommand(ctx, entityID, &testpb.CreateAccount{AccountBalance: 100}, time.Minute)
+			require.NoError(t, err)
+
+			// the saga records its progress on the shard the entity's events land on
+			created, err := store.GetLatestEvent(ctx, entityID)
+			require.NoError(t, err)
+			shard := created.GetShard()
+
+			require.Eventually(t, func() bool {
+				return sagaOffset(offsetStore, sagaID, shard) != nil
+			}, sagaOffsetWait, sagaOffsetPollInterval, "the saga recorded no offset while it ran")
+
+			_, _, err = engine.SendCommand(ctx, entityID, &testpb.CreditAccount{AccountId: entityID, Balance: 50}, time.Minute)
+			require.NoError(t, err)
+
+			require.Eventually(t, func() bool {
+				info, statusErr := engine.SagaStatus(ctx, sagaID, time.Second)
+				return statusErr == nil && info.Status == SagaCompleted
+			}, sagaOffsetWait, sagaOffsetPollInterval, "the saga did not complete")
+
+			if tc.deleted {
+				require.Eventually(t, func() bool {
+					return sagaOffset(offsetStore, sagaID, shard) == nil
+				}, sagaOffsetWait, sagaOffsetPollInterval, "the offsets of the completed saga were not deleted")
+
+				return
+			}
+
+			pause.For(time.Second)
+			assert.NotNil(t, sagaOffset(offsetStore, sagaID, shard), "the offsets of the completed saga were deleted")
+		})
+	}
 }
 
 // TestEngineSagaRequiresOffsetStore pins the saga's dependency on an offset
@@ -2060,6 +2155,21 @@ func TestEngineEraseEntityStoreErrors(t *testing.T) {
 		err := engine.EraseEntity(ctx, "pid-1", true)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to get latest event for erasure")
+	})
+
+	t.Run("DeleteState error", func(t *testing.T) {
+		eventsStore := new(mockpersistence.EventsStore)
+		eventsStore.On("GetLatestEvent", mock.Anything, mock.AnythingOfType("string")).
+			Return(nil, nil)
+
+		stateStore := new(mockpersistence.StateStore)
+		stateStore.On("DeleteState", mock.Anything, "pid-1", uint64(0)).Return(errors.New("boom"))
+
+		engine := synthEngineWithStores(eventsStore, nil, nil)
+		engine.stateStore = stateStore
+		err := engine.EraseEntity(ctx, "pid-1", true)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to delete the durable state for erasure")
 	})
 
 	t.Run("DeleteEvents error", func(t *testing.T) {

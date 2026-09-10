@@ -350,15 +350,16 @@ func (x *EntityConfig) UnmarshalBinary(data []byte) error {
 
 // SagaConfig is a dependency that carries per-saga spawn configuration.
 type SagaConfig struct {
-	Timeout time.Duration `json:"timeout"`
+	Timeout       time.Duration `json:"timeout"`
+	OffsetRemoval bool          `json:"offset_removal"`
 }
 
 // enforce compliance with the extension.Dependency interface
 var _ extension.Dependency = (*SagaConfig)(nil)
 
 // NewSagaConfig creates a new saga config dependency
-func NewSagaConfig(timeout time.Duration) *SagaConfig {
-	return &SagaConfig{Timeout: timeout}
+func NewSagaConfig(timeout time.Duration, offsetRemoval bool) *SagaConfig {
+	return &SagaConfig{Timeout: timeout, OffsetRemoval: offsetRemoval}
 }
 
 // ID returns the identifier for the SagaConfig
