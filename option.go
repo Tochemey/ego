@@ -62,11 +62,6 @@ type Config struct {
 	// loop indefinitely.
 	publishTimeout time.Duration
 
-	// offsetRemoval reports whether eGo deletes the offsets a saga recorded
-	// while it ran, once the saga completes or fails. It is set with
-	// WithOffsetRemoval; offsets are kept when it is not.
-	offsetRemoval bool
-
 	// eventStream is the in-process pub/sub stream eGo's entity actors
 	// publish to and the engine's publishers/subscribers consume from. It is
 	// allocated by NewConfig and the same instance is wired into the actor
@@ -373,28 +368,6 @@ func WithEncryptor(encryptor encryption.Encryptor) Option {
 func WithKeyStore(keyStore encryption.KeyStore) Option {
 	return OptionFunc(func(c *Config) {
 		c.keyStore = keyStore
-	})
-}
-
-// WithOffsetRemoval makes eGo delete the offsets of a saga once the saga
-// completes or fails.
-//
-// A saga is fed from the journal and records how far it has read in the offset
-// store, one row per shard it read, under the projection name
-// `ego.saga.<saga id>`. A settled saga never reads the journal again, so those
-// rows have no reader; without this option they are kept, and the store grows
-// with the number of sagas ever run. With it, the rows of a saga that reached
-// SagaCompleted or SagaFailed are removed, and only its own: the offsets of
-// projections are never touched.
-//
-// Deletion happens at settlement only. A saga that is still running when it is
-// stopped, restarted or relocated always resumes from the offsets it recorded.
-//
-// The option is engine-wide and requires an offset store, which Engine.Saga
-// requires anyway.
-func WithOffsetRemoval() Option {
-	return OptionFunc(func(c *Config) {
-		c.offsetRemoval = true
 	})
 }
 

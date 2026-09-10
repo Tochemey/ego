@@ -16,7 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### ✨ Features
 
-- **A saga's offsets can be deleted once it settles.** A saga records how far it has read under `ego.saga.<saga id>`, one row per shard, and a saga that completed or failed never reads the journal again, so those rows keep a store that has no reader for them. The new `WithOffsetRemoval` option makes eGo delete them when the saga reaches `SagaCompleted` or `SagaFailed`. Only the saga's own rows are removed; projection offsets are never touched. Without the option the rows are kept, as they are today, and a saga that is still running always resumes from its offsets whenever it is restarted or relocated.
+- **A saga's offsets can be deleted once it settles.** A saga records how far it has read under `ego.saga.<saga id>`, one row per shard, and a saga that completed or failed never reads the journal again, so those rows keep a store that has no reader for them. `Engine.Saga` now accepts saga options, and the new `WithOffsetRemoval` option makes eGo delete them when the saga reaches `SagaCompleted` or `SagaFailed`. Only the saga's own rows are removed; projection offsets are never touched. Without the option the rows are kept, as they are today, and a saga that is still running always resumes from its offsets whenever it is restarted or relocated.
 
 ### 🐛 Bug Fixes
 

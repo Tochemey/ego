@@ -71,14 +71,6 @@ func TestOptionWithOffsetStore(t *testing.T) {
 	assert.Equal(t, store, c.offsetStore)
 }
 
-func TestOptionWithOffsetRemoval(t *testing.T) {
-	c := NewConfig(nil)
-	assert.False(t, c.offsetRemoval)
-
-	c = NewConfig(nil, WithOffsetRemoval())
-	assert.True(t, c.offsetRemoval)
-}
-
 func TestOptionWithSnapshotStore(t *testing.T) {
 	store := testkit.NewSnapshotStore()
 	c := NewConfig(nil, WithSnapshotStore(store))

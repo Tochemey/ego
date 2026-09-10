@@ -1261,17 +1261,17 @@ func TestEngineSagaHappyPath(t *testing.T) {
 
 // TestEngineSagaOffsetRemoval asserts, through the engine, what happens to the
 // offsets a saga recorded while it followed an entity, once the saga completes:
-// they are deleted when the engine is configured with WithOffsetRemoval and
-// kept otherwise.
+// they are deleted when the saga is started with WithOffsetRemoval and kept
+// otherwise.
 func TestEngineSagaOffsetRemoval(t *testing.T) {
 	ctx := context.Background()
 
 	for _, tc := range []struct {
 		name    string
-		options []Option
+		options []SagaOption
 		deleted bool
 	}{
-		{name: "the offsets are deleted with WithOffsetRemoval", options: []Option{WithOffsetRemoval()}, deleted: true},
+		{name: "the offsets are deleted with WithOffsetRemoval", options: []SagaOption{WithOffsetRemoval()}, deleted: true},
 		{name: "the offsets are kept without it"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1283,12 +1283,11 @@ func TestEngineSagaOffsetRemoval(t *testing.T) {
 			require.NoError(t, offsetStore.Connect(ctx))
 			t.Cleanup(func() { _ = offsetStore.Disconnect(ctx) })
 
-			options := append([]Option{WithLogger(DiscardLogger), WithOffsetStore(offsetStore)}, tc.options...)
-			engine := newTestEngine(t, "Sample", store, options...)
+			engine := newTestEngine(t, "Sample", store, WithLogger(DiscardLogger), WithOffsetStore(offsetStore))
 			require.NoError(t, engine.Start(ctx))
 
 			sagaID := "saga-" + uuid.NewString()
-			require.NoError(t, engine.Saga(ctx, &callbackSagaBehavior{id: sagaID, handleEvent: completeOnCredit}, 0))
+			require.NoError(t, engine.Saga(ctx, &callbackSagaBehavior{id: sagaID, handleEvent: completeOnCredit}, 0, tc.options...))
 			pause.For(time.Second)
 
 			entityID := uuid.NewString()
