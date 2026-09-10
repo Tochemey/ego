@@ -30,6 +30,7 @@ import (
 
 	goakt "github.com/tochemey/goakt/v4/actor"
 	"github.com/tochemey/goakt/v4/log"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
 	"github.com/tochemey/ego/v4/egopb"
@@ -139,6 +140,11 @@ type SagaActor struct {
 	// round failed, so the saga can settle on SagaFailed once every
 	// compensation has answered.
 	compensationFailed bool
+
+	// confirmedCompensations holds the participants whose compensation the
+	// journal records as applied. A saga restarted while compensating sends
+	// again only the compensations that are not in it.
+	confirmedCompensations map[string]struct{}
 
 	// actorSystem and logger are stored during PostStart so that code running
 	// outside a receive turn can use them safely after the ReceiveContext
@@ -298,6 +304,14 @@ func (s *SagaActor) Receive(ctx *goakt.ReceiveContext) {
 
 		s.runner.Run(ctx.Context())
 		s.armTimeout(ctx)
+
+		// A saga recovered while compensating lost, with the process, the
+		// replies it was waiting for. It issues its compensations again,
+		// except those the journal records as confirmed, and settles on
+		// their outcome as the live path does.
+		if s.status == SagaCompensating {
+			s.compensate(ctx)
+		}
 	case *egopb.Event:
 		s.handleJournalEvent(ctx, message)
 
@@ -342,6 +356,7 @@ func (s *SagaActor) PostStop(ctx *goakt.Context) error {
 func (s *SagaActor) recover(ctx context.Context) error {
 	s.currentState = s.behavior.InitialState()
 	s.status = SagaRunning
+	s.confirmedCompensations = make(map[string]struct{})
 
 	latestEvent, err := s.eventsStore.GetLatestEvent(ctx, s.sagaID)
 	if err != nil {
@@ -369,6 +384,13 @@ func (s *SagaActor) recover(ctx context.Context) error {
 		if statusChanged, ok := eventMsg.(*egopb.SagaStatusChanged); ok {
 			s.status = SagaStatus(statusChanged.GetStatus())
 			s.startedAt = statusChanged.GetStartedAt()
+			continue
+		}
+
+		// A confirmed compensation is bookkeeping as well: it names a
+		// participant that must not be compensated again after a restart.
+		if confirmed, ok := eventMsg.(*egopb.SagaCompensationConfirmed); ok {
+			s.confirmedCompensations[confirmed.GetEntityId()] = struct{}{}
 			continue
 		}
 
@@ -660,6 +682,10 @@ func participantState(result *sagaCommandResult) (State, error) {
 // participant must not be left uncompensated because an earlier one could not
 // be reached. The outcomes come back through the mailbox and the saga settles
 // its status once the last one has answered.
+//
+// A compensation the journal records as confirmed is not issued again: a saga
+// restarted while compensating resumes with the ones still unanswered, and
+// settles at once when none is left.
 func (s *SagaActor) compensate(ctx *goakt.ReceiveContext) {
 	commands, err := s.behavior.Compensate(context.Background(), s.currentState)
 	if err != nil {
@@ -668,15 +694,24 @@ func (s *SagaActor) compensate(ctx *goakt.ReceiveContext) {
 		return
 	}
 
-	if len(commands) == 0 {
+	pending := make([]SagaCommand, 0, len(commands))
+	for _, cmd := range commands {
+		if _, confirmed := s.confirmedCompensations[cmd.EntityID]; confirmed {
+			continue
+		}
+
+		pending = append(pending, cmd)
+	}
+
+	if len(pending) == 0 {
 		s.recordStatus(ctx.Context(), SagaCompleted)
 		return
 	}
 
-	s.pendingCompensations = len(commands)
+	s.pendingCompensations = len(pending)
 	s.compensationFailed = false
 
-	for _, cmd := range commands {
+	for _, cmd := range pending {
 		s.askParticipant(ctx, cmd, true)
 	}
 }
@@ -686,11 +721,15 @@ func (s *SagaActor) compensate(ctx *goakt.ReceiveContext) {
 //
 // A compensation fails when the participant could not be reached and also when
 // it answered with an error reply: a rejected compensation leaves the
-// participant uncompensated just as an unreachable one does.
+// participant uncompensated just as an unreachable one does. A compensation
+// the participant applied is journaled as confirmed before it is counted, so
+// a saga restarted before the round is over does not send it again.
 func (s *SagaActor) handleCompensationResult(ctx *goakt.ReceiveContext, result *sagaCommandResult) {
 	if _, err := participantState(result); err != nil {
 		s.logger.Errorf("saga %s: compensation command to %s failed: %v", s.sagaID, result.entityID, err)
 		s.compensationFailed = true
+	} else {
+		s.recordCompensation(ctx.Context(), result.entityID)
 	}
 
 	s.pendingCompensations--
@@ -739,23 +778,48 @@ func (s *SagaActor) recordStatus(ctx context.Context, status SagaStatus) {
 	}
 }
 
-// journalStatus appends a SagaStatusChanged envelope to the saga journal and
-// advances the sequence counter once the write succeeds.
+// journalStatus appends a SagaStatusChanged envelope to the saga journal.
 func (s *SagaActor) journalStatus(ctx context.Context, status SagaStatus) error {
-	statusAny, err := anypb.New(&egopb.SagaStatusChanged{
+	return s.journalBookkeeping(ctx, &egopb.SagaStatusChanged{
 		Status:    uint32(status),
 		Timestamp: time.Now().UnixNano(),
 		StartedAt: s.startedAt,
 	})
+}
+
+// recordCompensation journals that a participant applied its compensation and
+// remembers it, so the compensation is not sent again after a restart.
+//
+// The write is retried with backoff. When every attempt fails the compensation
+// is still counted, since the participant did apply it; the failure is logged
+// and a later restart sends that compensation once more.
+func (s *SagaActor) recordCompensation(ctx context.Context, entityID string) {
+	err := retryWithBackoff(ctx, defaultMaxRetries, func() error {
+		return s.journalBookkeeping(ctx, &egopb.SagaCompensationConfirmed{
+			EntityId:  entityID,
+			Timestamp: time.Now().UnixNano(),
+		})
+	})
 	if err != nil {
-		return fmt.Errorf("failed to marshal the saga status: %w", err)
+		s.logger.Errorf("saga %s: failed to journal the compensation of %s: %v", s.sagaID, entityID, err)
+	}
+
+	s.confirmedCompensations[entityID] = struct{}{}
+}
+
+// journalBookkeeping appends one of eGo's own bookkeeping messages to the saga
+// journal and advances the sequence counter once the write succeeds.
+func (s *SagaActor) journalBookkeeping(ctx context.Context, message proto.Message) error {
+	messageAny, err := anypb.New(message)
+	if err != nil {
+		return fmt.Errorf("failed to marshal the saga bookkeeping: %w", err)
 	}
 
 	sequenceNumber := s.eventsCounter + 1
 	envelope := &egopb.Event{
 		PersistenceId:  s.sagaID,
 		SequenceNumber: sequenceNumber,
-		Event:          statusAny,
+		Event:          messageAny,
 		Timestamp:      time.Now().UnixNano(),
 		Shard:          s.shard,
 	}

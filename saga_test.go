@@ -66,6 +66,16 @@ const (
 	sagaTestTimeout = 5 * time.Second
 	// sagaTestCommandTimeout bounds a saga command sent to a test participant.
 	sagaTestCommandTimeout = time.Second
+	// sagaTestSlowParticipantDelay is how long a slow participant holds a
+	// compensation, long enough for a test to restart the saga meanwhile.
+	sagaTestSlowParticipantDelay = 3 * time.Second
+	// sagaTestCompensationTimeout bounds a compensation sent to a slow
+	// participant, longer than the delay it holds the command for.
+	sagaTestCompensationTimeout = 10 * time.Second
+	// sagaTestCompensationWait bounds how long a test waits for a restarted
+	// saga to settle: the slow participant answers the first command and the
+	// one sent again in turn.
+	sagaTestCompensationWait = 20 * time.Second
 )
 
 func TestSagaStatus_String(t *testing.T) {
@@ -3816,6 +3826,182 @@ func TestSagaOffsetRemoval(t *testing.T) {
 	})
 }
 
+// TestSagaResumesCompensationAfterRestart asserts that a saga restarted while
+// it was compensating finishes its compensation instead of waiting forever for
+// replies that were lost with the process: it sends again only the
+// compensations its journal does not record as confirmed and settles on their
+// outcome.
+func TestSagaResumesCompensationAfterRestart(t *testing.T) {
+	ctx := context.TODO()
+
+	t.Run("only the unconfirmed compensation is sent again and the saga completes", func(t *testing.T) {
+		sagaID := uuid.NewString()
+		quickID := uuid.NewString()
+		slowID := uuid.NewString()
+
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+		defer eventStore.Disconnect(ctx) //nolint:errcheck
+
+		stream := eventstream.New()
+		defer stream.Close()
+
+		actorSystem := newSagaTestSystemWithOffsetStore(t, ctx, eventStore, stream, newTestOffsetStore(t))
+
+		quick := &countingReplyActor{reply: participantReply(t, quickID)}
+		slow := &countingReplyActor{reply: participantReply(t, slowID), delay: sagaTestSlowParticipantDelay}
+		_, err := actorSystem.Spawn(ctx, quickID, quick, goakt.WithLongLived())
+		require.NoError(t, err)
+		_, err = actorSystem.Spawn(ctx, slowID, slow, goakt.WithLongLived())
+		require.NoError(t, err)
+		pause.For(500 * time.Millisecond)
+
+		behavior := &callbackSagaBehavior{
+			id:          sagaID,
+			handleEvent: compensateOnCredit,
+			compensate: func(_ context.Context, _ State) ([]SagaCommand, error) {
+				return []SagaCommand{
+					{EntityID: quickID, Command: new(emptypb.Empty), Timeout: sagaTestCompensationTimeout},
+					{EntityID: slowID, Command: new(emptypb.Empty), Timeout: sagaTestCompensationTimeout},
+				}, nil
+			},
+		}
+		sagaCfg := extensions.NewSagaConfig(0, false)
+
+		spawnSaga(t, ctx, actorSystem, behavior, sagaCfg)
+		journalSagaTestEvent(t, eventStore, stream, &testpb.AccountCredited{AccountId: uuid.NewString()})
+
+		// the quick participant answers and its confirmation reaches the journal
+		// while the slow one is still busy
+		awaitSagaJournaled[*egopb.SagaCompensationConfirmed](t, ctx, eventStore, sagaID)
+		require.EqualValues(t, 1, quick.received.Load())
+		require.EqualValues(t, 1, slow.received.Load())
+
+		require.NoError(t, actorSystem.Kill(ctx, sagaID))
+		pause.For(500 * time.Millisecond)
+
+		pid := spawnSaga(t, ctx, actorSystem, behavior, sagaCfg)
+		require.Equal(t, SagaCompensating, sagaStatusOf(t, ctx, pid))
+
+		require.Eventually(t, func() bool {
+			return sagaStatusOf(t, ctx, pid) == SagaCompleted
+		}, sagaTestCompensationWait, sagaOffsetPollInterval, "the restarted saga never completed its compensation")
+
+		assert.EqualValues(t, 1, quick.received.Load(), "a confirmed compensation was sent again")
+		assert.EqualValues(t, 2, slow.received.Load(), "the unconfirmed compensation was not sent again")
+
+		stream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("a compensation that fails after the restart fails the saga", func(t *testing.T) {
+		sagaID := uuid.NewString()
+		quickID := uuid.NewString()
+		slowID := uuid.NewString()
+
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+		defer eventStore.Disconnect(ctx) //nolint:errcheck
+
+		stream := eventstream.New()
+		defer stream.Close()
+
+		actorSystem := newSagaTestSystemWithOffsetStore(t, ctx, eventStore, stream, newTestOffsetStore(t))
+
+		quick := &countingReplyActor{reply: participantReply(t, quickID)}
+		slow := &countingReplyActor{reply: participantReply(t, slowID), delay: sagaTestSlowParticipantDelay}
+		_, err := actorSystem.Spawn(ctx, quickID, quick, goakt.WithLongLived())
+		require.NoError(t, err)
+		_, err = actorSystem.Spawn(ctx, slowID, slow, goakt.WithLongLived())
+		require.NoError(t, err)
+		pause.For(500 * time.Millisecond)
+
+		behavior := &callbackSagaBehavior{
+			id:          sagaID,
+			handleEvent: compensateOnCredit,
+			compensate: func(_ context.Context, _ State) ([]SagaCommand, error) {
+				return []SagaCommand{
+					{EntityID: quickID, Command: new(emptypb.Empty), Timeout: sagaTestCompensationTimeout},
+					{EntityID: slowID, Command: new(emptypb.Empty), Timeout: sagaTestCompensationTimeout},
+				}, nil
+			},
+		}
+		sagaCfg := extensions.NewSagaConfig(0, false)
+
+		spawnSaga(t, ctx, actorSystem, behavior, sagaCfg)
+		journalSagaTestEvent(t, eventStore, stream, &testpb.AccountCredited{AccountId: uuid.NewString()})
+		awaitSagaJournaled[*egopb.SagaCompensationConfirmed](t, ctx, eventStore, sagaID)
+
+		// the slow participant is gone by the time the saga comes back, so the
+		// compensation sent again cannot be delivered
+		require.NoError(t, actorSystem.Kill(ctx, sagaID))
+		require.NoError(t, actorSystem.Kill(ctx, slowID))
+		pause.For(500 * time.Millisecond)
+
+		pid := spawnSaga(t, ctx, actorSystem, behavior, sagaCfg)
+
+		require.Eventually(t, func() bool {
+			return sagaStatusOf(t, ctx, pid) == SagaFailed
+		}, sagaTestCompensationWait, sagaOffsetPollInterval, "the restarted saga did not fail on the undeliverable compensation")
+
+		assert.EqualValues(t, 1, quick.received.Load(), "a confirmed compensation was sent again")
+
+		stream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("a saga whose compensations are all confirmed completes on restart", func(t *testing.T) {
+		sagaID := uuid.NewString()
+		quickID := uuid.NewString()
+
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+		defer eventStore.Disconnect(ctx) //nolint:errcheck
+
+		stream := eventstream.New()
+		defer stream.Close()
+
+		actorSystem := newSagaTestSystemWithOffsetStore(t, ctx, eventStore, stream, newTestOffsetStore(t))
+
+		quick := &countingReplyActor{reply: participantReply(t, quickID)}
+		_, err := actorSystem.Spawn(ctx, quickID, quick, goakt.WithLongLived())
+		require.NoError(t, err)
+		pause.For(500 * time.Millisecond)
+
+		// the journal of a saga that crashed between its last confirmation and
+		// the completed status: compensating, then the only compensation confirmed
+		writeSagaBookkeeping(t, ctx, eventStore, sagaID, actorSystem.Partition(sagaID),
+			&egopb.SagaStatusChanged{Status: uint32(SagaCompensating), Timestamp: time.Now().UnixNano(), StartedAt: time.Now().UnixNano()},
+			&egopb.SagaCompensationConfirmed{EntityId: quickID, Timestamp: time.Now().UnixNano()},
+		)
+
+		behavior := &callbackSagaBehavior{
+			id: sagaID,
+			compensate: func(_ context.Context, _ State) ([]SagaCommand, error) {
+				return []SagaCommand{{EntityID: quickID, Command: new(emptypb.Empty), Timeout: sagaTestCompensationTimeout}}, nil
+			},
+			applyEvent: func(_ context.Context, event Event, state State) (State, error) {
+				if _, ok := event.(*egopb.SagaCompensationConfirmed); ok {
+					t.Error("a confirmation was applied to the saga state")
+				}
+
+				return state, nil
+			},
+		}
+
+		pid := spawnSaga(t, ctx, actorSystem, behavior, extensions.NewSagaConfig(0, false))
+
+		require.Eventually(t, func() bool {
+			return sagaStatusOf(t, ctx, pid) == SagaCompleted
+		}, sagaTestCompensationWait, sagaOffsetPollInterval, "the saga did not complete from its confirmed compensations")
+
+		assert.Zero(t, quick.received.Load(), "a confirmed compensation was sent again")
+
+		stream.Close()
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+}
+
 // newSagaTestSystemWithOffsetStore starts an actor system wired with the given
 // events store, event stream and offset store, ready to host a saga actor. The
 // offset store is the caller's, so a test can read the offsets the saga records.
@@ -3915,6 +4101,78 @@ func (x *blockingOffsetStore) DeleteOffset(ctx context.Context, projectionName s
 
 	<-x.release
 	return x.OffsetStore.DeleteOffset(ctx, projectionName)
+}
+
+// countingReplyActor answers every command with a fixed reply after an
+// optional delay and counts the commands it received, so a test can assert
+// which compensations a saga sent and how many times.
+type countingReplyActor struct {
+	// reply is what the actor answers to every command.
+	reply proto.Message
+	// delay is how long the actor waits before it answers.
+	delay time.Duration
+	// received counts the commands the actor was asked.
+	received atomic.Int32
+}
+
+var _ goakt.Actor = (*countingReplyActor)(nil)
+
+// PreStart is a no-op.
+func (a *countingReplyActor) PreStart(_ *goakt.Context) error { return nil }
+
+// PostStop is a no-op.
+func (a *countingReplyActor) PostStop(_ *goakt.Context) error { return nil }
+
+// Receive counts the command, waits for the delay and answers.
+func (a *countingReplyActor) Receive(ctx *goakt.ReceiveContext) {
+	if _, ok := ctx.Message().(*goakt.PostStart); ok {
+		return
+	}
+
+	a.received.Add(1)
+	pause.For(a.delay)
+	ctx.Response(a.reply)
+}
+
+// awaitSagaJournaled waits until the latest event in the saga's journal is of
+// the given type.
+func awaitSagaJournaled[T proto.Message](t *testing.T, ctx context.Context, eventStore persistence.EventsStore, sagaID string) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		latest, err := eventStore.GetLatestEvent(ctx, sagaID)
+		if err != nil || latest == nil {
+			return false
+		}
+
+		message, err := latest.GetEvent().UnmarshalNew()
+		if err != nil {
+			return false
+		}
+
+		_, ok := message.(T)
+		return ok
+	}, sagaTestCompensationWait, sagaOffsetPollInterval, "the saga never journaled the expected event")
+}
+
+// writeSagaBookkeeping writes eGo bookkeeping events straight into a saga's
+// journal, in order, as the journal of a saga that ran before the test would
+// hold them.
+func writeSagaBookkeeping(t *testing.T, ctx context.Context, eventStore persistence.EventsStore, sagaID string, shard uint64, messages ...proto.Message) {
+	t.Helper()
+
+	envelopes := make([]*egopb.Event, 0, len(messages))
+	for index, message := range messages {
+		envelopes = append(envelopes, &egopb.Event{
+			PersistenceId:  sagaID,
+			SequenceNumber: uint64(index + 1),
+			Event:          mustAny(t, message),
+			Timestamp:      time.Now().UnixNano(),
+			Shard:          shard,
+		})
+	}
+
+	require.NoError(t, eventStore.WriteEvents(ctx, envelopes))
 }
 
 // participantReply is what a test participant answers to a saga command: the

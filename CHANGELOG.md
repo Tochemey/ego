@@ -12,6 +12,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **`SagaBehavior.HandleEvent` must be idempotent.** Journal delivery is at-least-once: an event already handled is handed to the saga again when it restarts before its progress was recorded. A handler that assumed exactly-once delivery has to be made idempotent.
 
+- **`SagaBehavior.Compensate` commands must be idempotent.** A saga restarted while it compensates sends again every compensation its journal does not record as applied (see the fix below), so a participant can receive a compensation twice. A compensation handler that assumed exactly-once delivery has to be made idempotent.
+
 - **`offsetstore.OffsetStore` gains `DeleteOffset`.** `DeleteOffset(ctx, projectionName)` removes the offset of a projection across all shards, and deleting the offset of a projection that has none is not an error. Every implementor must add it; the SQL stores implement it as a delete by projection name, next to the `ResetOffset` they already have.
 
 ### ✨ Features
@@ -55,6 +57,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **The testkit stores behave like real ones under a rebuild and a full buffer.** `testkit.OffsetStore.ResetOffset` read its map values as keys and panicked as soon as the store held a row, so `RebuildProjection` could not be exercised against it. `testkit.EventStore.GetShardEvents` applied the limit before sorting events whose map iterates in random order, returning one event more than asked and not necessarily the oldest, so a limited read could report an offset past events it never returned. The reset now rewrites every row of the projection, and a shard read sorts first and then cuts to the limit.
 
 - **The README lists the ego-contrib stores that exist.** MongoDB event, snapshot, offset, and durable-state stores were listed but have never shipped; the Persistence section now shows the actual coverage per backend.
+
+- **A saga restarted while compensating now finishes its compensation.** The replies to its compensation commands came back through tasks that died with the process, and the count of pending compensations lived in memory only, so a saga that restarted or relocated mid-compensation came back compensating and stayed so forever. Each compensation a participant applies is now journaled in the saga's own journal as `egopb.SagaCompensationConfirmed`, and a saga recovered as compensating sends again only the compensations not recorded as confirmed and settles on their outcome, at once when none is left.
 
 - **A settled saga no longer polls the journal after a restart.** A completed or failed saga that restarted or relocated started its journal runner again, so it kept pulling events it discarded on arrival and rewriting its offsets for as long as it was hosted. Such a saga now starts no runner at all, which is also what keeps a saga with `WithOffsetRemoval` from recording new rows under the offsets it deleted when it settled.
 

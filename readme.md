@@ -414,6 +414,8 @@ A saga consumes the journal, starting at the moment it first ran, and records ho
 
 Delivery is at-least-once, so `SagaBehavior.HandleEvent` must be idempotent: an event already handled is handed to the saga again when it restarts before its progress was recorded. By default a saga that completes or fails leaves its offset rows in the offset store. Start the saga with `ego.WithOffsetRemoval()`, as in `engine.Saga(ctx, behavior, timeout, ego.WithOffsetRemoval())`, to have eGo delete them once the saga completes or fails: a settled saga never reads the journal again, so nothing consumes those rows.
 
+Compensation commands must be idempotent as well: a saga restarted while it compensates sends again every compensation its journal does not record as applied, so a participant can receive one twice.
+
 A saga is fed through the same runner as a projection, so the same read lag and ordering apply: the events of one entity reach the saga in the order they were persisted, but events of different entities may arrive in another order than they happened. A saga coordinating several entities has to tolerate a step arriving before the one it logically follows, for instance by tracking in its own state which steps it still expects.
 
 See the [fund-transfer saga example](./example/saga) for a complete implementation.
