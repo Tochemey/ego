@@ -38,14 +38,23 @@ import (
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
+	"google.golang.org/protobuf/types/known/emptypb"
 
 	"github.com/tochemey/ego/v4/egopb"
 	"github.com/tochemey/ego/v4/eventstream"
 	"github.com/tochemey/ego/v4/internal/extensions"
 	"github.com/tochemey/ego/v4/internal/pause"
 	mocks "github.com/tochemey/ego/v4/mocks/persistence"
+	"github.com/tochemey/ego/v4/persistence"
 	testpb "github.com/tochemey/ego/v4/test/data/testpb"
 	"github.com/tochemey/ego/v4/testkit"
+)
+
+const (
+	// durableStateWait bounds how long a test waits for a state publication.
+	durableStateWait = 5 * time.Second
+	// durableStatePollInterval is how often those waits read the stream.
+	durableStatePollInterval = 100 * time.Millisecond
 )
 
 func TestDurableStateBehavior(t *testing.T) {
@@ -781,4 +790,243 @@ func TestDurableStateWriteFailureKeepsState(t *testing.T) {
 	require.NoError(t, actorSystem.Stop(ctx))
 	pause.For(time.Second)
 	eventStream.Close()
+}
+
+// TestDurableStateDeletion asserts what happens when a durable-state command
+// handler deletes the entity's state by returning egopb.DeletedState.
+func TestDurableStateDeletion(t *testing.T) {
+	ctx := context.TODO()
+
+	t.Run("the state is deleted, published and the entity starts over", func(t *testing.T) {
+		durableStore := testkit.NewDurableStore()
+		require.NoError(t, durableStore.Connect(ctx))
+		t.Cleanup(func() { _ = durableStore.Disconnect(ctx) })
+
+		eventStream := eventstream.New()
+		t.Cleanup(eventStream.Close)
+
+		published := eventStream.AddSubscriber()
+		eventStream.Subscribe(published, statesTopic)
+
+		persistenceID := uuid.NewString()
+		behavior := &closingAccountBehavior{AccountDurableStateBehavior: NewAccountDurableStateBehavior(persistenceID)}
+		actorSystem := newDurableStateTestSystem(t, ctx, durableStore, eventStream)
+
+		pid, err := actorSystem.Spawn(ctx, persistenceID, newDurableStateActor(), goakt.WithDependencies(behavior), goakt.WithLongLived())
+		require.NoError(t, err)
+		pause.For(time.Second)
+
+		created := durableStateReply(t, ctx, pid, &testpb.CreateAccount{AccountBalance: 500})
+		require.EqualValues(t, 1, created.GetSequenceNumber())
+
+		deleted := durableStateReply(t, ctx, pid, new(emptypb.Empty))
+		assert.EqualValues(t, 2, deleted.GetSequenceNumber())
+		assert.True(t, deleted.GetState().MessageIs(new(egopb.DeletedState)), "the reply does not carry the deletion")
+
+		// the store keeps a tombstone: the deleting version and no state
+		stored, err := durableStore.GetLatestState(ctx, persistenceID)
+		require.NoError(t, err)
+		require.NotNil(t, stored, "the tombstone of the deletion is missing")
+		assert.EqualValues(t, 2, stored.GetVersionNumber())
+		assert.Nil(t, stored.GetResultingState(), "the durable state was not deleted")
+
+		// the deletion reaches the state subscribers under the version that deleted
+		require.Eventually(t, func() bool {
+			for _, message := range drainStream(published) {
+				state, ok := message.(*egopb.DurableState)
+				if ok && state.GetVersionNumber() == 2 && state.GetResultingState().MessageIs(new(egopb.DeletedState)) {
+					return true
+				}
+			}
+
+			return false
+		}, durableStateWait, durableStatePollInterval, "the deletion was not published")
+
+		// the entity continues from its initial state at the deleting version,
+		// so the versions keep increasing across the deletion
+		recreated := durableStateReply(t, ctx, pid, &testpb.CreateAccount{AccountBalance: 10})
+		assert.EqualValues(t, 3, recreated.GetSequenceNumber())
+
+		stored, err = durableStore.GetLatestState(ctx, persistenceID)
+		require.NoError(t, err)
+		require.NotNil(t, stored)
+		assert.EqualValues(t, 3, stored.GetVersionNumber())
+
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("a stop after the deletion writes nothing back and a restart recovers the tombstone", func(t *testing.T) {
+		durableStore := testkit.NewDurableStore()
+		require.NoError(t, durableStore.Connect(ctx))
+		t.Cleanup(func() { _ = durableStore.Disconnect(ctx) })
+
+		eventStream := eventstream.New()
+		t.Cleanup(eventStream.Close)
+
+		persistenceID := uuid.NewString()
+		behavior := &closingAccountBehavior{AccountDurableStateBehavior: NewAccountDurableStateBehavior(persistenceID)}
+		actorSystem := newDurableStateTestSystem(t, ctx, durableStore, eventStream)
+
+		pid, err := actorSystem.Spawn(ctx, persistenceID, newDurableStateActor(), goakt.WithDependencies(behavior), goakt.WithLongLived())
+		require.NoError(t, err)
+		pause.For(time.Second)
+
+		durableStateReply(t, ctx, pid, &testpb.CreateAccount{AccountBalance: 500})
+		durableStateReply(t, ctx, pid, new(emptypb.Empty))
+
+		require.NoError(t, actorSystem.Kill(ctx, persistenceID))
+		pause.For(500 * time.Millisecond)
+
+		stored, err := durableStore.GetLatestState(ctx, persistenceID)
+		require.NoError(t, err)
+		require.NotNil(t, stored)
+		assert.Nil(t, stored.GetResultingState(), "stopping the entity wrote its state back after the deletion")
+
+		pid, err = actorSystem.Spawn(ctx, persistenceID, newDurableStateActor(), goakt.WithDependencies(behavior), goakt.WithLongLived())
+		require.NoError(t, err)
+		pause.For(time.Second)
+
+		// the tombstone recovers as the initial state at the deleting version
+		recovered := durableStateReply(t, ctx, pid, new(egopb.GetStateCommand))
+		assert.EqualValues(t, 2, recovered.GetSequenceNumber(), "the restarted entity did not recover the deleting version")
+		assert.True(t, recovered.GetState().MessageIs(new(testpb.Account)))
+
+		// a stop of the recovered entity writes nothing back either
+		require.NoError(t, actorSystem.Kill(ctx, persistenceID))
+		pause.For(500 * time.Millisecond)
+
+		stored, err = durableStore.GetLatestState(ctx, persistenceID)
+		require.NoError(t, err)
+		require.NotNil(t, stored)
+		assert.Nil(t, stored.GetResultingState(), "stopping the recovered entity wrote a state over the tombstone")
+
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("a deletion whose version does not follow the current one is rejected", func(t *testing.T) {
+		durableStore := testkit.NewDurableStore()
+		require.NoError(t, durableStore.Connect(ctx))
+		t.Cleanup(func() { _ = durableStore.Disconnect(ctx) })
+
+		eventStream := eventstream.New()
+		t.Cleanup(eventStream.Close)
+
+		persistenceID := uuid.NewString()
+		behavior := &closingAccountBehavior{AccountDurableStateBehavior: NewAccountDurableStateBehavior(persistenceID), versionSkip: 1}
+		actorSystem := newDurableStateTestSystem(t, ctx, durableStore, eventStream)
+
+		pid, err := actorSystem.Spawn(ctx, persistenceID, newDurableStateActor(), goakt.WithDependencies(behavior), goakt.WithLongLived())
+		require.NoError(t, err)
+		pause.For(time.Second)
+
+		durableStateReply(t, ctx, pid, &testpb.CreateAccount{AccountBalance: 500})
+
+		reply, err := goakt.Ask(ctx, pid, new(emptypb.Empty), 5*time.Second)
+		require.NoError(t, err)
+		require.IsType(t, new(egopb.CommandReply_ErrorReply), reply.(*egopb.CommandReply).GetReply())
+
+		stored, err := durableStore.GetLatestState(ctx, persistenceID)
+		require.NoError(t, err)
+		require.NotNil(t, stored, "a rejected deletion removed the state")
+		assert.EqualValues(t, 1, stored.GetVersionNumber())
+
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+
+	t.Run("a store failure keeps the state and the version", func(t *testing.T) {
+		persistenceID := uuid.NewString()
+
+		stateStore := new(mocks.StateStore)
+		stateStore.On("Ping", mock.Anything).Return(nil)
+		stateStore.On("GetLatestState", mock.Anything, persistenceID).Return(nil, nil)
+		stateStore.On("WriteState", mock.Anything, mock.Anything).Return(nil)
+		stateStore.On("DeleteState", mock.Anything, persistenceID, mock.Anything).Return(assert.AnError)
+
+		eventStream := eventstream.New()
+		t.Cleanup(eventStream.Close)
+
+		behavior := &closingAccountBehavior{AccountDurableStateBehavior: NewAccountDurableStateBehavior(persistenceID)}
+		actorSystem := newDurableStateTestSystem(t, ctx, stateStore, eventStream)
+
+		pid, err := actorSystem.Spawn(ctx, persistenceID, newDurableStateActor(), goakt.WithDependencies(behavior), goakt.WithLongLived())
+		require.NoError(t, err)
+		pause.For(time.Second)
+
+		durableStateReply(t, ctx, pid, &testpb.CreateAccount{AccountBalance: 500})
+
+		reply, err := goakt.Ask(ctx, pid, new(emptypb.Empty), 5*time.Second)
+		require.NoError(t, err)
+		require.IsType(t, new(egopb.CommandReply_ErrorReply), reply.(*egopb.CommandReply).GetReply())
+
+		current := durableStateReply(t, ctx, pid, new(egopb.GetStateCommand))
+		assert.EqualValues(t, 1, current.GetSequenceNumber())
+		assert.True(t, current.GetState().MessageIs(new(testpb.Account)))
+
+		require.NoError(t, actorSystem.Stop(ctx))
+	})
+}
+
+// closingAccountBehavior is the account behavior with one more command: an
+// empty message closes the account by deleting its durable state.
+type closingAccountBehavior struct {
+	*AccountDurableStateBehavior
+	// versionSkip is added to the version a deletion would normally carry, so
+	// a test can hand the entity a version that does not follow the current one.
+	versionSkip uint64
+}
+
+// HandleCommand deletes the durable state on an empty command and delegates
+// every other command to the account behavior.
+func (x *closingAccountBehavior) HandleCommand(ctx context.Context, command Command, priorVersion uint64, priorState State) (State, uint64, error) {
+	if _, ok := command.(*emptypb.Empty); ok {
+		return new(egopb.DeletedState), priorVersion + 1 + x.versionSkip, nil
+	}
+
+	return x.AccountDurableStateBehavior.HandleCommand(ctx, command, priorVersion, priorState)
+}
+
+// newDurableStateTestSystem starts an actor system wired with the given state
+// store and event stream, ready to host a durable-state actor.
+func newDurableStateTestSystem(t *testing.T, ctx context.Context, stateStore persistence.StateStore, eventStream eventstream.Stream) goakt.ActorSystem {
+	t.Helper()
+
+	actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+		goakt.WithLogger(log.DiscardLogger),
+		goakt.WithExtensions(
+			extensions.NewDurableStateStore(stateStore),
+			extensions.NewEventsStream(eventStream),
+		),
+		goakt.WithActorInitMaxRetries(3))
+	require.NoError(t, err)
+	require.NoError(t, actorSystem.Start(ctx))
+	pause.For(time.Second)
+
+	return actorSystem
+}
+
+// durableStateReply sends a command to a durable-state actor and returns the
+// state reply it answers with, failing the test on any other reply.
+func durableStateReply(t *testing.T, ctx context.Context, pid *goakt.PID, command proto.Message) *egopb.StateReply {
+	t.Helper()
+
+	reply, err := goakt.Ask(ctx, pid, command, 5*time.Second)
+	require.NoError(t, err)
+
+	commandReply, ok := reply.(*egopb.CommandReply)
+	require.True(t, ok, "unexpected reply %T", reply)
+
+	stateReply, ok := commandReply.GetReply().(*egopb.CommandReply_StateReply)
+	require.True(t, ok, "the entity answered %v", commandReply.GetReply())
+
+	return stateReply.StateReply
+}
+
+// drainStream returns the payloads a subscriber has received so far.
+func drainStream(subscriber eventstream.Subscriber) []any {
+	var payloads []any
+	for message := range subscriber.Iterator() {
+		payloads = append(payloads, message.Payload())
+	}
+
+	return payloads
 }

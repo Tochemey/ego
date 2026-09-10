@@ -26,6 +26,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"go.uber.org/atomic"
 
@@ -102,4 +103,32 @@ func (d *DurableStore) GetLatestState(_ context.Context, persistenceID string) (
 		return nil, nil
 	}
 	return value.(*egopb.DurableState), nil
+}
+
+// DeleteState deletes the durable state persisted for the given persistenceID:
+// a tombstone carrying the given version and no state replaces the record, or
+// the record is removed when the version is zero. A persistence id that has no
+// state is not an error.
+func (d *DurableStore) DeleteState(_ context.Context, persistenceID string, version uint64) error {
+	if !d.connected.Load() {
+		return errors.New("durable store is not connected")
+	}
+
+	if version == 0 {
+		d.db.Delete(persistenceID)
+		return nil
+	}
+
+	tombstone := &egopb.DurableState{
+		PersistenceId: persistenceID,
+		VersionNumber: version,
+		Timestamp:     time.Now().UnixNano(),
+	}
+
+	if previous, ok := d.db.Load(persistenceID); ok {
+		tombstone.Shard = previous.(*egopb.DurableState).GetShard()
+	}
+
+	d.db.Store(persistenceID, tombstone)
+	return nil
 }

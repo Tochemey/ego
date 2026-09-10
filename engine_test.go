@@ -1090,6 +1090,34 @@ func TestEngineEraseEntity(t *testing.T) {
 		require.NotNil(t, remaining)
 	})
 
+	t.Run("full=true deletes the durable state", func(t *testing.T) {
+		store := testkit.NewEventsStore()
+		require.NoError(t, store.Connect(ctx))
+		t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+		durableStore := testkit.NewDurableStore()
+		require.NoError(t, durableStore.Connect(ctx))
+		t.Cleanup(func() { _ = durableStore.Disconnect(ctx) })
+
+		engine := newTestEngine(t, "Sample", store, WithLogger(DiscardLogger), WithStateStore(durableStore))
+		require.NoError(t, engine.Start(ctx))
+
+		entityID := uuid.NewString()
+		require.NoError(t, engine.DurableStateEntity(ctx, NewAccountDurableStateBehavior(entityID)))
+		_, _, err := engine.SendCommand(ctx, entityID, &testpb.CreateAccount{AccountBalance: 100}, time.Minute)
+		require.NoError(t, err)
+
+		stored, err := durableStore.GetLatestState(ctx, entityID)
+		require.NoError(t, err)
+		require.NotNil(t, stored)
+
+		require.NoError(t, engine.EraseEntity(ctx, entityID, true))
+
+		stored, err = durableStore.GetLatestState(ctx, entityID)
+		require.NoError(t, err)
+		assert.Nil(t, stored, "the durable state survived the erasure")
+	})
+
 	t.Run("erasure stops the live entity", func(t *testing.T) {
 		store := testkit.NewEventsStore()
 		require.NoError(t, store.Connect(ctx))
@@ -2127,6 +2155,21 @@ func TestEngineEraseEntityStoreErrors(t *testing.T) {
 		err := engine.EraseEntity(ctx, "pid-1", true)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to get latest event for erasure")
+	})
+
+	t.Run("DeleteState error", func(t *testing.T) {
+		eventsStore := new(mockpersistence.EventsStore)
+		eventsStore.On("GetLatestEvent", mock.Anything, mock.AnythingOfType("string")).
+			Return(nil, nil)
+
+		stateStore := new(mockpersistence.StateStore)
+		stateStore.On("DeleteState", mock.Anything, "pid-1", uint64(0)).Return(errors.New("boom"))
+
+		engine := synthEngineWithStores(eventsStore, nil, nil)
+		engine.stateStore = stateStore
+		err := engine.EraseEntity(ctx, "pid-1", true)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to delete the durable state for erasure")
 	})
 
 	t.Run("DeleteEvents error", func(t *testing.T) {

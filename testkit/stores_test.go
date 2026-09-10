@@ -640,3 +640,41 @@ func TestKeyStore_DeleteKey(t *testing.T) {
 		require.NoError(t, err)
 	})
 }
+
+func TestDurableStore_DeleteState(t *testing.T) {
+	ctx := context.Background()
+	store := NewDurableStore()
+	require.NoError(t, store.Connect(ctx))
+
+	persistenceID := "account-1"
+	require.NoError(t, store.WriteState(ctx, &egopb.DurableState{PersistenceId: persistenceID, VersionNumber: 1, Shard: 7}))
+	require.NoError(t, store.WriteState(ctx, &egopb.DurableState{PersistenceId: "account-2", VersionNumber: 1}))
+
+	// a version keeps a tombstone: the version and shard stay, the state goes
+	require.NoError(t, store.DeleteState(ctx, persistenceID, 2))
+
+	state, err := store.GetLatestState(ctx, persistenceID)
+	require.NoError(t, err)
+	require.NotNil(t, state)
+	assert.EqualValues(t, 2, state.GetVersionNumber())
+	assert.EqualValues(t, 7, state.GetShard())
+	assert.Nil(t, state.GetResultingState())
+
+	// version zero removes the record
+	require.NoError(t, store.DeleteState(ctx, persistenceID, 0))
+
+	state, err = store.GetLatestState(ctx, persistenceID)
+	require.NoError(t, err)
+	assert.Nil(t, state)
+
+	other, err := store.GetLatestState(ctx, "account-2")
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, other.GetVersionNumber())
+
+	// a persistence id without state is not an error either way
+	require.NoError(t, store.DeleteState(ctx, "unknown", 0))
+	require.NoError(t, store.DeleteState(ctx, "unknown", 1))
+
+	require.NoError(t, store.Disconnect(ctx))
+	require.Error(t, store.DeleteState(ctx, persistenceID, 0))
+}

@@ -68,6 +68,54 @@ func (_c *StateStore_Connect_Call) RunAndReturn(run func(context.Context) error)
 	return _c
 }
 
+// DeleteState provides a mock function with given fields: ctx, persistenceID, version
+func (_m *StateStore) DeleteState(ctx context.Context, persistenceID string, version uint64) error {
+	ret := _m.Called(ctx, persistenceID, version)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteState")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, uint64) error); ok {
+		r0 = rf(ctx, persistenceID, version)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// StateStore_DeleteState_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteState'
+type StateStore_DeleteState_Call struct {
+	*mock.Call
+}
+
+// DeleteState is a helper method to define mock.On call
+//   - ctx context.Context
+//   - persistenceID string
+//   - version uint64
+func (_e *StateStore_Expecter) DeleteState(ctx interface{}, persistenceID interface{}, version interface{}) *StateStore_DeleteState_Call {
+	return &StateStore_DeleteState_Call{Call: _e.mock.On("DeleteState", ctx, persistenceID, version)}
+}
+
+func (_c *StateStore_DeleteState_Call) Run(run func(ctx context.Context, persistenceID string, version uint64)) *StateStore_DeleteState_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(uint64))
+	})
+	return _c
+}
+
+func (_c *StateStore_DeleteState_Call) Return(_a0 error) *StateStore_DeleteState_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *StateStore_DeleteState_Call) RunAndReturn(run func(context.Context, string, uint64) error) *StateStore_DeleteState_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Disconnect provides a mock function with given fields: ctx
 func (_m *StateStore) Disconnect(ctx context.Context) error {
 	ret := _m.Called(ctx)

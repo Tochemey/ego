@@ -95,6 +95,14 @@ message SagaCompensationConfirmed {
 // current status and state
 message GetSagaStatus {}
 
+// DeletedState is the state a durable-state command handler returns, with
+// the next version, to delete the entity's durable state. The durable state
+// store keeps a tombstone carrying that version and no state, the deletion
+// is published to the state subscribers under that version, and the entity
+// continues from its initial state at that version, so its versions keep
+// increasing. A later recovery finds the tombstone and continues the same way
+message DeletedState {}
+
 // SagaStatusReply is the reply to a GetSagaStatus query
 message SagaStatusReply {
   // Specifies the saga unique identifier

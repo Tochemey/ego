@@ -16,9 +16,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - **`offsetstore.OffsetStore` gains `DeleteOffset`.** `DeleteOffset(ctx, projectionName)` removes the offset of a projection across all shards, and deleting the offset of a projection that has none is not an error. Every implementor must add it; the SQL stores implement it as a delete by projection name, next to the `ResetOffset` they already have.
 
+- **`persistence.StateStore` gains `DeleteState`.** `DeleteState(ctx, persistenceID, version)` deletes the durable state persisted for a persistence id. With a version greater than zero the record is kept as a tombstone, its version set to the given one and its state removed, so the versions of the persistence id keep increasing across the deletion; with version zero the record is removed entirely. Deleting the state of a persistence id that has none is not an error. Every implementor must add it; the durable-state stores in ego-contrib implement it as an update of the record for a version and a delete by persistence id for zero.
+
 ### ✨ Features
 
 - **A saga's offsets can be deleted once it settles.** A saga records how far it has read under `ego.saga.<saga id>`, one row per shard, and a saga that completed or failed never reads the journal again, so those rows keep a store that has no reader for them. `Engine.Saga` now accepts saga options, and the new `WithOffsetRemoval` option makes eGo delete them when the saga reaches `SagaCompleted` or `SagaFailed`. Only the saga's own rows are removed; projection offsets are never touched. Without the option the rows are kept, as they are today, and a saga that is still running always resumes from its offsets whenever it is restarted or relocated.
+
+- **Durable-state entities can be deleted.** A durable-state command handler now deletes the entity's state by returning `egopb.DeletedState` as the new state with the next version: the state store keeps a tombstone carrying that version and no state, the deletion is published to the state subscribers under that version, and the entity continues from its initial state at that version, so the versions consumers see keep increasing across the deletion. A later recovery finds the tombstone and continues the same way, and a stop after the deletion writes nothing back. `EraseEntity` with `full=true` now removes the durable state record too when a state store is configured, where it left it untouched before.
 
 ### 🐛 Bug Fixes
 

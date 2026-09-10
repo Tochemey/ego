@@ -88,5 +88,10 @@ type DurableStateBehavior interface {
 	// Any decision should be solely based on the data passed in the command, the priorVersion and the priorState.
 	// In case of successful validation and processing , the new state will be stored in the durable store depending upon response.
 	// The actor state will be updated with the newState only if the newVersion is 1 more than the already existing state.
+	//
+	// To delete the entity's durable state, return egopb.DeletedState as the newState with the next version:
+	// the durable state store keeps a tombstone carrying that version and no state, the deletion is published
+	// to the state subscribers under that version, and the entity continues from its initial state at that
+	// version, so its versions keep increasing. A later recovery finds the tombstone and continues the same way.
 	HandleCommand(ctx context.Context, command Command, priorVersion uint64, priorState State) (newState State, newVersion uint64, err error)
 }

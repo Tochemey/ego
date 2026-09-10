@@ -40,4 +40,11 @@ type StateStore interface {
 	WriteState(ctx context.Context, state *egopb.DurableState) error
 	// GetLatestState fetches the latest durable state
 	GetLatestState(ctx context.Context, persistenceID string) (*egopb.DurableState, error)
+	// DeleteState deletes the durable state persisted for the given persistenceID.
+	//
+	// With a version greater than zero the record is kept as a tombstone: its version becomes the given one
+	// and its state is removed, so the versions of the persistence id keep increasing across the deletion
+	// and any state persisted later. With version zero the record is removed entirely. A persistence id that
+	// has no state is not an error in either case.
+	DeleteState(ctx context.Context, persistenceID string, version uint64) error
 }

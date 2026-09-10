@@ -50,11 +50,16 @@ const statesTopic = "topic.states"
 
 // DurableStateActor is a durable state based actor
 type DurableStateActor struct {
-	behavior        DurableStateBehavior
-	stateStore      persistence.StateStore
-	currentState    State
-	cachedStateAny  *anypb.Any // cached marshal of currentState, invalidated on state change
-	currentVersion  uint64
+	behavior       DurableStateBehavior
+	stateStore     persistence.StateStore
+	currentState   State
+	cachedStateAny *anypb.Any // cached marshal of currentState, invalidated on state change
+	currentVersion uint64
+
+	// stateDeleted reports that the entity's durable state was deleted and
+	// nothing was written since, so a stop must not write the initial state
+	// over the tombstone the deletion left.
+	stateDeleted    bool
 	lastCommandTime time.Time
 	eventsStream    eventstream.Stream
 	actorSystem     goakt.ActorSystem
@@ -146,6 +151,13 @@ func (entity *DurableStateActor) PostStop(ctx *goakt.Context) error {
 	if entity.metrics != nil {
 		entity.metrics.entitiesActive.Add(ctx.Context(), -1)
 	}
+
+	// A deleted state has nothing to write back: writing the initial state
+	// would replace the tombstone of the deletion with a state.
+	if entity.stateDeleted {
+		return nil
+	}
+
 	return runner.
 		New(runner.WithFailFast()).
 		AddRunner(func() error { return entity.stateStore.Ping(ctx.Context()) }).
@@ -169,7 +181,8 @@ func (entity *DurableStateActor) recoverFromStore(ctx context.Context) error {
 	}
 
 	currentState := entity.behavior.InitialState()
-	if resultingState := durableState.GetResultingState(); resultingState != nil {
+	resultingState := durableState.GetResultingState()
+	if resultingState != nil {
 		if err := resultingState.UnmarshalTo(currentState); err != nil {
 			return fmt.Errorf("failed to unmarshal the latest state: %w", err)
 		}
@@ -177,6 +190,11 @@ func (entity *DurableStateActor) recoverFromStore(ctx context.Context) error {
 
 	entity.currentState = currentState
 	entity.currentVersion = durableState.GetVersionNumber()
+
+	// A record without state is the tombstone of a deletion: the entity
+	// continues from its initial state at that version, with nothing to
+	// write back on a stop.
+	entity.stateDeleted = resultingState == nil
 	return nil
 }
 
@@ -209,6 +227,13 @@ func (entity *DurableStateActor) processCommand(receiveContext *goakt.ReceiveCon
 		return
 	}
 
+	// A deleted state is the handler's decision to remove the entity's
+	// record rather than a new version of it.
+	if _, deleted := newState.(*egopb.DeletedState); deleted {
+		entity.deleteState(receiveContext, newVersion)
+		return
+	}
+
 	// check whether the pre-conditions have met
 	if err := entity.checkPreconditions(newState, newVersion); err != nil {
 		entity.sendErrorReply(receiveContext, err)
@@ -229,8 +254,59 @@ func (entity *DurableStateActor) processCommand(receiveContext *goakt.ReceiveCon
 	entity.cachedStateAny = pendingStateAny
 	entity.lastCommandTime = pendingCommandTime
 	entity.currentVersion = newVersion
+	entity.stateDeleted = false
 
 	entity.sendStateReply(receiveContext)
+}
+
+// deleteState removes the entity's durable state at the handler's request.
+//
+// The version must follow the current one, as any new state must. The store
+// replaces the record with a tombstone carrying that version and no state; a
+// store error leaves the entity exactly as it was. The deletion is then
+// published to the state subscribers under that version, and the entity
+// continues from its initial state at that version, so the versions of the
+// entity keep increasing across the deletion. A later recovery finds the
+// tombstone and continues the same way. The reply carries the deletion under
+// the version that performed it.
+func (entity *DurableStateActor) deleteState(receiveContext *goakt.ReceiveContext, version uint64) {
+	if err := entity.checkVersion(version); err != nil {
+		entity.sendErrorReply(receiveContext, err)
+		return
+	}
+
+	ctx := receiveContext.Context()
+	if err := entity.stateStore.DeleteState(ctx, entity.persistenceID, version); err != nil {
+		entity.sendErrorReply(receiveContext, err)
+		return
+	}
+
+	deletedAt := time.Now()
+	deletedAny, _ := anypb.New(new(egopb.DeletedState))
+	entity.eventsStream.Publish(statesTopic, &egopb.DurableState{
+		PersistenceId:  entity.persistenceID,
+		VersionNumber:  version,
+		ResultingState: deletedAny,
+		Timestamp:      deletedAt.UnixNano(),
+		Shard:          entity.shardNumber,
+	})
+
+	entity.currentState = entity.behavior.InitialState()
+	entity.cachedStateAny = nil
+	entity.lastCommandTime = deletedAt
+	entity.currentVersion = version
+	entity.stateDeleted = true
+
+	receiveContext.Response(&egopb.CommandReply{
+		Reply: &egopb.CommandReply_StateReply{
+			StateReply: &egopb.StateReply{
+				PersistenceId:  entity.persistenceID,
+				State:          deletedAny,
+				SequenceNumber: version,
+				Timestamp:      deletedAt.UnixNano(),
+			},
+		},
+	})
 }
 
 // currentStateAny returns the cached anypb.Any of currentState, computing it
@@ -276,6 +352,11 @@ func (entity *DurableStateActor) checkPreconditions(newState State, newVersion u
 		return fmt.Errorf("mismatch state types: %s != %s", currentStateType, latestStateType)
 	}
 
+	return entity.checkVersion(newVersion)
+}
+
+// checkVersion validates that the given version follows the current one.
+func (entity *DurableStateActor) checkVersion(newVersion uint64) error {
 	proceed := int(math.Abs(float64(newVersion-entity.currentVersion))) == 1
 	if !proceed {
 		return fmt.Errorf("%s received version=(%d) while current version is (%d)",
