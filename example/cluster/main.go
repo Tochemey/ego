@@ -57,7 +57,24 @@ import (
 	"github.com/tochemey/ego/v4/projection"
 )
 
-const projectionName = "account-balances"
+const (
+	projectionName = "account-balances"
+	// transferTimeout is how long a transfer may run before its saga gives up
+	// and compensates whatever it had done.
+	transferTimeout = 30 * time.Second
+	// statusTimeout bounds a saga status query.
+	statusTimeout = 5 * time.Second
+)
+
+// Outcomes reported by GET /transfers/{id}: the saga status alone does not
+// say whether the money moved, since a saga that refunded the source
+// completes as well.
+const (
+	outcomePending   = "pending"
+	outcomeSucceeded = "succeeded"
+	outcomeReverted  = "reverted"
+	outcomeFailed    = "failed"
+)
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -114,6 +131,10 @@ func main() {
 	cfg := ego.NewConfig(eventStore,
 		ego.WithOffsetStore(offsetStore),
 		ego.WithTelemetry(tel),
+		// Every node must know the behavior types it can receive: a spawn placed
+		// on a peer, or a saga relocated to one, is deserialized against that
+		// peer's type registry.
+		ego.WithEntityKinds(new(AccountBehavior), new(TransferBehavior), new(FundTransferSaga)),
 		ego.WithProjection(projectionName, &projection.Options{
 			Handler:      projectionHandler,
 			BufferSize:   500,
@@ -131,8 +152,7 @@ func main() {
 	clusterCfg := goakt.
 		NewClusterConfig().
 		WithDiscovery(provider).
-		WithPartitionCount(4).
-		WithReplicaCount(1).
+		WithPartitionCount(21).
 		WithMinimumPeersQuorum(1).
 		WithDiscoveryPort(discoveryPort).
 		WithPeersPort(peersPort).
@@ -286,6 +306,93 @@ func main() {
 		})
 	})
 
+	// Start a fund transfer: POST /transfers/{id}
+	// {"source_account_id": "acct-1", "destination_account_id": "acct-2", "amount": 250}
+	//
+	// The transfer runs as a saga: the response only says it was accepted,
+	// and GET /transfers/{id} reports how it went.
+	mux.HandleFunc("POST /transfers/{id}", func(w http.ResponseWriter, r *http.Request) {
+		transferID := r.PathValue("id")
+		var body struct {
+			SourceAccountID      string  `json:"source_account_id"`
+			DestinationAccountID string  `json:"destination_account_id"`
+			Amount               float64 `json:"amount"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		cmd := &samplepb.StartTransfer{
+			TransferId:           transferID,
+			SourceAccountId:      body.SourceAccountID,
+			DestinationAccountId: body.DestinationAccountID,
+			Amount:               body.Amount,
+		}
+		// Reject an impossible transfer before a saga is started for it.
+		if err := validateTransfer(cmd); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		// The saga must be running before the transfer entity journals
+		// TransferStarted: a saga only sees events written after it started.
+		// Its offsets are removed once it settles, so the offset store does
+		// not grow with every transfer ever made.
+		saga := NewFundTransferSaga(transferID, body.SourceAccountID, body.DestinationAccountID, body.Amount)
+		err := engine.Saga(r.Context(), saga, transferTimeout, ego.WithOffsetRemoval())
+		switch {
+		case errors.Is(err, gerrors.ErrActorAlreadyExists):
+			http.Error(w, "transfer already exists", http.StatusConflict)
+			return
+		case err != nil:
+			http.Error(w, fmt.Sprintf("saga error: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		transfer := NewTransferBehavior(transferID)
+		if err := entityWithRetry(r.Context(), engine, transfer); err != nil {
+			http.Error(w, fmt.Sprintf("entity error: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		if _, _, err := sendCommandWithRetry(r.Context(), engine, transfer.ID(), cmd, 10*time.Second); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		writeJSON(w, http.StatusAccepted, map[string]any{
+			"transfer_id": transferID,
+			"status":      ego.SagaRunning.String(),
+			"outcome":     outcomePending,
+		})
+	})
+
+	// Query a transfer: GET /transfers/{id}
+	// The saga is asked directly, whichever pod hosts it.
+	mux.HandleFunc("GET /transfers/{id}", func(w http.ResponseWriter, r *http.Request) {
+		transferID := r.PathValue("id")
+
+		info, err := engine.SagaStatus(r.Context(), transferID, statusTimeout)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("transfer not found: %v", err), http.StatusNotFound)
+			return
+		}
+
+		transfer, _ := info.State.(*samplepb.TransferState)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"transfer_id":            transferID,
+			"status":                 info.Status.String(),
+			"outcome":                transferOutcome(info.Status, transfer),
+			"source_account_id":      transfer.GetSourceAccountId(),
+			"destination_account_id": transfer.GetDestinationAccountId(),
+			"amount":                 transfer.GetAmount(),
+			"source_debited":         transfer.GetSourceDebited(),
+			"destination_credited":   transfer.GetDestinationCredited(),
+			"failure_reason":         transfer.GetFailureReason(),
+		})
+	})
+
 	// Middleware chain (outermost → innermost):
 	//   servedByMiddleware → otelhttp → mux
 	//
@@ -423,4 +530,21 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
+}
+
+// transferOutcome tells a client what happened to the money. A completed saga
+// moved it only when the destination was credited; a completed saga whose
+// destination was not credited refunded the source, or never debited it. A
+// failed saga could not refund the source and needs an operator.
+func transferOutcome(status ego.SagaStatus, transfer *samplepb.TransferState) string {
+	switch {
+	case status == ego.SagaCompleted && transfer.GetDestinationCredited():
+		return outcomeSucceeded
+	case status == ego.SagaCompleted:
+		return outcomeReverted
+	case status == ego.SagaFailed:
+		return outcomeFailed
+	default:
+		return outcomePending
+	}
 }

@@ -57,9 +57,10 @@ message TransferState {
   double amount = 4;
   bool source_debited = 5;
   bool destination_credited = 6;
+  string failure_reason = 7;
 }
 
-// TransferStarted is a saga event recorded when a transfer begins.
+// TransferStarted is the event recorded when a transfer begins.
 message TransferStarted {
   string transfer_id = 1;
   string source_account_id = 2;
@@ -77,4 +78,18 @@ message SourceDebited {
 message DestinationCredited {
   string destination_account_id = 1;
   double amount = 2;
+}
+
+// StartTransfer asks a transfer entity to move funds between two accounts.
+message StartTransfer {
+  string transfer_id = 1;
+  string source_account_id = 2;
+  string destination_account_id = 3;
+  double amount = 4;
+}
+
+// TransferFailed is a saga event recorded when a transfer step is rejected.
+message TransferFailed {
+  string transfer_id = 1;
+  string reason = 2;
 }

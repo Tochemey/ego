@@ -6,7 +6,7 @@ require (
 	github.com/flowchartsman/retry v1.2.0
 	github.com/google/uuid v1.6.0
 	github.com/stretchr/testify v1.12.1
-	github.com/tochemey/goakt/v4 v4.5.4
+	github.com/tochemey/goakt/v4 v4.5.5
 	github.com/travisjeffery/go-dynaport v1.0.0
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/metric v1.46.0
@@ -14,18 +14,18 @@ require (
 	go.opentelemetry.io/otel/trace v1.46.0
 	go.uber.org/atomic v1.11.0
 	go.uber.org/multierr v1.11.0
-	golang.org/x/sync v0.22.0
+	golang.org/x/sync v0.23.0
 	google.golang.org/protobuf v1.36.12
 )
 
 require (
 	github.com/RoaringBitmap/roaring/v2 v2.27.0 // indirect
 	github.com/Workiva/go-datastructures v1.1.7 // indirect
-	github.com/andybalholm/brotli v1.2.3 // indirect
+	github.com/andybalholm/brotli v1.2.4 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/bits-and-blooms/bitset v1.25.0 // indirect
 	github.com/bytedance/gopkg v0.1.4 // indirect
-	github.com/bytedance/sonic v1.15.3 // indirect
+	github.com/bytedance/sonic v1.15.4 // indirect
 	github.com/bytedance/sonic/loader v0.5.2 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.7 // indirect
@@ -62,13 +62,13 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect
 	go.etcd.io/bbolt v1.5.0 // indirect
-	go.mongodb.org/mongo-driver v1.17.9 // indirect
+	go.mongodb.org/mongo-driver v1.17.10 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.uber.org/zap v1.28.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/arch v0.30.0 // indirect
-	golang.org/x/net v0.58.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/arch v0.31.0 // indirect
+	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
 )
 
 // HashiCorp renamed github.com/armon/go-metrics to github.com/hashicorp/go-metrics

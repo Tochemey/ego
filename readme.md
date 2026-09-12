@@ -586,7 +586,7 @@ Generated mocks for persistence, encryption, adapters, offsets, and publishers a
 - [Event-sourced entity](./example/eventssourced)
 - [Durable-state entity](./example/durablestate)
 - [Fund-transfer saga](./example/saga)
-- [Three-node Kubernetes cluster](./example/cluster)
+- [Three-node Kubernetes cluster](./example/cluster) with a projection and a fund-transfer saga
 - [Benchmarks](./benchmark)
 
 Run the local examples with:

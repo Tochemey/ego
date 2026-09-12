@@ -15,6 +15,9 @@ IMAGE     := ego-cluster-example:latest
 NAMESPACE := ego-example
 APP_LABEL := app=ego-cluster
 BASE_URL  := http://localhost
+# Transfer IDs are unique per run: a saga ID cannot be reused, so `make test`
+# stays re-runnable without a reset.
+RUN       := $(shell date +%s)
 
 # NGINX Ingress Controller manifest for Kind
 INGRESS_MANIFEST := https://kind.sigs.k8s.io/examples/ingress/deploy-ingress-nginx.yaml
@@ -126,6 +129,38 @@ wait:
 # Integration test (via NGINX Ingress — load-balanced across pods)
 # ---------------------------------------------------------------------------
 
+# start_transfer <id> <source> <destination> <amount>
+# POSTs a transfer and fails unless the API accepted it.
+define start_transfer
+RESP=$$(curl -s -w "\n%{http_code}" -X POST $(BASE_URL)/transfers/$(1) \
+	-H 'Content-Type: application/json' \
+	-d '{"source_account_id":"$(2)","destination_account_id":"$(3)","amount":$(4)}'); \
+HTTP=$$(echo "$$RESP" | tail -1); \
+BODY=$$(echo "$$RESP" | sed '$$d'); \
+echo "    $$BODY (HTTP $$HTTP)"; \
+if [ "$$HTTP" -ge 400 ]; then echo "FAIL: transfer $(1) was not accepted"; exit 1; fi
+endef
+
+# await_transfer <id> <outcome>
+# Polls the transfer until its saga settles and fails unless it settled on the
+# expected outcome. Reads are load-balanced too, so most of them reach a pod
+# other than the one hosting the saga; a read that lands before the cluster
+# registry knows the saga is not found yet and is simply retried.
+define await_transfer
+OUTCOME=pending; for i in $$(seq 1 30); do \
+	RESULT=$$(curl -s $(BASE_URL)/transfers/$(1)); \
+	OUTCOME=$$(echo "$$RESULT" | grep -o '"outcome":"[a-z]*"' | cut -d'"' -f4); \
+	if [ -n "$$OUTCOME" ] && [ "$$OUTCOME" != "pending" ]; then break; fi; \
+	sleep 1; \
+done; \
+echo "    $$RESULT"; \
+if [ "$$OUTCOME" = "$(2)" ]; then \
+	echo "=== PASS: transfer $(1) $(2) ==="; \
+else \
+	echo "=== FAIL: transfer $(1) expected $(2) but got '$$OUTCOME' ==="; exit 1; \
+fi
+endef
+
 test:
 	@echo ""
 	@echo "==> Running integration tests via ingress ($(BASE_URL))..."
@@ -200,6 +235,41 @@ test:
 		echo "=== PASS: requests were distributed across $$UNIQUE pods ==="; \
 	else \
 		echo "=== FAIL: all requests went to a single pod ($$UNIQUE unique) ==="; \
+	fi
+	@echo ""
+	@echo "--- Step 8: Create a second account with balance 500 ---"
+	@RESP=$$(curl -s -w "\n%{http_code}" -X POST $(BASE_URL)/accounts/acct-2 \
+		-H 'Content-Type: application/json' -d '{"balance":500}'); \
+	HTTP=$$(echo "$$RESP" | tail -1); \
+	BODY=$$(echo "$$RESP" | sed '$$d'); \
+	echo "    $$BODY (HTTP $$HTTP)"; \
+	if [ "$$HTTP" -ge 400 ]; then echo "FAIL: create acct-2"; exit 1; fi
+	@echo ""
+	@echo "--- Step 9: Transfer 250 from acct-1 to acct-2 (saga: debit, credit, complete) ---"
+	@$(call start_transfer,tx-$(RUN)-1,acct-1,acct-2,250)
+	@$(call await_transfer,tx-$(RUN)-1,succeeded)
+	@echo ""
+	@echo "--- Step 10: Transfer 100 from acct-1 to an unknown account (saga: debit, credit rejected, refund) ---"
+	@$(call start_transfer,tx-$(RUN)-2,acct-1,acct-missing,100)
+	@$(call await_transfer,tx-$(RUN)-2,reverted)
+	@echo ""
+	@echo "--- Step 11: Transfer 5000 from acct-2 to acct-1 (saga: debit rejected, nothing to undo) ---"
+	@$(call start_transfer,tx-$(RUN)-3,acct-2,acct-1,5000)
+	@$(call await_transfer,tx-$(RUN)-3,reverted)
+	@echo ""
+	@echo "--- Step 12: Verify the projection after the transfers ---"
+	@sleep 5
+	@FAIL=0; for pair in "acct-1:1000" "acct-2:750"; do \
+		ACCT=$${pair%%:*}; WANT=$${pair##*:}; \
+		RESULT=$$(curl -sf $(BASE_URL)/accounts/$$ACCT); \
+		GOT=$$(echo "$$RESULT" | grep -o '"balance":[0-9.]*' | cut -d: -f2); \
+		echo "    $$RESULT"; \
+		if [ "$$GOT" != "$$WANT" ]; then echo "    expected $$ACCT balance $$WANT but got $$GOT"; FAIL=1; fi; \
+	done; \
+	if [ "$$FAIL" = "0" ]; then \
+		echo "=== PASS: acct-1 is 1000 (1250 - 250 - 100 + 100 refund) and acct-2 is 750 (500 + 250) ==="; \
+	else \
+		echo "=== FAIL: projection balances do not match the transfers ==="; exit 1; \
 	fi
 	@echo ""
 	@echo "==> Tests completed."

@@ -358,3 +358,12 @@ func (s *PostgresOffsetStore) ResetOffset(ctx context.Context, projectionName st
 		value, projectionName)
 	return err
 }
+
+// DeleteOffset removes the offsets of the given projection across all shards.
+// Deleting the offsets of a projection that has none is not an error.
+func (s *PostgresOffsetStore) DeleteOffset(ctx context.Context, projectionName string) error {
+	_, err := s.pool.Exec(ctx,
+		`DELETE FROM offsets_store WHERE projection_name=$1`,
+		projectionName)
+	return err
+}
