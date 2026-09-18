@@ -6,7 +6,7 @@ require (
 	github.com/IBM/sarama v1.60.2
 	github.com/tochemey/ego/v4 v4.5.0
 	github.com/tochemey/goakt/v4 v4.5.6
-	go.uber.org/atomic v1.11.0
+	go.uber.org/atomic v1.12.0
 	google.golang.org/protobuf v1.36.12
 )
 
