@@ -120,8 +120,6 @@ func main() {
 		namespace,
 		map[string]string{"app": "ego-cluster"},
 		"discovery",
-		"remoting",
-		"peers",
 	)
 
 	projectionHandler := NewAccountBalanceHandler(pool)

@@ -36,14 +36,13 @@ import (
 //   - namespace: the Kubernetes namespace to search for pods.
 //   - podLabels: label selector for matching ego cluster pods.
 //   - discoveryPortName: the named container port used for gossip/discovery.
-//   - remotingPortName: the named container port used for remote actor communication.
-//   - peersPortName: the named container port used for peer-to-peer communication.
-func NewKubernetesProvider(namespace string, podLabels map[string]string, discoveryPortName, remotingPortName, peersPortName string) discovery.Provider {
+//     It is the only port the provider resolves; peers learn each other's
+//     remoting and peers ports from the node metadata exchanged once they
+//     have joined the cluster.
+func NewKubernetesProvider(namespace string, podLabels map[string]string, discoveryPortName string) discovery.Provider {
 	return kubernetes.NewDiscovery(&kubernetes.Config{
 		Namespace:         namespace,
 		PodLabels:         podLabels,
 		DiscoveryPortName: discoveryPortName,
-		RemotingPortName:  remotingPortName,
-		PeersPortName:     peersPortName,
 	})
 }
