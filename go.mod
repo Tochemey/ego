@@ -6,7 +6,7 @@ require (
 	github.com/flowchartsman/retry v1.2.0
 	github.com/google/uuid v1.6.0
 	github.com/stretchr/testify v1.12.1
-	github.com/tochemey/goakt/v4 v4.5.6
+	github.com/tochemey/goakt/v4 v4.6.1
 	github.com/travisjeffery/go-dynaport v1.0.0
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/metric v1.47.0
@@ -19,13 +19,14 @@ require (
 )
 
 require (
-	github.com/RoaringBitmap/roaring/v2 v2.28.0 // indirect
-	github.com/Workiva/go-datastructures v1.1.7 // indirect
-	github.com/andybalholm/brotli v1.2.4 // indirect
-	github.com/bits-and-blooms/bitset v1.25.0 // indirect
+	github.com/RoaringBitmap/roaring/v2 v2.29.0 // indirect
+	github.com/Workiva/go-datastructures v1.1.8 // indirect
+	github.com/andybalholm/brotli v1.2.6 // indirect
+	github.com/bits-and-blooms/bitset v1.26.0 // indirect
 	github.com/bytedance/gopkg v0.1.4 // indirect
 	github.com/bytedance/sonic v1.15.4 // indirect
 	github.com/bytedance/sonic/loader v0.5.2 // indirect
+	github.com/cenkalti/backoff/v7 v7.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.7 // indirect
 	github.com/deckarep/golang-set/v2 v2.9.0 // indirect
@@ -42,19 +43,19 @@ require (
 	github.com/hashicorp/golang-lru v1.0.2 // indirect
 	github.com/hashicorp/logutils v1.0.0 // indirect
 	github.com/hashicorp/memberlist v0.7.0 // indirect
-	github.com/klauspost/compress v1.20.0 // indirect
+	github.com/klauspost/compress v1.20.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/miekg/dns v1.1.73 // indirect
 	github.com/mschoch/smat v0.2.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
-	github.com/redis/go-redis/v9 v9.22.0 // indirect
+	github.com/redis/go-redis/v9 v9.23.0 // indirect
 	github.com/reugn/go-quartz v0.15.2 // indirect
 	github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529 // indirect
 	github.com/stretchr/objx v0.5.3 // indirect
-	github.com/tidwall/btree v1.8.1 // indirect
+	github.com/tidwall/btree v1.8.2 // indirect
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/redcon v1.6.4 // indirect
-	github.com/tochemey/olric v0.3.21 // indirect
+	github.com/tochemey/olric v0.3.22 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
