@@ -13,10 +13,8 @@ require (
 require (
 	github.com/Workiva/go-datastructures v1.1.8 // indirect
 	github.com/andybalholm/brotli v1.2.6 // indirect
-	github.com/armon/go-metrics v0.4.1 // indirect
 	github.com/bits-and-blooms/bitset v1.26.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/deckarep/golang-set/v2 v2.9.0 // indirect
 	github.com/flowchartsman/retry v1.2.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.4 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
@@ -77,26 +75,8 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.31 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20250401214520-65e299d6c5c9 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
-	go.mongodb.org/mongo-driver v1.17.10 // indirect
 	go.opentelemetry.io/otel/log v1.47.0 // indirect
 	golang.org/x/arch v0.31.0 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/net v0.59.0 // indirect
-)
-
-// HashiCorp renamed github.com/armon/go-metrics to github.com/hashicorp/go-metrics
-// in v0.4.2 and every release since declares the new module path, so they fail
-// to satisfy the legacy import path that hashicorp/go-metrics/compat still
-// pulls in transitively (via memberlist → goakt → ego). v0.4.1 is the last
-// version that resolves under the armon path; exclude the broken ones so
-// `go mod tidy` and `go get -u` stop probing them.
-exclude (
-	github.com/armon/go-metrics v0.4.2
-	github.com/armon/go-metrics v0.5.0
-	github.com/armon/go-metrics v0.5.1
-	github.com/armon/go-metrics v0.5.2
-	github.com/armon/go-metrics v0.5.3
-	github.com/armon/go-metrics v0.5.4
-	github.com/armon/go-metrics v0.6.0
-	github.com/armon/go-metrics v0.6.1
 )
