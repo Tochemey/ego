@@ -10,7 +10,6 @@
   <a href="https://go.dev/doc/install"><img src="https://img.shields.io/github/go-mod/go-version/Tochemey/ego" alt="Go version"></a>
   <a href="https://codecov.io/gh/Tochemey/ego"><img src="https://codecov.io/gh/Tochemey/ego/branch/main/graph/badge.svg?token=Z5b9gM6Mnt" alt="Code coverage"></a>
   <a href="https://github.com/Tochemey/ego/releases/latest"><img src="https://img.shields.io/github/v/release/Tochemey/ego?label=release" alt="Latest release"></a>
-  <a href="https://github.com/Tochemey/ego/tags"><img src="https://img.shields.io/github/v/tag/Tochemey/ego?label=tag" alt="Pre-release"></a>
 </p>
 
 eGo is a protobuf-first framework for building event-sourced and durable-state CQRS applications in Go. It runs on [Go-Akt](https://github.com/Tochemey/goakt) and adds persistence, projections, publishers, sagas, encryption, and observability to an actor system that your application owns.
