@@ -748,7 +748,8 @@ func (engine *Engine) DurableStateEntity(ctx context.Context, behavior DurableSt
 // Returns:
 //   - resultingState: The updated state of the entity after handling the command, or `nil` if no state change occurred.
 //   - revision: A monotonically increasing revision number representing the persisted state version.
-//   - err: An error if the command processing fails.
+//   - err: An error if the command processing fails. When the command handler rejected the command with a
+//     [Rejection], err is a *Rejection carrying the same code, so callers can match it with [errors.Is] or [errors.As].
 //
 // nolint
 func (engine *Engine) SendCommand(ctx context.Context, entityID string, cmd Command, timeout time.Duration) (resultingState State, revision uint64, err error) {
@@ -1191,6 +1192,10 @@ func parseCommandReply(reply *egopb.CommandReply) (State, uint64, error) {
 			return state, 0, fmt.Errorf("got %s", r.StateReply.GetState().GetTypeUrl())
 		}
 	case *egopb.CommandReply_ErrorReply:
+		if code := r.ErrorReply.GetCode(); code != "" {
+			return state, 0, NewRejection(code, r.ErrorReply.GetMessage())
+		}
+
 		err = errors.New(r.ErrorReply.GetMessage())
 		return state, 0, err
 	}

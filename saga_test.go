@@ -1659,10 +1659,11 @@ func TestSagaActor(t *testing.T) {
 		require.NoError(t, actorSystem.Start(ctx))
 		pause.For(time.Second)
 
-		// Target returns an error reply (parseCommandReply will return error)
+		// Target rejects the command with a coded error reply, so HandleError
+		// receives a Rejection the behavior can match by code
 		errorReply := &egopb.CommandReply{
 			Reply: &egopb.CommandReply_ErrorReply{
-				ErrorReply: &egopb.ErrorReply{Message: "entity rejected command"},
+				ErrorReply: &egopb.ErrorReply{Message: "entity rejected command", Code: errInvalidAmount.Code()},
 			},
 		}
 		_, err = actorSystem.Spawn(ctx, targetID,
@@ -1671,7 +1672,7 @@ func TestSagaActor(t *testing.T) {
 		require.NoError(t, err)
 		pause.For(500 * time.Millisecond)
 
-		handleErrorCalled := make(chan struct{}, 1)
+		handleErrorCalled := make(chan error, 1)
 		behavior := &callbackSagaBehavior{
 			id: sagaID,
 			handleEvent: func(_ context.Context, _ Event, _ State) (*SagaAction, error) {
@@ -1679,9 +1680,9 @@ func TestSagaActor(t *testing.T) {
 					{EntityID: targetID, Command: new(emptypb.Empty), Timeout: 3 * time.Second},
 				}}, nil
 			},
-			handleError: func(_ context.Context, _ string, _ error, _ State) (*SagaAction, error) {
+			handleError: func(_ context.Context, _ string, participantErr error, _ State) (*SagaAction, error) {
 				select {
-				case handleErrorCalled <- struct{}{}:
+				case handleErrorCalled <- participantErr:
 				default:
 				}
 				return &SagaAction{Complete: true}, nil
@@ -1701,7 +1702,9 @@ func TestSagaActor(t *testing.T) {
 		journalEvent(t, eventStore, stream, event)
 
 		select {
-		case <-handleErrorCalled:
+		case participantErr := <-handleErrorCalled:
+			require.ErrorIs(t, participantErr, errInvalidAmount)
+			require.EqualError(t, participantErr, "entity rejected command")
 		case <-time.After(3 * time.Second):
 			t.Fatal("HandleError was not called after error reply")
 		}
@@ -2050,6 +2053,7 @@ func TestSagaPersistAndApplyEventsWriteFailure(t *testing.T) {
 	saga.eventsStore = eventStore
 	saga.sagaID = sagaID
 	saga.currentState = behavior.InitialState()
+	saga.shard = shardLocator{resolved: true}
 
 	event := &testpb.AccountCreated{AccountId: sagaID}
 
@@ -2087,7 +2091,7 @@ func TestSagaEventsCarryShard(t *testing.T) {
 	saga.eventsStore = eventStore
 	saga.sagaID = sagaID
 	saga.currentState = behavior.InitialState()
-	saga.shard = sagaShard
+	saga.shard = shardLocator{resolved: true, shard: sagaShard}
 
 	require.NoError(t, saga.persistAndApplyEvents(ctx, []Event{&testpb.AccountCreated{AccountId: sagaID}}))
 
@@ -3018,6 +3022,7 @@ func TestSagaRecordStatusRetriesJournalWrite(t *testing.T) {
 	saga.sagaID = sagaID
 	saga.currentState = behavior.InitialState()
 	saga.logger = log.DiscardLogger
+	saga.shard = shardLocator{resolved: true}
 
 	saga.recordStatus(ctx, SagaCompleted)
 

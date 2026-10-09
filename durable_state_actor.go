@@ -67,8 +67,9 @@ type DurableStateActor struct {
 	tracer          trace.Tracer
 	metrics         *metrics
 
-	// Cached values computed once at startup to avoid per-command allocations.
-	shardNumber uint64
+	// shard is the journal shard of the entity's state records, resolved when
+	// the first one is written.
+	shard shardLocator
 }
 
 // implements the goakt.Actor interface
@@ -137,7 +138,6 @@ func (entity *DurableStateActor) Receive(ctx *goakt.ReceiveContext) {
 	switch message := ctx.Message().(type) {
 	case *goakt.PostStart:
 		entity.actorSystem = ctx.ActorSystem()
-		entity.shardNumber = ctx.ActorSystem().Partition(entity.persistenceID)
 	case *egopb.GetStateCommand:
 		entity.sendStateReply(ctx)
 	default:
@@ -288,7 +288,7 @@ func (entity *DurableStateActor) deleteState(receiveContext *goakt.ReceiveContex
 		VersionNumber:  version,
 		ResultingState: deletedAny,
 		Timestamp:      deletedAt.UnixNano(),
-		Shard:          entity.shardNumber,
+		Shard:          entity.shard.locate(entity.actorSystem, entity.persistenceID),
 	})
 
 	entity.currentState = entity.behavior.InitialState()
@@ -338,6 +338,7 @@ func (entity *DurableStateActor) sendErrorReply(ctx *goakt.ReceiveContext, err e
 		Reply: &egopb.CommandReply_ErrorReply{
 			ErrorReply: &egopb.ErrorReply{
 				Message: err.Error(),
+				Code:    rejectionCode(err),
 			},
 		},
 	})
@@ -384,7 +385,7 @@ func (entity *DurableStateActor) persistStateAndPublish(ctx context.Context, sta
 		VersionNumber:  version,
 		ResultingState: stateAny,
 		Timestamp:      commandTime.UnixNano(),
-		Shard:          entity.shardNumber,
+		Shard:          entity.shard.locate(entity.actorSystem, entity.persistenceID),
 	}
 
 	if err := entity.stateStore.WriteState(ctx, durableState); err != nil {

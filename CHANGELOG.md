@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### ✨ Features
+
+- **Command handlers can reject commands with a code callers can match.** A handler returns an `ego.Rejection`, created with `ego.NewRejection(code, message)`, as is or wrapped. The code travels in the new `code` field of `egopb.ErrorReply`, and the error `Engine.SendCommand` returns is a `*ego.Rejection` with the same code, so `errors.Is(err, ErrInsufficientFunds)` holds on the caller's side even across cluster nodes. Before, every handler error reached the caller as a new error built from its text alone, so `errors.Is` and `errors.As` never matched. Sagas receive participant rejections in `HandleError` the same way. Other errors are unchanged, and a node that predates this release ignores the code and keeps reporting a plain error.
+
+### 🐛 Bug Fixes
+
+- **Events of a clustered entity no longer all land on shard 0.** Entities and sagas looked their journal shard up in `PostStart`, and goakt v4.6.0 and v4.6.1 run `PostStart` before the actor is published to the cluster registry, so the lookup found no record and every event carried shard 0 whatever the partition count. goakt delivers `PostStart` after publication again from [Tochemey/goakt#1451](https://github.com/Tochemey/goakt/pull/1451), which eGo now requires; eGo no longer depends on that ordering either way. The shard is now resolved when the first record is written, which for an entity happens on a command, after the spawn has returned and the record exists. A saga journals its start inside `PostStart`, so on goakt v4.6.0 and v4.6.1 that one record carries shard 0 in a cluster; the saga's later records are on its own shard, and projections skip saga records in any case. The cluster publisher test now checks every event's shard against the cluster's partition for its entity and no longer needs its warm-up.
+
 ## [v4.5.0] - 2026-09-12
 
 This release makes sagas cluster-safe and durable: they read the journal instead of the local event stream, journal their own status, timeout, and compensation progress, and settle reliably after restarts and relocations. It also closes several write-failure and offset-handling gaps in entities and projections, adds bounded publishers and durable-state deletion, and grows the cluster example with a fund-transfer saga.
