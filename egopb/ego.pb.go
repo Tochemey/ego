@@ -299,7 +299,10 @@ func (x *StateReply) GetTimestamp() int64 {
 type ErrorReply struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Specifies the error message
-	Message       string `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	Message string `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	// Specifies the code of the rejection the command handler returned.
+	// Empty when the command failed for any other reason.
+	Code          string `protobuf:"bytes,2,opt,name=code,proto3" json:"code,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -337,6 +340,13 @@ func (*ErrorReply) Descriptor() ([]byte, []int) {
 func (x *ErrorReply) GetMessage() string {
 	if x != nil {
 		return x.Message
+	}
+	return ""
+}
+
+func (x *ErrorReply) GetCode() string {
+	if x != nil {
+		return x.Code
 	}
 	return ""
 }
@@ -1024,10 +1034,11 @@ const file_ego_ego_proto_rawDesc = "" +
 	"\x0epersistence_id\x18\x01 \x01(\tR\rpersistenceId\x12*\n" +
 	"\x05state\x18\x02 \x01(\v2\x14.google.protobuf.AnyR\x05state\x12'\n" +
 	"\x0fsequence_number\x18\x03 \x01(\x04R\x0esequenceNumber\x12\x1c\n" +
-	"\ttimestamp\x18\x04 \x01(\x03R\ttimestamp\"&\n" +
+	"\ttimestamp\x18\x04 \x01(\x03R\ttimestamp\":\n" +
 	"\n" +
 	"ErrorReply\x12\x18\n" +
-	"\amessage\x18\x01 \x01(\tR\amessage\"\t\n" +
+	"\amessage\x18\x01 \x01(\tR\amessage\x12\x12\n" +
+	"\x04code\x18\x02 \x01(\tR\x04code\"\t\n" +
 	"\aNoReply\"\x11\n" +
 	"\x0fGetStateCommand\"h\n" +
 	"\x11SagaStatusChanged\x12\x16\n" +

@@ -59,6 +59,9 @@ message StateReply {
 message ErrorReply {
   // Specifies the error message
   string message = 1;
+  // Specifies the code of the rejection the command handler returned.
+  // Empty when the command failed for any other reason.
+  string code = 2;
 }
 
 // NoReply is used when a command does not need a reply

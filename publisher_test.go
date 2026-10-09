@@ -434,37 +434,7 @@ func TestEventPublisherClusterHighPartitionCount(t *testing.T) {
 	require.NoError(t, engine.Start(ctx))
 	t.Cleanup(func() { _ = engine.Stop(ctx) })
 
-	// Warm the cluster's distributed map so that subsequent SpawnOn calls
-	// get real partition assignments instead of the zero value goakt returns
-	// when an actor isn't yet visible in the dmap. We spawn (and immediately
-	// command) a batch of throwaway entities, then wait until probing those
-	// entities by name surfaces a partition in the formerly-dropped range
-	// (>= 271). Without this warm-up the workload below can race the dmap
-	// under -race-detector slowdown and have every event land in shard 0,
-	// which would make the assertion below trivially fail.
-	const warmupEntities = 200
-	warmupIDs := make([]string, 0, warmupEntities)
-	for range warmupEntities {
-		id := "warmup-" + uuid.NewString()
-		warmupIDs = append(warmupIDs, id)
-		require.NoError(t, engine.Entity(ctx, NewEventSourcedEntity(id)))
-		_, _, err := engine.SendCommand(ctx, id, &testpb.CreateAccount{AccountBalance: 1}, time.Minute)
-		require.NoError(t, err)
-	}
-	if !waitForCond(60*time.Second, func() bool {
-		for _, id := range warmupIDs {
-			if sys.Partition(id) >= 271 {
-				return true
-			}
-		}
-		return false
-	}) {
-		t.Skip("goakt cluster dmap did not surface any shard >= 271 within 60s; cannot exercise the pre-fix bug range under current scheduling (likely race-detector slowdown)")
-	}
-
-	// Now register the publisher and run the real workload. The publisher
-	// only sees events emitted from this point on, so the warm-up entities'
-	// events (which it would have received too) don't get mixed in.
+	// Register the publisher and run the workload.
 	pub := newRecordingEventPublisher("hi-part")
 	require.NoError(t, engine.AddEventPublishers(pub))
 
@@ -497,6 +467,14 @@ func TestEventPublisherClusterHighPartitionCount(t *testing.T) {
 	for _, entityID := range entityIDs {
 		_, ok := gotByID[entityID]
 		require.Truef(t, ok, "publisher did not receive event for entity %s", entityID)
+	}
+
+	// Every event must carry the partition the cluster assigns its entity: an
+	// entity that looked its shard up before the cluster knew it would land on
+	// shard 0 regardless of the partition count.
+	for _, evt := range got {
+		assert.Equalf(t, sys.Partition(evt.GetPersistenceId()), evt.GetShard(),
+			"event of entity %s carries a shard other than its cluster partition", evt.GetPersistenceId())
 	}
 
 	// Confirm at least one event was emitted from a shard outside the legacy

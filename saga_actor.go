@@ -122,9 +122,9 @@ type SagaActor struct {
 	firstStart bool
 
 	// shard is the journal shard the saga's own events belong to. It is
-	// computed once in PostStart from the saga ID, the same way entities
-	// derive theirs, so saga events land on the shard that owns the saga.
-	shard uint64
+	// resolved from the saga ID the same way entities derive theirs, so saga
+	// events land on the shard that owns the saga. See shardOf for when.
+	shard shardLocator
 
 	// startedAt is the wall clock time, in nanoseconds, at which the saga
 	// first moved to SagaRunning. It is journaled with every status
@@ -282,7 +282,6 @@ func (s *SagaActor) Receive(ctx *goakt.ReceiveContext) {
 		s.actorSystem = ctx.ActorSystem()
 		s.logger = ctx.Logger()
 		s.self = ctx.Self()
-		s.shard = ctx.ActorSystem().Partition(s.sagaID)
 
 		// A saga recovered as settled has no runner and nothing left to do
 		// beyond answering status queries.
@@ -300,6 +299,7 @@ func (s *SagaActor) Receive(ctx *goakt.ReceiveContext) {
 		// and the status survive a restart or a relocation.
 		if s.firstStart {
 			s.recordStatus(ctx.Context(), SagaRunning)
+			s.firstStart = false
 		}
 
 		s.runner.Run(ctx.Context())
@@ -552,7 +552,7 @@ func (s *SagaActor) persistAndApplyEvents(ctx context.Context, events []Event) e
 			IsDeleted:      false,
 			Event:          eventAny,
 			Timestamp:      time.Now().UnixNano(),
-			Shard:          s.shard,
+			Shard:          s.shardOf(),
 		})
 
 		newState, err := s.behavior.ApplyEvent(ctx, event, pendingState)
@@ -821,7 +821,7 @@ func (s *SagaActor) journalBookkeeping(ctx context.Context, message proto.Messag
 		SequenceNumber: sequenceNumber,
 		Event:          messageAny,
 		Timestamp:      time.Now().UnixNano(),
-		Shard:          s.shard,
+		Shard:          s.shardOf(),
 	}
 
 	if err := s.eventsStore.WriteEvents(ctx, []*egopb.Event{envelope}); err != nil {
@@ -946,4 +946,19 @@ func (s *SagaActor) handleOffsetsDeleted(outcome *sagaOffsetsDeleted) {
 	}
 
 	s.logger.Debugf("saga %s: deleted the offsets of %s", s.sagaID, outcome.projectionName)
+}
+
+// shardOf returns the shard the saga's own events are journaled on.
+//
+// The start of a saga is journaled in PostStart. Actor system releases up to
+// v4.6.1 ran PostStart before publishing the saga to the cluster, so the
+// shard looked up for that record is not kept: on those releases it is zero
+// in a cluster. The shard is resolved and kept from the first record written
+// after the start.
+func (s *SagaActor) shardOf() uint64 {
+	if s.firstStart {
+		return s.actorSystem.Partition(s.sagaID)
+	}
+
+	return s.shard.locate(s.actorSystem, s.sagaID)
 }

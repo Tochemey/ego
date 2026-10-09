@@ -58,6 +58,9 @@ type EventSourcedBehavior interface {
 	// Every event emitted are processed one after the other in the same order they were emitted to guarantee consistency.
 	// It is at the discretion of the application developer to know in which order a given command should return the list of events
 	// This is really powerful when a command needs to return two events. For instance, an OpenAccount command can result in two events: one is AccountOpened and the second is AccountCredited
+	//
+	// To refuse a command for a business reason, return a [Rejection], as is or wrapped: its code reaches the caller of
+	// [Engine.SendCommand], which can match it with [errors.Is]. Any other error reaches the caller by its text only.
 	HandleCommand(ctx context.Context, command Command, priorState State) (events []Event, err error)
 	// HandleEvent handle events emitted by the command handlers. The event handlers are used to mutate the state of the event sourced actor by applying the events to it.
 	// Event handlers must be pure functions as they will be used when instantiating the event sourced actor and replaying the event journal.
@@ -93,5 +96,8 @@ type DurableStateBehavior interface {
 	// the durable state store keeps a tombstone carrying that version and no state, the deletion is published
 	// to the state subscribers under that version, and the entity continues from its initial state at that
 	// version, so its versions keep increasing. A later recovery finds the tombstone and continues the same way.
+	//
+	// To refuse a command for a business reason, return a [Rejection], as is or wrapped: its code reaches the caller of
+	// [Engine.SendCommand], which can match it with [errors.Is]. Any other error reaches the caller by its text only.
 	HandleCommand(ctx context.Context, command Command, priorVersion uint64, priorState State) (newState State, newVersion uint64, err error)
 }

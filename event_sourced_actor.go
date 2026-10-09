@@ -122,8 +122,12 @@ type EventSourcedActor struct {
 	eventsJanitor   *goakt.PID
 	persistTimeout  time.Duration
 
-	// Cached values computed once at startup to avoid per-command allocations.
-	shardNumber uint64
+	// actorSystem is kept from the PostStart message so buildEnvelopes, which
+	// receives a plain context, can resolve the shard.
+	actorSystem goakt.ActorSystem
+	// shard is the journal shard of the entity's events, resolved when the
+	// first one is written.
+	shard shardLocator
 
 	// Event batching fields. Active only when batchThreshold > 0.
 	batchThreshold   int
@@ -194,7 +198,7 @@ func (entity *EventSourcedActor) PreStart(ctx *goakt.Context) error {
 func (entity *EventSourcedActor) Receive(ctx *goakt.ReceiveContext) {
 	switch msg := ctx.Message().(type) {
 	case *goakt.PostStart:
-		entity.shardNumber = ctx.ActorSystem().Partition(entity.persistenceID)
+		entity.actorSystem = ctx.ActorSystem()
 		entity.spawnChildren(ctx)
 	case *egopb.GetStateCommand:
 		entity.getStateAndReply(ctx)
@@ -483,6 +487,7 @@ func (entity *EventSourcedActor) sendErrorReply(ctx *goakt.ReceiveContext, err e
 		Reply: &egopb.CommandReply_ErrorReply{
 			ErrorReply: &egopb.ErrorReply{
 				Message: err.Error(),
+				Code:    rejectionCode(err),
 			},
 		},
 	})
@@ -593,7 +598,7 @@ func (entity *EventSourcedActor) buildEnvelopes(goCtx context.Context, events []
 		pendingCounter++
 		pendingState = resultingState
 
-		envelope, err := entity.marshalEvent(goCtx, event, pendingCounter, commandTime, entity.shardNumber)
+		envelope, err := entity.marshalEvent(goCtx, event, pendingCounter, commandTime, entity.shard.locate(entity.actorSystem, entity.persistenceID))
 		if err != nil {
 			return nil, nil, 0, time.Time{}, err
 		}

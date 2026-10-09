@@ -23,6 +23,7 @@ eGo deliberately does not hide the actor runtime. Your application creates and o
 - [Installation](#installation)
 - [Quick start](#quick-start)
 - [Modeling entities](#modeling-entities)
+    - [Rejecting commands](#rejecting-commands)
     - [Event-sourced vs durable-state](#event-sourced-vs-durable-state)
 - [Configuration](#configuration)
 - [Snapshots and retention](#snapshots-and-retention)
@@ -210,6 +211,25 @@ if err := engine.DurableStateEntity(ctx, behavior); err != nil {
 A durable-state command handler deletes the entity's state by returning `egopb.DeletedState` as the new state with the next version: the state store keeps a tombstone carrying that version and no state, the deletion is published to the state subscribers under that version, and the entity continues from its initial state at that version, so its versions keep increasing across the deletion. A later recovery finds the tombstone and continues the same way.
 
 Behavior values are Go-Akt dependencies. In addition to the methods above, they provide an `ID` and binary marshalling methods so they can travel with cluster spawn requests. See the [event-sourced](./example/eventssourced), [durable-state](./example/durablestate), and [saga](./example/saga) examples for complete implementations.
+
+### Rejecting commands
+
+A command handler refuses a command for a business reason by returning an `ego.Rejection`. Its code travels with the reply, so the error `SendCommand` returns carries the same code wherever the entity runs in the cluster, and callers match it with `errors.Is` instead of comparing error text:
+
+```go
+var ErrInsufficientFunds = ego.NewRejection("insufficient_funds", "insufficient funds")
+
+// in the command handler
+return nil, fmt.Errorf("account %s: %w", accountID, ErrInsufficientFunds)
+
+// in the caller
+_, _, err := engine.SendCommand(ctx, accountID, command, timeout)
+if errors.Is(err, ErrInsufficientFunds) {
+    // refuse the withdrawal
+}
+```
+
+Any other error a handler returns, and every store failure, still reaches the caller as a plain error carrying only its text. A saga receives a participant's rejection in `HandleError` the same way.
 
 ### Event-sourced vs durable-state
 
