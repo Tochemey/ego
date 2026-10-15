@@ -123,6 +123,8 @@ github.com/kapetan-io/tackle v0.15.0 h1:J+D04RuxEKtybzCjuzgcmQuFBiEpYa+5vPU2mAgA
 github.com/kapetan-io/tackle v0.15.0/go.mod h1:pDr4mjpo2RQO/q/je1dGuGwnBVwZcsRp60wgDV2hA3c=
 github.com/klauspost/compress v1.20.1 h1:T7kKElXUMXrUJ2E9QhQhxFtcK5rPyLdsGZvdbLMPdiQ=
 github.com/klauspost/compress v1.20.1/go.mod h1:LUdAzn7YLVvxLpc7y3V1m40wESHTgc1422pwwBSKYuI=
+github.com/klauspost/compress v1.20.3 h1:zWNoFqq/lSuYQRim3dUXlXeA0IqwuZGicdG5ZTfY5j4=
+github.com/klauspost/compress v1.20.3/go.mod h1:LUdAzn7YLVvxLpc7y3V1m40wESHTgc1422pwwBSKYuI=
 github.com/klauspost/cpuid/v2 v2.4.0 h1:S6Hrbc7+ywsr0r+RLapfGBHfyefhCTwEh3A0tV913Dw=
 github.com/klauspost/cpuid/v2 v2.4.0/go.mod h1:19jmZ9mjzoF//ddRSUsv0zfBTJWh3QJh9FNxZTMrGxU=
 github.com/lufia/plan9stats v0.0.0-20260802145828-341c2f0c90b5 h1:eveIIGn4BGM3qknO74omf6HYr30/exH+eVUTuAgwjZ0=
@@ -195,6 +197,8 @@ github.com/stretchr/objx v0.5.0/go.mod h1:Yh+to48EsGEfYuaHDzXPcE3xhTkx73EhmCGUpE
 github.com/stretchr/objx v0.5.2/go.mod h1:FRsXN1f5AsAjCGJKqEizvkpNtU+EGNCLh3NxZ/8L+MA=
 github.com/stretchr/objx v0.5.3 h1:jmXUvGomnU1o3W/V5h2VEradbpJDwGrzugQQvL0POH4=
 github.com/stretchr/objx v0.5.3/go.mod h1:rDQraq+vQZU7Fde9LOZLr8Tax6zZvy4kuNKF+QYS+U0=
+github.com/stretchr/objx v0.8.0 h1:rm9oMkeprG/wHifkZP4EuDww9S0mvEaQ/p9cXTNT4cw=
+github.com/stretchr/objx v0.8.0/go.mod h1:xSzHnPHkdEv7vtgdQej8atlCuU1mdX+ELge8bn0hCsE=
 github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
 github.com/stretchr/testify v1.7.1/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
 github.com/stretchr/testify v1.8.0/go.mod h1:yNjHg4UonilssWZ8iaSj1OCr/vHnekPRkoO+kdMU+MU=
@@ -221,8 +225,12 @@ github.com/tklauser/numcpus v0.12.0 h1:NR85qdvHA9pFse3x3weVZ0r0ST8R6l5RHbZrlRaqo
 github.com/tklauser/numcpus v0.12.0/go.mod h1:ABHeXzJnr/qqwguhClkZKT1/8VABcYrsyUiUGobwWJg=
 github.com/tochemey/goakt/v4 v4.6.2 h1:mD/3sIDHhh6ZGFI+eWn5JXQZEUsYV6Mz7C9Bx5s22D0=
 github.com/tochemey/goakt/v4 v4.6.2/go.mod h1:FdX1WXj6rR+XoND0yYUnX5gRIlNQEVadu+jtva6YAzo=
+github.com/tochemey/goakt/v4 v4.6.3 h1:6M3XDyDVHvNXIZrIfzAzsDDrTttRM+xQCQrenz0eQII=
+github.com/tochemey/goakt/v4 v4.6.3/go.mod h1:HZ4+Hrq8x08NZSeb7M8WEZXDq+ThpxbocY3y30OGbBg=
 github.com/tochemey/olric v0.3.22 h1:0jvoxpE6jUkJzYxHVTOvbsu7gN2YW4q8YyR9wki9b1I=
 github.com/tochemey/olric v0.3.22/go.mod h1:ZEPAM8gNYYXuw/VuyqocZz+2s1iJc9jgw2YBWKE5PkM=
+github.com/tochemey/olric v0.3.23 h1:hpiNQBjpUTjNzbfkos8l9qBW7LPsr2f/q6cJbce+Ivk=
+github.com/tochemey/olric v0.3.23/go.mod h1:XOlNhnbkK3hyT6Siakw/7q7QKwAnAXMfpVxPSQ+o2hI=
 github.com/travisjeffery/go-dynaport v1.0.0 h1:m/qqf5AHgB96CMMSworIPyo1i7NZueRsnwdzdCJ8Ajw=
 github.com/travisjeffery/go-dynaport v1.0.0/go.mod h1:0LHuDS4QAx+mAc4ri3WkQdavgVoBIZ7cE9ob17KIAJk=
 github.com/ttacon/chalk v0.0.0-20160626202418-22c06c80ed31/go.mod h1:onvgF043R+lC5RZ8IT9rBXDaEDnpnw/Cl+HFiw+v/7Q=
