@@ -24,34 +24,61 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/protobuf/types/known/anypb"
 
+	"github.com/tochemey/ego/v5/egopb"
 	samplepb "github.com/tochemey/ego/v5/example/examplepb"
 	"github.com/tochemey/ego/v5/projection"
 )
 
-// AccountBalanceHandler implements projection.Handler.
-// It materializes account balance events into the account_balances read table
-// in PostgreSQL, providing a queryable read model for the CQRS read side.
+// AccountBalanceHandler keeps the account_balances read model. Credits and
+// debits are added to the stored balance, so applying an event twice would
+// count it twice: each event is applied and its offset recorded in one
+// transaction, so the projection applies it exactly once.
 type AccountBalanceHandler struct {
+	// pool is the connection pool of the database holding the read model and the offsets.
 	pool *pgxpool.Pool
+	// offsets is the projection's offset store, in the same database.
+	offsets *PostgresOffsetStore
+	// projectionName is the name the offsets are recorded under.
+	projectionName string
 }
 
-var _ projection.Handler = (*AccountBalanceHandler)(nil)
+var _ projection.TransactionalHandler = (*AccountBalanceHandler)(nil)
 
-// NewAccountBalanceHandler creates a projection handler that writes to the
-// account_balances table using the given connection pool.
-func NewAccountBalanceHandler(pool *pgxpool.Pool) *AccountBalanceHandler {
-	return &AccountBalanceHandler{pool: pool}
+// NewAccountBalanceHandler creates the handler of the named projection.
+func NewAccountBalanceHandler(pool *pgxpool.Pool, offsets *PostgresOffsetStore, projectionName string) *AccountBalanceHandler {
+	return &AccountBalanceHandler{pool: pool, offsets: offsets, projectionName: projectionName}
 }
 
-// Handle processes a single event from the projection runner.
-// It unmarshals the event and upserts the account balance accordingly.
-func (h *AccountBalanceHandler) Handle(ctx context.Context, persistenceID string, event *anypb.Any, _ uint64) error {
+// Handle applies the event to the read model and records its offset in the same transaction.
+func (h *AccountBalanceHandler) Handle(ctx context.Context, persistenceID string, event *anypb.Any, _ uint64, offset *egopb.EntityOffset) error {
+	tx, err := h.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := applyBalanceEvent(ctx, tx, persistenceID, event); err != nil {
+		return err
+	}
+
+	if err := h.offsets.WriteOffsetsTx(ctx, tx, h.projectionName, []*egopb.EntityOffset{offset}); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
+}
+
+// applyBalanceEvent applies one account event to the account_balances read
+// model within the transaction. Events the read model does not track are ignored.
+func applyBalanceEvent(ctx context.Context, tx pgx.Tx, persistenceID string, event *anypb.Any) error {
 	msg, err := event.UnmarshalNew()
 	if err != nil {
 		slog.Warn("projection: failed to unmarshal event, skipping",
@@ -63,14 +90,14 @@ func (h *AccountBalanceHandler) Handle(ctx context.Context, persistenceID string
 
 	switch evt := msg.(type) {
 	case *samplepb.AccountCreated:
-		_, err = h.pool.Exec(ctx, `
+		_, err = tx.Exec(ctx, `
 			INSERT INTO account_balances (account_id, balance, updated_at)
 			VALUES ($1, $2, $3)
 			ON CONFLICT (account_id) DO UPDATE SET balance = EXCLUDED.balance, updated_at = EXCLUDED.updated_at`,
 			evt.GetAccountId(), evt.GetAccountBalance(), now)
 
 	case *samplepb.AccountCredited:
-		_, err = h.pool.Exec(ctx, `
+		_, err = tx.Exec(ctx, `
 			INSERT INTO account_balances (account_id, balance, updated_at)
 			VALUES ($1, $2, $3)
 			ON CONFLICT (account_id) DO UPDATE SET
@@ -85,21 +112,14 @@ func (h *AccountBalanceHandler) Handle(ctx context.Context, persistenceID string
 		// 42725) because the prefix `-` can't pick an overload against an
 		// untyped placeholder.
 		delta := -evt.GetAccountBalance()
-		_, err = h.pool.Exec(ctx, `
+		_, err = tx.Exec(ctx, `
 			INSERT INTO account_balances (account_id, balance, updated_at)
 			VALUES ($1, $2, $3)
 			ON CONFLICT (account_id) DO UPDATE SET
 				balance = account_balances.balance + EXCLUDED.balance,
 				updated_at = EXCLUDED.updated_at`,
 			evt.GetAccountId(), delta, now)
-
-	default:
-		// Ignore events we don't care about (e.g., saga events).
-		return nil
 	}
 
-	if err != nil {
-		return err
-	}
-	return nil
+	return err
 }

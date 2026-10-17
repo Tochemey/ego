@@ -57,6 +57,15 @@ import (
 // numWorkers is the fixed size of the persistent shard-processing goroutine pool.
 const numWorkers = 5
 
+// defaultPullInterval is how often a projection reads the journal unless its
+// options set a positive PullInterval.
+const defaultPullInterval = time.Second
+
+// defaultBufferSize is how many events a projection reads from a shard at
+// once, and replays of one entity at once, unless its options set a positive
+// BufferSize.
+const defaultBufferSize = 500
+
 const (
 	// storeRetryInitialDelay is the backoff delay applied after the first
 	// failed store round trip before the pull pass is retried.
@@ -104,6 +113,9 @@ type projectionRunner struct {
 	logger log.Logger
 	// Handler specifies the projection handler
 	handler projection.Handler
+	// transactionalHandler, when set, replaces handler: it records each
+	// event's offset in its own transaction (see projection.TransactionalHandler).
+	transactionalHandler projection.TransactionalHandler
 	// JournalStore specifies the journal store for reading events
 	eventsStore persistence.EventsStore
 	// OffsetStore specifies the offset store to commit offsets
@@ -239,8 +251,8 @@ func newProjectionRunner(name string,
 		recovery:          projection.NewRecovery(),
 		stopSignal:        make(chan struct{}, 1),
 		running:           atomic.NewBool(false),
-		pullInterval:      time.Second,
-		maxBufferSize:     500,
+		pullInterval:      defaultPullInterval,
+		maxBufferSize:     defaultBufferSize,
 		startingOffset:    ZeroTime,
 		resetOffsetTo:     ZeroTime,
 		shards:            make(map[uint64]*shardState),
@@ -925,17 +937,12 @@ func (x *projectionRunner) validate(ctx context.Context, shard uint64, state *sh
 // deliver hands an accepted event to the handler and records it as processed.
 // eGo's own framework events and events stamped before the point the
 // projection starts from are recorded without reaching the handler: they still
-// take a sequence number of their persistence ID.
+// take a sequence number of their persistence ID. The runner records the
+// offset at the end of the read, except for an event a transactional handler
+// committed, whose offset is already stored.
 func (x *projectionRunner) deliver(ctx context.Context, shard uint64, state *shardState, envelope *egopb.Event, offsets map[string]*egopb.EntityOffset, consumedAt int64) error {
-	if envelope.GetTimestamp() >= x.startFloor {
-		if err := x.processEnvelope(ctx, envelope); err != nil {
-			return &projectionRunnerError{err: err}
-		}
-	}
-
 	persistenceID := envelope.GetPersistenceId()
-	state.remember(persistenceID, envelope.GetSequenceNumber(), envelope.GetTimestamp())
-	offsets[persistenceID] = &egopb.EntityOffset{
+	offset := &egopb.EntityOffset{
 		ShardNumber:    shard,
 		PersistenceId:  persistenceID,
 		SequenceNumber: envelope.GetSequenceNumber(),
@@ -943,13 +950,37 @@ func (x *projectionRunner) deliver(ctx context.Context, shard uint64, state *sha
 		ConsumedAt:     consumedAt,
 	}
 
+	committed := false
+	if envelope.GetTimestamp() >= x.startFloor {
+		handled, err := x.processEnvelope(ctx, envelope, offset)
+		if err != nil {
+			return &projectionRunnerError{err: err}
+		}
+
+		committed = handled && x.transactionalHandler != nil
+	}
+
+	state.remember(persistenceID, envelope.GetSequenceNumber(), envelope.GetTimestamp())
+
+	// A transactional handler committed the offset with the event's effect: it
+	// supersedes any earlier offset of the persistence ID in this read, and its
+	// row is cleaned like the runner's own.
+	if committed {
+		delete(offsets, persistenceID)
+		state.dirty = true
+		return nil
+	}
+
+	offsets[persistenceID] = offset
 	return nil
 }
 
 // replay delivers, in sequence order, the events of a persistence ID from the
 // one after its last processed event up to the given event, which came after
-// a gap. When the events store does not return every one of them, the read
-// fails and is retried with backoff: a missing event is never skipped.
+// a gap. The events are read a buffer at a time, so a long gap is never held
+// in memory at once. When the events store does not return every event of a
+// read, the read fails and is retried with backoff: a missing event is never
+// skipped.
 func (x *projectionRunner) replay(ctx context.Context, shard uint64, state *shardState, envelope *egopb.Event, offsets map[string]*egopb.EntityOffset, consumedAt int64) error {
 	persistenceID := envelope.GetPersistenceId()
 	to := envelope.GetSequenceNumber()
@@ -959,30 +990,34 @@ func (x *projectionRunner) replay(ctx context.Context, shard uint64, state *shar
 		from = record.sequenceNumber + 1
 	}
 
-	expected := to - from + 1
-	events, err := x.eventsStore.ReplayEvents(ctx, persistenceID, from, to, expected)
-	if err != nil {
-		return err
-	}
-
-	if uint64(len(events)) != expected {
-		return fmt.Errorf("projection=(%s) cannot process event %d of %s: %d of its events %d to %d are in the events store",
-			x.name, to, persistenceID, len(events), from, to)
-	}
-
-	for _, replayed := range events {
-		outcome, err := x.validate(ctx, shard, state, replayed)
+	pageSize := uint64(x.maxBufferSize)
+	for pageStart := from; pageStart <= to; pageStart += pageSize {
+		pageEnd := min(to, pageStart+pageSize-1)
+		expected := pageEnd - pageStart + 1
+		events, err := x.eventsStore.ReplayEvents(ctx, persistenceID, pageStart, pageEnd, expected)
 		if err != nil {
 			return err
 		}
 
-		if outcome != accepted {
-			return fmt.Errorf("projection=(%s) cannot process event %d of %s: its replay is out of sequence",
-				x.name, replayed.GetSequenceNumber(), persistenceID)
+		if uint64(len(events)) != expected {
+			return fmt.Errorf("projection=(%s) cannot process event %d of %s: %d of its events %d to %d are in the events store",
+				x.name, to, persistenceID, len(events), pageStart, pageEnd)
 		}
 
-		if err := x.deliver(ctx, shard, state, replayed, offsets, consumedAt); err != nil {
-			return err
+		for _, replayed := range events {
+			outcome, err := x.validate(ctx, shard, state, replayed)
+			if err != nil {
+				return err
+			}
+
+			if outcome != accepted {
+				return fmt.Errorf("projection=(%s) cannot process event %d of %s: its replay is out of sequence",
+					x.name, replayed.GetSequenceNumber(), persistenceID)
+			}
+
+			if err := x.deliver(ctx, shard, state, replayed, offsets, consumedAt); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -1068,25 +1103,25 @@ func (x *projectionRunner) deleteOldOffsets(ctx context.Context) {
 // eGo's own framework events are skipped before any decryption or adaptation
 // happens: they carry no domain meaning. The batch offset is committed by the
 // caller, so skipped events do not stall the projection.
-func (x *projectionRunner) processEnvelope(ctx context.Context, envelope *egopb.Event) error {
+func (x *projectionRunner) processEnvelope(ctx context.Context, envelope *egopb.Event, offset *egopb.EntityOffset) (bool, error) {
 	event := envelope.GetEvent()
 	seqNr := envelope.GetSequenceNumber()
 	persistenceID := envelope.GetPersistenceId()
 
 	if event.MessageName().Parent() == frameworkEventPackage {
 		x.logger.Debugf("projection=(%s) skipped framework event=[persistenceID=%s, revision=%d, type=%s]", x.name, persistenceID, seqNr, event.MessageName())
-		return nil
+		return false, nil
 	}
 
 	// Decrypt the event if it was encrypted
 	if envelope.GetIsEncrypted() && x.encryptor != nil {
 		plaintext, err := x.encryptor.Decrypt(ctx, persistenceID, event.GetValue(), envelope.GetEncryptionKeyId())
 		if err != nil {
-			return fmt.Errorf("failed to decrypt event for persistence id=%s, revision=%d: %w", persistenceID, seqNr, err)
+			return false, fmt.Errorf("failed to decrypt event for persistence id=%s, revision=%d: %w", persistenceID, seqNr, err)
 		}
 		decrypted := &anypb.Any{TypeUrl: event.GetTypeUrl()}
 		if err := proto.Unmarshal(plaintext, decrypted); err != nil {
-			return fmt.Errorf("failed to unmarshal decrypted event for persistence id=%s, revision=%d: %w", persistenceID, seqNr, err)
+			return false, fmt.Errorf("failed to unmarshal decrypted event for persistence id=%s, revision=%d: %w", persistenceID, seqNr, err)
 		}
 		event = decrypted
 	}
@@ -1095,57 +1130,62 @@ func (x *projectionRunner) processEnvelope(ctx context.Context, envelope *egopb.
 	if len(x.eventAdapters) > 0 {
 		adapted, err := eventadapter.Chain(x.eventAdapters, event, seqNr)
 		if err != nil {
-			return fmt.Errorf("failed to adapt event for persistence id=%s, revision=%d: %w", persistenceID, seqNr, err)
+			return false, fmt.Errorf("failed to adapt event for persistence id=%s, revision=%d: %w", persistenceID, seqNr, err)
 		}
 		event = adapted
 	}
 
-	if err := x.handleWithPolicy(ctx, persistenceID, event, seqNr); err != nil {
-		return err
+	handled, err := x.handleWithPolicy(ctx, persistenceID, event, seqNr, offset)
+	if err != nil {
+		return false, err
 	}
 
 	if x.metrics != nil {
 		x.metrics.projectionHandled.Add(ctx, 1)
 	}
 
-	return nil
+	return handled, nil
 }
 
-// handleWithPolicy executes the handler with the configured recovery policy.
-func (x *projectionRunner) handleWithPolicy(ctx context.Context, persistenceID string, event *anypb.Any, seqNr uint64) error {
+// handleWithPolicy executes the handler with the configured recovery policy and
+// reports whether the handler processed the event: false when the policy
+// skipped it after the handler failed.
+func (x *projectionRunner) handleWithPolicy(ctx context.Context, persistenceID string, event *anypb.Any, seqNr uint64, offset *egopb.EntityOffset) (bool, error) {
 	switch x.recovery.RecoveryPolicy() {
 	case projection.Fail:
-		if err := x.handleSafely(ctx, persistenceID, event, seqNr); err != nil {
+		if err := x.handleSafely(ctx, persistenceID, event, seqNr, offset); err != nil {
 			x.logHandlerError(err, persistenceID, seqNr)
-			return err
+			return false, err
 		}
 	case projection.RetryAndFail:
-		if err := x.retryHandle(ctx, persistenceID, event, seqNr, true); err != nil {
-			return err
+		if err := x.retryHandle(ctx, persistenceID, event, seqNr, offset, true); err != nil {
+			return false, err
 		}
 	case projection.RetryAndSkip:
-		if err := x.retryHandle(ctx, persistenceID, event, seqNr, false); err != nil {
+		if err := x.retryHandle(ctx, persistenceID, event, seqNr, offset, false); err != nil {
 			x.sendToDeadLetter(ctx, persistenceID, event, seqNr, err)
+			return false, nil
 		}
 	case projection.Skip:
-		if err := x.handleSafely(ctx, persistenceID, event, seqNr); err != nil {
+		if err := x.handleSafely(ctx, persistenceID, event, seqNr, offset); err != nil {
 			x.logHandlerError(err, persistenceID, seqNr)
 			x.sendToDeadLetter(ctx, persistenceID, event, seqNr, err)
+			return false, nil
 		}
 	default:
-		if err := x.handleSafely(ctx, persistenceID, event, seqNr); err != nil {
+		if err := x.handleSafely(ctx, persistenceID, event, seqNr, offset); err != nil {
 			x.logHandlerError(err, persistenceID, seqNr)
-			return err
+			return false, err
 		}
 	}
 
-	return nil
+	return true, nil
 }
 
 // retryHandle runs the handler with the pre-created retrier and optional per-attempt logging.
-func (x *projectionRunner) retryHandle(ctx context.Context, persistenceID string, event *anypb.Any, seqNr uint64, logEachAttempt bool) error {
+func (x *projectionRunner) retryHandle(ctx context.Context, persistenceID string, event *anypb.Any, seqNr uint64, offset *egopb.EntityOffset, logEachAttempt bool) error {
 	err := x.retrier.Run(func() error {
-		handleErr := x.handleSafely(ctx, persistenceID, event, seqNr)
+		handleErr := x.handleSafely(ctx, persistenceID, event, seqNr, offset)
 		if handleErr != nil && logEachAttempt {
 			x.logHandlerError(handleErr, persistenceID, seqNr)
 		}
@@ -1158,13 +1198,18 @@ func (x *projectionRunner) retryHandle(ctx context.Context, persistenceID string
 	return err
 }
 
-// handleSafely invokes the handler and converts panics into errors.
-func (x *projectionRunner) handleSafely(ctx context.Context, persistenceID string, event *anypb.Any, seqNr uint64) (err error) {
+// handleSafely invokes the handler and converts panics into errors. A
+// transactional handler receives its own copy of the offset to record.
+func (x *projectionRunner) handleSafely(ctx context.Context, persistenceID string, event *anypb.Any, seqNr uint64, offset *egopb.EntityOffset) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			err = newHandlerPanicError(recovered)
 		}
 	}()
+
+	if x.transactionalHandler != nil {
+		return x.transactionalHandler.Handle(ctx, persistenceID, event, seqNr, proto.CloneOf(offset))
+	}
 
 	return x.handler.Handle(ctx, persistenceID, event, seqNr)
 }

@@ -187,6 +187,19 @@ bench-durable-multi-local: _use-local
 	@$(MAKE) _use-released
 
 # ---------------------------------------------------------------------------
+# Sagas
+# ---------------------------------------------------------------------------
+.PHONY: bench-saga bench-saga-local
+
+## bench-saga: journal reads and reaction latency of 10, 100 and 1000 sagas (in-memory store)
+bench-saga:
+	$(GO_TEST) -bench='BenchmarkSagaFanout' .
+
+bench-saga-local: _use-local
+	$(GO_TEST) -bench='BenchmarkSagaFanout' .
+	@$(MAKE) _use-released
+
+# ---------------------------------------------------------------------------
 # Help
 # ---------------------------------------------------------------------------
 .PHONY: help

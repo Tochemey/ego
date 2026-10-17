@@ -1,4 +1,4 @@
-module github.com/tochemey/ego/v5/publisher/websocket
+module github.com/tochemey/ego/publisher/websocket/v2
 
 go 1.27.0
 

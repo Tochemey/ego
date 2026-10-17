@@ -26,6 +26,8 @@ import (
 	"context"
 
 	"google.golang.org/protobuf/types/known/anypb"
+
+	"github.com/tochemey/ego/v5/egopb"
 )
 
 // Handler processes the events a projection consumes from the events store,
@@ -43,7 +45,13 @@ import (
 //
 // Delivery: the projection commits its offset once per processed batch, so
 // delivery is at-least-once — a crash mid-batch re-delivers the whole batch
-// on restart. Handlers should therefore be idempotent.
+// on restart. Handlers should therefore be idempotent. Two ways to make the
+// effect of a redelivered event happen only once: write the read model with an
+// upsert keyed by (persistenceID, revision), or keep the last applied revision
+// of each persistence ID in the read model, updated in the same transaction as
+// the read model, and skip any event at or below it. The second relies on the
+// per-persistence-ID revision order above. For exactly-once effects in the
+// database that holds the offset store, implement TransactionalHandler instead.
 //
 // Errors: a non-nil error triggers the projection's Recovery policy (fail,
 // retry, or skip, optionally routing the event to the DeadLetterHandler).
@@ -55,6 +63,35 @@ type Handler interface {
 	// (decrypted and schema-adapted) payload, and revision is the event's
 	// sequence number within that entity's journal.
 	Handle(ctx context.Context, persistenceID string, event *anypb.Any, revision uint64) error
+}
+
+// TransactionalHandler processes the events a projection consumes and records
+// each event's offset in the same database transaction as the event's effect,
+// so the effect is applied exactly once, across crashes, restarts and cluster
+// failover. Set it with Options.TransactionalHandler instead of Options.Handler.
+//
+// Contract: Handle writes offset with the offset store's transactional write
+// (for example a store method taking the open transaction) inside the
+// transaction that applies the event, and commits both together. The offset
+// store must therefore live in the database the handler writes to. When the
+// transaction commits, the projection never delivers the event again: on a
+// restart it reads the offset back and skips the event. When Handle returns an
+// error, the transaction must be rolled back; the projection's recovery policy
+// then decides whether the event is retried, skipped or stops the projection.
+// A handler that commits without writing offset leaves the projection unable to
+// recognize the event as processed, and it delivers the event again.
+//
+// Effects outside that database, such as HTTP calls or messages to a broker,
+// are not covered and remain at-least-once.
+//
+// Concurrency and ordering are the same as for Handler.
+type TransactionalHandler interface {
+	// Handle processes a single event consumed by the projection and records
+	// offset in the same transaction.
+	//
+	// persistenceID, event and revision are as for Handler.Handle. offset is
+	// the row the projection records for this event: write it unchanged.
+	Handle(ctx context.Context, persistenceID string, event *anypb.Any, revision uint64, offset *egopb.EntityOffset) error
 }
 
 // DiscardHandler implements the projection Handler interface

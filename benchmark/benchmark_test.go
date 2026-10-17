@@ -158,12 +158,13 @@ type benchEnv struct {
 	engine *ego.Engine
 }
 
-// setupEngine creates an ego Engine backed by the given event store.
-func setupEngine(b *testing.B, store persistence.EventsStore) *benchEnv {
+// setupEngine creates an ego Engine backed by the given event store and
+// configured with the given options.
+func setupEngine(b *testing.B, store persistence.EventsStore, opts ...ego.Option) *benchEnv {
 	b.Helper()
 	ctx := context.Background()
 
-	cfg := ego.NewConfig(store, ego.WithLogger(ego.DiscardLogger))
+	cfg := ego.NewConfig(store, append([]ego.Option{ego.WithLogger(ego.DiscardLogger)}, opts...)...)
 	sys, err := goakt.NewActorSystem("BenchEngine", cfg.GoaktOptions()...)
 	if err != nil {
 		b.Fatalf("build actor system: %v", err)

@@ -532,6 +532,32 @@ func TestProjectionActorPreStartFailure(t *testing.T) {
 	})
 }
 
+func TestProjectionActorInvalidOptions(t *testing.T) {
+	ctx := context.TODO()
+
+	eventsStore := mockseventstore.NewEventsStore(t)
+	offsetStore := mocksoffsetstore.NewOffsetStore(t)
+
+	actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+		goakt.WithLogger(log.DiscardLogger),
+		goakt.WithExtensions(
+			extensions.NewEventsStore(eventsStore),
+			extensions.NewOffsetStore(offsetStore),
+			extensions.NewProjectionExtension(map[string]*projection.Options{
+				"without-handler": {BufferSize: 500},
+			})),
+		goakt.WithActorInitMaxRetries(1))
+	require.NoError(t, err)
+	require.NoError(t, actorSystem.Start(ctx))
+	t.Cleanup(func() { _ = actorSystem.Stop(ctx) })
+
+	pause.For(time.Second)
+
+	// the actor reads its options on whichever node runs it, so it checks them too
+	_, err = actorSystem.Spawn(ctx, "without-handler", NewProjectionActor(), goakt.WithLongLived())
+	require.Error(t, err)
+}
+
 func TestProjectionActorRunnerFailure(t *testing.T) {
 	t.Run("recovers from transient store failure without restarting", func(t *testing.T) {
 		ctx := context.TODO()

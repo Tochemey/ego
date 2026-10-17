@@ -417,6 +417,37 @@ func TestEngineStartProjectionNotRegistered(t *testing.T) {
 	require.Contains(t, err.Error(), "unknown")
 }
 
+// TestEngineStartProjectionInvalidOptions verifies that StartProjection fails
+// fast when a projection's options do not set exactly one handler.
+func TestEngineStartProjectionInvalidOptions(t *testing.T) {
+	ctx := context.Background()
+	store := testkit.NewEventsStore()
+	require.NoError(t, store.Connect(ctx))
+	t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+	offsetStore := testkit.NewOffsetStore()
+	require.NoError(t, offsetStore.Connect(ctx))
+	t.Cleanup(func() { _ = offsetStore.Disconnect(ctx) })
+
+	engine := newTestEngine(t, "Sample", store,
+		WithLogger(DiscardLogger),
+		WithOffsetStore(offsetStore),
+		WithProjection("without-handler", &projection.Options{BufferSize: 100}),
+		WithProjection("with-both-handlers", &projection.Options{
+			Handler:              projection.NewDiscardHandler(),
+			TransactionalHandler: &committingHandler{offsets: offsetStore},
+		}),
+	)
+	require.NoError(t, engine.Start(ctx))
+	t.Cleanup(func() { _ = engine.Stop(ctx) })
+
+	err := engine.StartProjection(ctx, "without-handler")
+	require.ErrorIs(t, err, projection.ErrHandlerRequired)
+	require.Contains(t, err.Error(), "without-handler")
+
+	require.ErrorIs(t, engine.StartProjection(ctx, "with-both-handlers"), projection.ErrConflictingHandlers)
+}
+
 // countingProjectionHandler records how many events it processed so tests can
 // assert which projection's handler was invoked.
 type countingProjectionHandler struct {
@@ -1116,6 +1147,34 @@ func TestEngineEraseEntity(t *testing.T) {
 		stored, err = durableStore.GetLatestState(ctx, entityID)
 		require.NoError(t, err)
 		assert.Nil(t, stored, "the durable state survived the erasure")
+	})
+
+	t.Run("full=true deletes the snapshots of an entity whose events are gone", func(t *testing.T) {
+		store := testkit.NewEventsStore()
+		require.NoError(t, store.Connect(ctx))
+		t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+		snapshotStore := testkit.NewSnapshotStore()
+		require.NoError(t, snapshotStore.Connect(ctx))
+		t.Cleanup(func() { _ = snapshotStore.Disconnect(ctx) })
+
+		engine := newTestEngine(t, "Sample", store, WithLogger(DiscardLogger), WithSnapshotStore(snapshotStore))
+		require.NoError(t, engine.Start(ctx))
+
+		// the retention policy deleted every event up to the latest snapshot,
+		// so the journal holds nothing while the snapshots remain
+		entityID := uuid.NewString()
+		state, err := anypb.New(&testpb.Account{AccountId: entityID, AccountBalance: 100})
+		require.NoError(t, err)
+		for _, sequenceNumber := range []uint64{3, 6} {
+			require.NoError(t, snapshotStore.WriteSnapshot(ctx, &egopb.Snapshot{PersistenceId: entityID, SequenceNumber: sequenceNumber, State: state}))
+		}
+
+		require.NoError(t, engine.EraseEntity(ctx, entityID, true))
+
+		latest, err := snapshotStore.GetLatestSnapshot(ctx, entityID)
+		require.NoError(t, err)
+		assert.Nil(t, latest, "a snapshot survived the erasure")
 	})
 
 	t.Run("erasure stops the live entity", func(t *testing.T) {
@@ -2194,13 +2253,30 @@ func TestEngineEraseEntityStoreErrors(t *testing.T) {
 			Return(nil)
 
 		snapStore := new(mockpersistence.SnapshotStore)
-		snapStore.On("DeleteSnapshots", mock.Anything, mock.AnythingOfType("string"), uint64(7)).
+		snapStore.On("GetLatestSnapshot", mock.Anything, mock.AnythingOfType("string")).
+			Return(&egopb.Snapshot{SequenceNumber: 6}, nil)
+		snapStore.On("DeleteSnapshots", mock.Anything, mock.AnythingOfType("string"), uint64(6)).
 			Return(errors.New("snap fail"))
 
 		engine := synthEngineWithStores(eventsStore, snapStore, nil)
 		err := engine.EraseEntity(ctx, "pid-3", true)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to delete snapshots for erasure")
+	})
+
+	t.Run("GetLatestSnapshot error", func(t *testing.T) {
+		eventsStore := new(mockpersistence.EventsStore)
+		eventsStore.On("GetLatestEvent", mock.Anything, mock.AnythingOfType("string")).
+			Return(nil, nil)
+
+		snapStore := new(mockpersistence.SnapshotStore)
+		snapStore.On("GetLatestSnapshot", mock.Anything, mock.AnythingOfType("string")).
+			Return(nil, errors.New("snap read fail"))
+
+		engine := synthEngineWithStores(eventsStore, snapStore, nil)
+		err := engine.EraseEntity(ctx, "pid-5", true)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to get latest snapshot for erasure")
 	})
 
 	t.Run("DeleteKey error", func(t *testing.T) {

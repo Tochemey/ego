@@ -1,4 +1,4 @@
-module github.com/tochemey/ego/v5/publisher/pulsar
+module github.com/tochemey/ego/publisher/pulsar/v2
 
 go 1.27.0
 

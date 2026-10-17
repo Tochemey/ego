@@ -210,9 +210,12 @@ func (record entityRecord) check(sequenceNumber uint64) validation {
 // buffers of events were read since its last backtracking read, or once its
 // position is more than half a window ahead of its last backtracking read. A
 // shard whose position is older than the whole backtracking window is not
-// backtracked: no late event behind it is within reach anymore.
+// backtracked: no late event behind it is within reach anymore. Nor is a shard
+// whose last backtracking read reached its position: everything behind the
+// position was read again, and the normal read covers the position itself, so
+// another backtracking read could find nothing until the position moves.
 func (state *shardState) shouldBacktrack(settings offsetSettings, bufferSize int, now time.Time) bool {
-	if state.backtracking || state.latest == 0 {
+	if state.backtracking || state.latest == 0 || state.latestBacktracking >= state.latest {
 		return false
 	}
 

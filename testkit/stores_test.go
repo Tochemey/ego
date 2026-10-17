@@ -24,6 +24,7 @@ package testkit
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 
@@ -70,6 +71,23 @@ func TestEventStore_Disconnect(t *testing.T) {
 		store := NewEventsStore()
 		err := store.Disconnect(ctx)
 		require.NoError(t, err)
+	})
+	t.Run("forgets the events", func(t *testing.T) {
+		store := NewEventsStore()
+		require.NoError(t, store.Connect(ctx))
+		anyEvent, _ := anypb.New(&testpb.AccountCreated{AccountId: "acc-1", AccountBalance: 100})
+		require.NoError(t, store.WriteEvents(ctx, []*egopb.Event{
+			{PersistenceId: "disconnect-test", SequenceNumber: 1, Event: anyEvent, Timestamp: 100, Shard: 1},
+		}))
+		require.NoError(t, store.Disconnect(ctx))
+
+		events, err := store.EventsByShard(ctx, 1, 0, 10)
+		require.NoError(t, err)
+		assert.Empty(t, events, "a disconnected store reads no event of a shard")
+
+		offsets, err := store.ShardOffsets(ctx)
+		require.NoError(t, err)
+		assert.Empty(t, offsets, "a disconnected store has no shard")
 	})
 }
 
@@ -174,6 +192,11 @@ func TestEventStore_DeleteEvents(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, replayed, 1)
 	assert.EqualValues(t, 3, replayed[0].GetSequenceNumber())
+
+	byShard, err := store.EventsByShard(ctx, 1, 0, 10)
+	require.NoError(t, err)
+	require.Len(t, byShard, 1, "a deleted event is no longer read from its shard")
+	assert.EqualValues(t, 3, byShard[0].GetSequenceNumber())
 
 	require.NoError(t, store.Disconnect(ctx))
 }
@@ -474,6 +497,21 @@ func TestOffsetStore_Disconnect(t *testing.T) {
 		store := NewOffsetStore()
 		require.NoError(t, store.Disconnect(ctx))
 	})
+	t.Run("forgets the offsets", func(t *testing.T) {
+		store := NewOffsetStore()
+		require.NoError(t, store.Connect(ctx))
+		require.NoError(t, store.WriteOffsets(ctx, balancesProjection, []*egopb.EntityOffset{entityOffset("account-1", 1, 10)}))
+		require.NoError(t, store.Disconnect(ctx))
+
+		// the same offset written after reconnecting is stored again
+		require.NoError(t, store.Connect(ctx))
+		require.NoError(t, store.WriteOffsets(ctx, balancesProjection, []*egopb.EntityOffset{entityOffset("account-1", 1, 10)}))
+
+		latest, err := store.LatestOffsets(ctx, balancesProjection)
+		require.NoError(t, err)
+		assert.Equal(t, map[uint64]int64{1: 10}, latest)
+		require.NoError(t, store.Disconnect(ctx))
+	})
 }
 
 func TestOffsetStore_Ping(t *testing.T) {
@@ -733,4 +771,22 @@ func TestSnapshotStore_PersistenceIDs(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"c"}, persistenceIDs)
 	assert.Empty(t, nextPageToken, "the last page has no token")
+}
+
+func TestEventStore_ReplayEventsWithoutLimit(t *testing.T) {
+	ctx := context.Background()
+	store := NewEventsStore()
+	require.NoError(t, store.Connect(ctx))
+
+	anyEvent, err := anypb.New(&testpb.AccountCreated{AccountId: "replay-limit"})
+	require.NoError(t, err)
+	require.NoError(t, store.WriteEvents(ctx, []*egopb.Event{
+		{PersistenceId: "replay-limit", SequenceNumber: 1, Event: anyEvent},
+		{PersistenceId: "replay-limit", SequenceNumber: 2, Event: anyEvent},
+	}))
+
+	// a limit above the largest int must not overflow into a negative one
+	events, err := store.ReplayEvents(ctx, "replay-limit", 1, 2, math.MaxUint64)
+	require.NoError(t, err)
+	assert.Len(t, events, 2)
 }

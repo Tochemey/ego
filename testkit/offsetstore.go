@@ -39,10 +39,13 @@ import (
 // offset written, as a SQL-backed store does, until DeleteOffsetsBefore,
 // ResetOffset or DeleteOffset removes it.
 type OffsetStore struct {
-	// mutex guards offsets and startOffsets.
+	// mutex guards offsets, keys and startOffsets.
 	mutex sync.RWMutex
 	// offsets holds the offsets of every projection, keyed by projection name.
 	offsets map[string][]*egopb.EntityOffset
+	// keys holds the key of every stored offset of every projection, keyed by
+	// projection name, so a write recognizes a stored offset without a scan.
+	keys map[string]map[offsetKey]struct{}
 	// startOffsets holds the start offset ResetOffset recorded, keyed by projection name.
 	startOffsets map[string]int64
 	// connected reports whether Connect was called.
@@ -56,6 +59,7 @@ var _ offsetstore.OffsetStore = (*OffsetStore)(nil)
 func NewOffsetStore() *OffsetStore {
 	return &OffsetStore{
 		offsets:      make(map[string][]*egopb.EntityOffset),
+		keys:         make(map[string]map[offsetKey]struct{}),
 		startOffsets: make(map[string]int64),
 		connected:    atomic.NewBool(false),
 	}
@@ -75,6 +79,7 @@ func (x *OffsetStore) Disconnect(context.Context) error {
 
 	x.mutex.Lock()
 	x.offsets = make(map[string][]*egopb.EntityOffset)
+	x.keys = make(map[string]map[offsetKey]struct{})
 	x.startOffsets = make(map[string]int64)
 	x.mutex.Unlock()
 
@@ -90,12 +95,26 @@ func (x *OffsetStore) Ping(ctx context.Context) error {
 	return nil
 }
 
-// WriteOffsets stores a copy of every given offset of the projection.
+// WriteOffsets stores a copy of every given offset of the projection. An offset with the same
+// shard, timestamp, persistence ID and sequence number as a stored one is kept once, as a SQL store
+// keyed on those columns does.
 func (x *OffsetStore) WriteOffsets(_ context.Context, projectionName string, offsets []*egopb.EntityOffset) error {
 	x.mutex.Lock()
 	defer x.mutex.Unlock()
 
+	stored, ok := x.keys[projectionName]
+	if !ok {
+		stored = make(map[offsetKey]struct{})
+		x.keys[projectionName] = stored
+	}
+
 	for _, offset := range offsets {
+		key := keyOfOffset(offset)
+		if _, exists := stored[key]; exists {
+			continue
+		}
+
+		stored[key] = struct{}{}
 		x.offsets[projectionName] = append(x.offsets[projectionName], proto.CloneOf(offset))
 	}
 	return nil
@@ -165,9 +184,13 @@ func (x *OffsetStore) DeleteOffsetsBefore(_ context.Context, projectionName stri
 	defer x.mutex.Unlock()
 
 	x.offsets[projectionName] = slices.DeleteFunc(x.offsets[projectionName], func(offset *egopb.EntityOffset) bool {
-		return offset.GetShardNumber() == shardNumber &&
+		deleted := offset.GetShardNumber() == shardNumber &&
 			offset.GetTimestamp() < before &&
 			offset.GetConsumedAt() < consumedBefore
+		if deleted {
+			delete(x.keys[projectionName], keyOfOffset(offset))
+		}
+		return deleted
 	})
 	return nil
 }
@@ -178,6 +201,7 @@ func (x *OffsetStore) ResetOffset(_ context.Context, projectionName string, valu
 	defer x.mutex.Unlock()
 
 	delete(x.offsets, projectionName)
+	delete(x.keys, projectionName)
 	x.startOffsets[projectionName] = value
 	return nil
 }
@@ -196,6 +220,29 @@ func (x *OffsetStore) DeleteOffset(_ context.Context, projectionName string) err
 	defer x.mutex.Unlock()
 
 	delete(x.offsets, projectionName)
+	delete(x.keys, projectionName)
 	delete(x.startOffsets, projectionName)
 	return nil
+}
+
+// offsetKey identifies an offset row of a projection.
+type offsetKey struct {
+	// shardNumber is the shard of the offset.
+	shardNumber uint64
+	// timestamp is the timestamp of the processed event.
+	timestamp int64
+	// persistenceID is the persistence ID of the processed event.
+	persistenceID string
+	// sequenceNumber is the sequence number of the processed event.
+	sequenceNumber uint64
+}
+
+// keyOfOffset returns the key that identifies the offset's row.
+func keyOfOffset(offset *egopb.EntityOffset) offsetKey {
+	return offsetKey{
+		shardNumber:    offset.GetShardNumber(),
+		timestamp:      offset.GetTimestamp(),
+		persistenceID:  offset.GetPersistenceId(),
+		sequenceNumber: offset.GetSequenceNumber(),
+	}
 }

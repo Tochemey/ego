@@ -1,4 +1,4 @@
-module github.com/tochemey/ego/v5/publisher/nats
+module github.com/tochemey/ego/publisher/nats/v2
 
 go 1.27.0
 

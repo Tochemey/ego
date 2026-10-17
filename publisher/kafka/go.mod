@@ -1,4 +1,4 @@
-module github.com/tochemey/ego/v5/publisher/kafka
+module github.com/tochemey/ego/publisher/kafka/v2
 
 go 1.27.0
 

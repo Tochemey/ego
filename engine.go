@@ -416,12 +416,20 @@ func (engine *Engine) StartProjection(ctx context.Context, name string) error {
 	}
 	actorSystem := ref.sys
 
-	// Fail fast on unknown names instead of letting the actor's PreStart
-	// (and its retries) discover the missing registration. When the registry
-	// extension cannot be resolved (e.g. the actor system is already stopped),
-	// fall through and let the spawn surface the actual failure.
-	if registry, ok := actorSystem.Extension(extensions.ProjectionExtensionID).(*extensions.ProjectionExtension); ok && registry.Get(name) == nil {
-		return fmt.Errorf("%w: %s", ErrProjectionNotRegistered, name)
+	// Fail fast on unknown names and on options without exactly one handler,
+	// instead of letting the actor's PreStart (and its retries) discover them.
+	// When the registry extension cannot be resolved (e.g. the actor system is
+	// already stopped), fall through and let the spawn surface the actual
+	// failure.
+	if registry, ok := actorSystem.Extension(extensions.ProjectionExtensionID).(*extensions.ProjectionExtension); ok {
+		options := registry.Get(name)
+		if options == nil {
+			return fmt.Errorf("%w: %s", ErrProjectionNotRegistered, name)
+		}
+
+		if err := options.Validate(); err != nil {
+			return fmt.Errorf("projection %s: %w", name, err)
+		}
 	}
 
 	if actorSystem.InCluster() {
@@ -803,6 +811,15 @@ func (engine *Engine) SendCommand(ctx context.Context, entityID string, cmd Comm
 //
 // Note: Event publishers are responsible for publishing events to external systems. They need to be added to the engine before processing any events.
 //
+// Delivery is best-effort. Each Publish call runs under the timeout set with
+// WithPublishTimeout and is retried with backoff; an event that still cannot be
+// delivered is dropped, as is any event that arrives while the publisher's
+// queue is full. Drops are logged and counted on the ego.publisher.dropped.total
+// metric. Events written before a publisher is added, or while the process is
+// down, are never published. When every event must be delivered, publish from
+// a projection handler registered with WithProjection instead: it reads the
+// journal and delivers at least once.
+//
 // Parameters:
 //   - publishers: A list of event publishers to be added to the engine.
 //
@@ -843,6 +860,12 @@ func (engine *Engine) AddEventPublishers(publishers ...EventPublisher) error {
 //
 // Note: State publishers are responsible for publishing durable state changes to external systems.
 // They need to be added to the engine before processing any durable state.
+//
+// Delivery is best-effort, as for event publishers: a state change that cannot
+// be delivered after the retries, or that arrives while the publisher's queue
+// is full, is dropped, logged and counted on the ego.publisher.dropped.total
+// metric. Durable state is not journaled, so there is no projection to fall
+// back on for guaranteed delivery.
 //
 // Parameters:
 //   - publishers: A list of state publishers to be added to the engine.
@@ -1003,6 +1026,10 @@ func (engine *Engine) SagaStatus(ctx context.Context, sagaID string, timeout tim
 // With full set to true the key is deleted when a key store is configured, and
 // the events and snapshots are physically deleted from their stores as well,
 // as is the durable state when a state store is configured with WithStateStore.
+//
+// The stores are not erased atomically. When EraseEntity returns an error, call
+// it again with the same arguments: every step can be repeated safely, and a
+// repeated call erases whatever the failed one left behind.
 func (engine *Engine) EraseEntity(ctx context.Context, persistenceID string, full bool) error {
 	if !engine.Started() {
 		return ErrEngineNotStarted
@@ -1045,9 +1072,20 @@ func (engine *Engine) EraseEntity(ctx context.Context, persistenceID string, ful
 		}
 	}
 
-	if snapshotStore != nil && latestEvent != nil {
-		if err := snapshotStore.DeleteSnapshots(ctx, persistenceID, latestEvent.GetSequenceNumber()); err != nil {
-			return fmt.Errorf("failed to delete snapshots for erasure: %w", err)
+	// The snapshots are bounded by the latest snapshot itself, not by the latest
+	// event: the journal can hold no event while snapshots remain, after the
+	// retention policy deleted every event up to a snapshot or after an earlier
+	// erasure failed once the events were gone.
+	if snapshotStore != nil {
+		latestSnapshot, err := snapshotStore.GetLatestSnapshot(ctx, persistenceID)
+		if err != nil {
+			return fmt.Errorf("failed to get latest snapshot for erasure: %w", err)
+		}
+
+		if latestSnapshot != nil {
+			if err := snapshotStore.DeleteSnapshots(ctx, persistenceID, latestSnapshot.GetSequenceNumber()); err != nil {
+				return fmt.Errorf("failed to delete snapshots for erasure: %w", err)
+			}
 		}
 	}
 

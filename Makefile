@@ -84,14 +84,20 @@ docker-lint: docker-image
 # Run the test suite with race detection and coverage inside the CI image.
 # The PKGS list mirrors the Earthfile's `local-test` target: it excludes
 # generated, example, and mock packages from coverage reporting.
+# The coverage profile is written inside the container and copied to the
+# workspace at the end: appends to a file on the bind-mounted workspace can
+# interleave and garble the profile.
 docker-test: docker-image
 	@echo "Running tests with race detector..."
 	$(DOCKER_RUN) sh -c '\
 		PKGS=$$(go list -mod=vendor -buildvcs=false ./... | grep -v -E "(egopb|test|example|mocks)") && \
 		go test -mod=vendor -buildvcs=false -p 1 -timeout 0 -race -v \
-			-coverprofile=coverage.out -covermode=atomic \
+			-coverprofile=/tmp/coverage.out -covermode=atomic \
 			-coverpkg=$$(echo $$PKGS | tr " " ",") \
-			$$PKGS'
+			$$PKGS; \
+		status=$$?; \
+		cp /tmp/coverage.out coverage.out; \
+		exit $$status'
 
 # Regenerate mocks via mockery inside the CI image. Output is written to ./mocks.
 docker-mock: docker-image

@@ -7,6 +7,7 @@ A production-ready example that runs a 3-node eGo cluster on Kubernetes using [K
 - **Kubernetes-native peer discovery** — pods find each other via the Kubernetes API
 - **PostgreSQL-backed persistence** — events and projection offsets are stored in PostgreSQL
 - **CQRS with singleton projection** — commands produce events (write side), a projection singleton on the oldest node materializes account balances into a read table (read side); migrates automatically on node failure
+- **Exactly-once read model** — the projection is a `projection.TransactionalHandler`: it applies each event to the balance table and records the event's offset in one PostgreSQL transaction, so a credit or debit is never counted twice, even after a crash or a failover
 - **Fund-transfer saga** — a saga coordinates a debit and a credit across two account entities that may live on different pods, and refunds the source when the credit is rejected
 - **3-node cluster** — shows partition distribution and quorum
 - **NGINX Ingress load balancing** — requests to `http://localhost` are round-robin distributed across all 3 pods (no port-forward needed)

@@ -317,6 +317,16 @@ func (s *PostgresOffsetStore) WriteOffsets(ctx context.Context, projectionName s
 	}
 	defer tx.Rollback(ctx)
 
+	if err := s.WriteOffsetsTx(ctx, tx, projectionName, offsets); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// WriteOffsetsTx inserts the offsets within the caller's transaction, so a
+// projection.TransactionalHandler commits them together with the event's
+// effect. The caller commits or rolls back.
+func (s *PostgresOffsetStore) WriteOffsetsTx(ctx context.Context, tx pgx.Tx, projectionName string, offsets []*egopb.EntityOffset) error {
 	batch := &pgx.Batch{}
 	for _, offset := range offsets {
 		batch.Queue(`
@@ -336,7 +346,7 @@ func (s *PostgresOffsetStore) WriteOffsets(ctx context.Context, projectionName s
 	if err := tx.SendBatch(ctx, batch).Close(); err != nil {
 		return fmt.Errorf("insert offsets: %w", err)
 	}
-	return tx.Commit(ctx)
+	return nil
 }
 
 func (s *PostgresOffsetStore) ReadOffsets(ctx context.Context, projectionName string, shardNumber uint64, limit uint64) ([]*egopb.EntityOffset, error) {

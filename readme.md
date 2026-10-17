@@ -298,6 +298,8 @@ err := engine.Entity(ctx, behavior,
 
 Your `EventsStore` and `SnapshotStore` implementations must support the corresponding delete operations.
 
+Delete events only once every projection has processed them. A projection that has processed an entity up to some event, and then finds a later event of it, replays the events in between before going on; when retention has already deleted them, it cannot fill the gap and retries that shard until they appear, which they never do. Keep `EventsRetentionCount` large enough to cover how far your projections can fall behind, or leave `DeleteEventsOnSnapshot` off for entities that projections consume.
+
 ## Event batching
 
 Batching combines events produced by multiple commands into fewer store writes. It is disabled by default:
@@ -386,7 +388,31 @@ if err := engine.StartProjection(ctx, "account-audit"); err != nil {
 
 The two projections consume the same event journal independently. Each uses its own handler, buffer, pull interval, recovery policy, dead-letter handling, and offsets.
 
-Projection handlers receive events with at-least-once delivery. They must be idempotent and safe for concurrent calls across different shards; events within one shard are delivered sequentially.
+Projection handlers receive events with at-least-once delivery. They must be idempotent and safe for concurrent calls across different shards; events within one shard are delivered sequentially. To apply a redelivered event only once, write the read model with an upsert keyed by `(persistenceID, revision)`, or keep the last applied revision of each persistence ID in the read model, updated in the same transaction, and skip any event at or below it.
+
+For exactly-once effects in a database, set `TransactionalHandler` instead of `Handler`. The projection hands it each event together with the offset row it would record; the handler applies the event and writes that row in one transaction of the database that holds the offset store, through a transactional write the store provides. Once the transaction commits, the projection never delivers the event again, across crashes, restarts and failover. Events the handler never commits, such as those a skip policy drops, are recorded by the projection itself. Effects outside that database, such as calls to other services, remain at-least-once.
+
+```go
+func (h *BalanceHandler) Handle(ctx context.Context, persistenceID string, event *anypb.Any, revision uint64, offset *egopb.EntityOffset) error {
+    tx, err := h.pool.Begin(ctx)
+    if err != nil {
+        return err
+    }
+    defer tx.Rollback(ctx)
+
+    if err := applyToReadModel(ctx, tx, event); err != nil {
+        return err
+    }
+
+    if err := h.offsetStore.WriteOffsetsTx(ctx, tx, "balances", []*egopb.EntityOffset{offset}); err != nil {
+        return err
+    }
+
+    return tx.Commit(ctx)
+}
+```
+
+The [cluster example](./example/cluster) keeps its balance read model this way.
 
 Every event belongs to one of 1024 journal shards, fixed by its persistence ID (`persistence.ShardFor`) and independent of the cluster's partitioning, so all events of one entity are on one shard and are delivered in sequence-number order; events of different entities carry no ordering guarantee. A projection records, per entity, the last event it processed. It reads each shard by timestamp, 100 ms behind the current time, and checks every event against its entity's record: an event it processed already is skipped, and an event that follows a gap makes it replay the entity's missing events first. A missing event that cannot be found is never skipped: the shard is retried until it appears. A projection also reads its shards again up to two minutes behind its position, so an event that became visible late, because its write was slow or its node's clock lagged, is still delivered. An event that becomes visible more than two minutes late is caught only when its entity writes again, so keep node clocks synchronized. A projection's buffer must hold more events than ever share one timestamp on a shard; the default of 500 leaves ample room.
 
@@ -710,6 +736,8 @@ go build -o migrate ./cmd/migrate
 ```
 
 `--parallelism` (default 10) sets how many entities are migrated at once and `--page-size` (default 500) how many persistence IDs, or events of one entity, are read at once. Interrupting a run with Ctrl-C is safe: the stores are released and the next run resumes. `migrate legacy-snapshots` is only for journals written by releases that stored the resulting state in every event; it writes a snapshot of each entity's latest state from those events.
+
+The [migration example](./example/migration) runs all of this with Docker Compose against two PostgreSQL databases: it seeds a v4 deployment of a million events, copies it while it keeps writing, finishes the migration and checks the result.
 
 ## Contributing
 

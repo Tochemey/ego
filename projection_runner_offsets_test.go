@@ -26,6 +26,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -165,6 +166,101 @@ func (x *offsetsFixture) state() *shardState {
 	x.runner.shardsMu.RLock()
 	defer x.runner.shardsMu.RUnlock()
 	return x.runner.shards[offsetsTestShard]
+}
+
+// errUncommitted is returned by a committingHandler set to fail.
+var errUncommitted = errors.New("transaction rolled back")
+
+// committingHandler is a projection.TransactionalHandler over an offset store:
+// a successful Handle records the event and writes its offset, as one
+// transaction would; a failing one writes nothing, as a rolled-back one does.
+type committingHandler struct {
+	// offsets is the store the handler writes the offsets to.
+	offsets *testkit.OffsetStore
+	// mutex guards committed and failures.
+	mutex sync.Mutex
+	// committed holds the events whose transaction committed, in order.
+	committed []delivery
+	// failures holds, per persistence ID, how many more attempts fail; a
+	// negative count fails every attempt.
+	failures map[string]int
+}
+
+// enforces compilation error
+var _ projection.TransactionalHandler = (*committingHandler)(nil)
+
+// Handle commits the event and its offset, unless the persistence ID is set to fail.
+func (x *committingHandler) Handle(ctx context.Context, persistenceID string, _ *anypb.Any, revision uint64, offset *egopb.EntityOffset) error {
+	x.mutex.Lock()
+	defer x.mutex.Unlock()
+
+	if remaining := x.failures[persistenceID]; remaining != 0 {
+		if remaining > 0 {
+			x.failures[persistenceID] = remaining - 1
+		}
+		return errUncommitted
+	}
+
+	if err := x.offsets.WriteOffsets(ctx, offsetsTestProjection, []*egopb.EntityOffset{offset}); err != nil {
+		return err
+	}
+
+	x.committed = append(x.committed, delivery{persistenceID, revision})
+	return nil
+}
+
+// committedEvents returns a copy of the committed events.
+func (x *committingHandler) committedEvents() []delivery {
+	x.mutex.Lock()
+	defer x.mutex.Unlock()
+	return slices.Clone(x.committed)
+}
+
+// newTransactionalFixture builds a fixture whose runner hands the events to a
+// committingHandler over the fixture's offset store, with the given recovery.
+func newTransactionalFixture(t *testing.T, recovery *projection.Recovery, failures map[string]int) (*offsetsFixture, *committingHandler) {
+	t.Helper()
+
+	fixture := newOffsetsFixture(t)
+	handler := &committingHandler{offsets: fixture.offsets, failures: failures}
+	fixture.runner = newTransactionalRunner(fixture, handler, recovery)
+	return fixture, handler
+}
+
+// newTransactionalRunner builds a running runner over the fixture's stores that
+// hands the events to the handler, as a restarted projection would.
+func newTransactionalRunner(fixture *offsetsFixture, handler projection.TransactionalHandler, recovery *projection.Recovery) *projectionRunner {
+	runner := newProjectionRunner(offsetsTestProjection, nil, fixture.events, fixture.offsets,
+		withLogger(log.DiscardLogger),
+		withRecoveryStrategy(recovery),
+		withTransactionalHandler(handler))
+	runner.running.Store(true)
+	return runner
+}
+
+// replayRecorder is an events store that records the sequence number range of
+// every ReplayEvents call.
+type replayRecorder struct {
+	*testkit.EventStore
+	// mutex guards ranges.
+	mutex sync.Mutex
+	// ranges holds the from and to sequence numbers of every call, in order.
+	ranges [][2]uint64
+}
+
+// ReplayEvents records the range and reads it from the underlying store.
+func (x *replayRecorder) ReplayEvents(ctx context.Context, persistenceID string, fromSequenceNumber, toSequenceNumber uint64, limit uint64) ([]*egopb.Event, error) {
+	x.mutex.Lock()
+	x.ranges = append(x.ranges, [2]uint64{fromSequenceNumber, toSequenceNumber})
+	x.mutex.Unlock()
+	return x.EventStore.ReplayEvents(ctx, persistenceID, fromSequenceNumber, toSequenceNumber, limit)
+}
+
+// replayedRanges returns a copy of the recorded ranges.
+func (x *replayRecorder) replayedRanges() [][2]uint64 {
+	x.mutex.Lock()
+	defer x.mutex.Unlock()
+	return slices.Clone(x.ranges)
 }
 
 // settledPast returns a timestamp old enough for every read to return it, and
@@ -404,6 +500,27 @@ func TestProjectionRunnerValidatesEvents(t *testing.T) {
 		require.NoError(t, fixture.read(t))
 
 		assert.Equal(t, []delivery{{"account-a", 1}, {"account-b", 1}, {"account-a", 2}, {"account-a", 3}}, fixture.handler.handled())
+	})
+
+	t.Run("replays a gap longer than the buffer a buffer at a time", func(t *testing.T) {
+		fixture := newOffsetsFixture(t)
+		fixture.runner.maxBufferSize = 2
+		recorder := &replayRecorder{EventStore: fixture.events}
+		fixture.runner.eventsStore = recorder
+		base := settledPast()
+		fixture.journal(t, "account-a", 1, base)
+		fixture.journal(t, "account-b", 1, base+10)
+		require.NoError(t, fixture.read(t))
+
+		// account-a's events 2 to 4 land behind the position, its event 5 after it
+		for sequenceNumber := uint64(2); sequenceNumber <= 4; sequenceNumber++ {
+			fixture.journal(t, "account-a", sequenceNumber, base+int64(sequenceNumber))
+		}
+		fixture.journal(t, "account-a", 5, base+11)
+		require.NoError(t, fixture.read(t))
+
+		assert.Equal(t, []delivery{{"account-a", 1}, {"account-b", 1}, {"account-a", 2}, {"account-a", 3}, {"account-a", 4}, {"account-a", 5}}, fixture.handler.handled())
+		assert.Equal(t, [][2]uint64{{2, 3}, {4, 5}}, recorder.replayedRanges(), "the gap is read two events at a time")
 	})
 
 	t.Run("fails and keeps nothing when a missing event cannot be replayed", func(t *testing.T) {
@@ -739,6 +856,7 @@ func TestProjectionRunnerPendingShards(t *testing.T) {
 		4: recent, // caught up, backtracking
 		5: recent, // caught up and idle
 		6: recent, // caught up and idle long enough to backtrack
+		7: recent, // idle long enough, but backtracking already reached its position
 	}, nil)
 
 	runner := newProjectionRunner(offsetsTestProjection, new(deliveryLog), eventsStore, new(mocksoffsetstore.OffsetStore), withLogger(log.DiscardLogger))
@@ -753,8 +871,11 @@ func TestProjectionRunnerPendingShards(t *testing.T) {
 	backtracking.backtracking = true
 	idle := caughtUp()
 	dueForBacktracking := caughtUp()
+	dueForBacktracking.latestBacktracking = recent - 1
 	dueForBacktracking.idlePasses = backtrackingIdlePasses - 1
-	runner.shards = map[uint64]*shardState{2: behind, 3: full, 4: backtracking, 5: idle, 6: dueForBacktracking}
+	covered := caughtUp()
+	covered.idlePasses = backtrackingIdlePasses - 1
+	runner.shards = map[uint64]*shardState{2: behind, 3: full, 4: backtracking, 5: idle, 6: dueForBacktracking, 7: covered}
 
 	shards, err := runner.pendingShards(ctx)
 	require.NoError(t, err)
@@ -762,6 +883,7 @@ func TestProjectionRunnerPendingShards(t *testing.T) {
 	assert.ElementsMatch(t, []uint64{1, 2, 3, 4, 6}, shards)
 	assert.Equal(t, 1, idle.idlePasses)
 	assert.True(t, dueForBacktracking.backtracking)
+	assert.False(t, covered.backtracking, "a shard read again up to its position has nothing left to backtrack")
 }
 
 func TestProjectionRunnerDeletesOldOffsets(t *testing.T) {
@@ -881,4 +1003,142 @@ func TestProjectionRunnerRecordsLag(t *testing.T) {
 	require.NoError(t, fixture.read(t))
 
 	assert.Equal(t, []delivery{{"account-a", 1}, {"account-a", 2}}, fixture.handler.handled())
+}
+
+func TestProjectionRunnerTransactionalHandler(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("does not deliver a committed event again after a restart", func(t *testing.T) {
+		fixture, handler := newTransactionalFixture(t, projection.NewRecovery(), nil)
+		base := settledPast()
+		fixture.journal(t, "account-a", 1, base)
+		fixture.journal(t, "account-a", 2, base+1)
+		require.NoError(t, fixture.read(t))
+		require.Equal(t, []delivery{{"account-a", 1}, {"account-a", 2}}, handler.committedEvents())
+		assert.True(t, fixture.state().dirty, "the committed rows are cleaned like the runner's own")
+
+		// the projection crashes and restarts on the same stores
+		fixture.runner = newTransactionalRunner(fixture, handler, projection.NewRecovery())
+		require.NoError(t, fixture.read(t))
+
+		assert.Equal(t, []delivery{{"account-a", 1}, {"account-a", 2}}, handler.committedEvents(), "a committed event is applied once")
+	})
+
+	t.Run("applies a rolled-back event once when a retry commits it", func(t *testing.T) {
+		recovery := projection.NewRecovery(projection.WithRecoveryPolicy(projection.RetryAndFail), projection.WithRetries(2), projection.WithRetryDelay(time.Millisecond))
+		fixture, handler := newTransactionalFixture(t, recovery, map[string]int{"account-a": 1})
+		fixture.journal(t, "account-a", 1, settledPast())
+
+		require.NoError(t, fixture.read(t))
+
+		assert.Equal(t, []delivery{{"account-a", 1}}, handler.committedEvents())
+	})
+
+	t.Run("records the offset of an event the policy skipped", func(t *testing.T) {
+		recovery := projection.NewRecovery(projection.WithRecoveryPolicy(projection.Skip))
+		fixture, handler := newTransactionalFixture(t, recovery, map[string]int{"account-a": -1})
+		base := settledPast()
+		fixture.journal(t, "account-a", 1, base)
+		require.NoError(t, fixture.read(t))
+
+		offset, err := fixture.offsets.ReadEntityOffset(ctx, offsetsTestProjection, offsetsTestShard, "account-a")
+		require.NoError(t, err)
+		require.NotNil(t, offset, "the runner records a skipped event")
+		assert.EqualValues(t, 1, offset.GetSequenceNumber())
+
+		// a restarted projection does not hand the skipped event over again
+		fixture.runner = newTransactionalRunner(fixture, handler, recovery)
+		require.NoError(t, fixture.read(t))
+		assert.Empty(t, handler.committedEvents())
+	})
+
+	t.Run("records the offset of an event the retry policy skipped", func(t *testing.T) {
+		recovery := projection.NewRecovery(projection.WithRecoveryPolicy(projection.RetryAndSkip), projection.WithRetries(2), projection.WithRetryDelay(time.Millisecond))
+		fixture, handler := newTransactionalFixture(t, recovery, map[string]int{"account-a": -1})
+		fixture.journal(t, "account-a", 1, settledPast())
+
+		require.NoError(t, fixture.read(t))
+
+		assert.Empty(t, handler.committedEvents())
+		offset, err := fixture.offsets.ReadEntityOffset(ctx, offsetsTestProjection, offsetsTestShard, "account-a")
+		require.NoError(t, err)
+		require.NotNil(t, offset, "the runner records an event skipped after its retries")
+	})
+
+	t.Run("keeps only the committed offset after a skipped event of the same read", func(t *testing.T) {
+		recovery := projection.NewRecovery(projection.WithRecoveryPolicy(projection.Skip))
+		fixture, _ := newTransactionalFixture(t, recovery, map[string]int{"account-a": 1})
+		base := settledPast()
+		fixture.journal(t, "account-a", 1, base)
+		fixture.journal(t, "account-a", 2, base+1)
+
+		require.NoError(t, fixture.read(t))
+
+		offsets, err := fixture.offsets.ReadOffsets(ctx, offsetsTestProjection, offsetsTestShard, 10)
+		require.NoError(t, err)
+		require.Len(t, offsets, 1, "the committed offset supersedes the skipped one")
+		assert.EqualValues(t, 2, offsets[0].GetSequenceNumber())
+	})
+
+	t.Run("records framework events itself", func(t *testing.T) {
+		fixture, handler := newTransactionalFixture(t, projection.NewRecovery(), nil)
+		status, err := anypb.New(&egopb.SagaStatusChanged{Status: 1})
+		require.NoError(t, err)
+		require.NoError(t, fixture.events.WriteEvents(ctx, []*egopb.Event{{
+			PersistenceId:  "saga-1",
+			SequenceNumber: 1,
+			Event:          status,
+			Timestamp:      settledPast(),
+			Shard:          offsetsTestShard,
+		}}))
+
+		require.NoError(t, fixture.read(t))
+
+		assert.Empty(t, handler.committedEvents(), "a framework event never reaches the handler")
+		offset, err := fixture.offsets.ReadEntityOffset(ctx, offsetsTestProjection, offsetsTestShard, "saga-1")
+		require.NoError(t, err)
+		require.NotNil(t, offset)
+	})
+
+	t.Run("commits the replayed events of a gap", func(t *testing.T) {
+		fixture, handler := newTransactionalFixture(t, projection.NewRecovery(), nil)
+		base := settledPast()
+		fixture.journal(t, "account-a", 1, base)
+		fixture.journal(t, "account-b", 1, base+2)
+		require.NoError(t, fixture.read(t))
+
+		fixture.journal(t, "account-a", 2, base+1)
+		fixture.journal(t, "account-a", 3, base+3)
+		require.NoError(t, fixture.read(t))
+
+		assert.Equal(t, []delivery{{"account-a", 1}, {"account-b", 1}, {"account-a", 2}, {"account-a", 3}}, handler.committedEvents())
+	})
+
+	t.Run("stops the projection when the handler fails under the Fail policy", func(t *testing.T) {
+		fixture, handler := newTransactionalFixture(t, projection.NewRecovery(), map[string]int{"account-a": -1})
+		fixture.journal(t, "account-a", 1, settledPast())
+
+		var runnerErr *projectionRunnerError
+		require.ErrorAs(t, fixture.read(t), &runnerErr)
+		assert.Empty(t, handler.committedEvents())
+
+		offset, err := fixture.offsets.ReadEntityOffset(ctx, offsetsTestProjection, offsetsTestShard, "account-a")
+		require.NoError(t, err)
+		assert.Nil(t, offset, "a rolled-back event has no offset")
+	})
+}
+
+func TestProjectionRunnerUnknownRecoveryPolicy(t *testing.T) {
+	// a policy value outside the defined ones behaves like Fail
+	fixture := newOffsetsFixture(t)
+	unknown := projection.NewRecovery(projection.WithRecoveryPolicy(projection.RecoveryPolicy(99)))
+	fixture.runner = newProjectionRunner(offsetsTestProjection, &failingForHandler{persistenceID: "account-a"}, fixture.events, fixture.offsets,
+		withLogger(log.DiscardLogger),
+		withRecoveryStrategy(unknown))
+	fixture.runner.running.Store(true)
+	fixture.journal(t, "account-a", 1, settledPast())
+
+	var runnerErr *projectionRunnerError
+	require.ErrorAs(t, fixture.read(t), &runnerErr)
+	assert.ErrorIs(t, runnerErr, assert.AnError)
 }

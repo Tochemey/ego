@@ -89,6 +89,33 @@ func TestOffsetStoreReadOffsets(t *testing.T) {
 	})
 }
 
+func TestOffsetStoreWriteOffsets(t *testing.T) {
+	ctx := context.Background()
+	store := newConnectedOffsetStore(t)
+
+	// the same offset written twice, as a retried write does, is kept once
+	require.NoError(t, store.WriteOffsets(ctx, balancesProjection, []*egopb.EntityOffset{entityOffset("account-1", 1, 10)}))
+	require.NoError(t, store.WriteOffsets(ctx, balancesProjection, []*egopb.EntityOffset{
+		entityOffset("account-1", 1, 10),
+		entityOffset("account-1", 2, 20),
+		entityOffset("account-1", 2, 20),
+	}))
+
+	offsets, err := store.ReadOffsets(ctx, balancesProjection, 1, 10)
+	require.NoError(t, err)
+	require.Len(t, offsets, 2)
+	assert.EqualValues(t, 2, offsets[0].GetSequenceNumber())
+	assert.EqualValues(t, 1, offsets[1].GetSequenceNumber())
+
+	// an offset deleted by the cleanup is stored again when written again
+	require.NoError(t, store.DeleteOffsetsBefore(ctx, balancesProjection, 1, 15, 15))
+	require.NoError(t, store.WriteOffsets(ctx, balancesProjection, []*egopb.EntityOffset{entityOffset("account-1", 1, 10)}))
+
+	offsets, err = store.ReadOffsets(ctx, balancesProjection, 1, 10)
+	require.NoError(t, err)
+	assert.Len(t, offsets, 2)
+}
+
 func TestOffsetStoreReadEntityOffset(t *testing.T) {
 	ctx := context.Background()
 	store := newConnectedOffsetStore(t)
@@ -183,6 +210,13 @@ func TestOffsetStoreResetOffset(t *testing.T) {
 	latest, err = store.LatestOffsets(ctx, auditProjection)
 	require.NoError(t, err)
 	assert.Equal(t, map[uint64]int64{1: 10}, latest)
+
+	// an offset written again after the reset is stored again
+	require.NoError(t, store.WriteOffsets(ctx, balancesProjection, []*egopb.EntityOffset{entityOffset("account-1", 1, 10)}))
+
+	latest, err = store.LatestOffsets(ctx, balancesProjection)
+	require.NoError(t, err)
+	assert.Equal(t, map[uint64]int64{1: 10}, latest)
 }
 
 // TestOffsetStoreDeleteOffset asserts that a deletion drops every offset and the
@@ -207,6 +241,13 @@ func TestOffsetStoreDeleteOffset(t *testing.T) {
 	assert.Empty(t, latest)
 
 	latest, err = store.LatestOffsets(ctx, auditProjection)
+	require.NoError(t, err)
+	assert.Equal(t, map[uint64]int64{1: 10}, latest)
+
+	// an offset written again after the deletion is stored again
+	require.NoError(t, store.WriteOffsets(ctx, balancesProjection, []*egopb.EntityOffset{entityOffset("account-1", 1, 10)}))
+
+	latest, err = store.LatestOffsets(ctx, balancesProjection)
 	require.NoError(t, err)
 	assert.Equal(t, map[uint64]int64{1: 10}, latest)
 

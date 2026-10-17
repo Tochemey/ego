@@ -129,13 +129,24 @@ func TestShardStateShouldBacktrack(t *testing.T) {
 	})
 
 	t.Run("when the shard has been idle for a few passes", func(t *testing.T) {
-		state := &shardState{latest: recent, latestBacktracking: recent, idlePasses: backtrackingIdlePasses}
+		state := &shardState{latest: recent, latestBacktracking: recent - 1, idlePasses: backtrackingIdlePasses}
 		assert.True(t, state.shouldBacktrack(settings, bufferSize, now))
 	})
 
 	t.Run("when several buffers were read since the last backtracking", func(t *testing.T) {
-		state := &shardState{latest: recent, latestBacktracking: recent, readSinceBacktracking: backtrackingBufferMultiple * bufferSize}
+		state := &shardState{latest: recent, latestBacktracking: recent - 1, readSinceBacktracking: backtrackingBufferMultiple * bufferSize}
 		assert.True(t, state.shouldBacktrack(settings, bufferSize, now))
+	})
+
+	t.Run("not when the last backtracking read reached the position", func(t *testing.T) {
+		// an idle shard read again up to its position has nothing left behind it
+		state := &shardState{
+			latest:                recent,
+			latestBacktracking:    recent,
+			idlePasses:            backtrackingIdlePasses,
+			readSinceBacktracking: backtrackingBufferMultiple * bufferSize,
+		}
+		assert.False(t, state.shouldBacktrack(settings, bufferSize, now))
 	})
 
 	t.Run("when the position is more than half a window past the last backtracking", func(t *testing.T) {

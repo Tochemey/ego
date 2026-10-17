@@ -45,6 +45,11 @@ type EventStore struct {
 	// writeMutex makes every WriteEvents call atomic: its duplicate check and
 	// its stores happen without another write in between.
 	writeMutex sync.Mutex
+	// shardsMutex guards shards.
+	shardsMutex sync.RWMutex
+	// shards indexes the events by shard, so a shard read only looks at the
+	// events of that shard, as a database index does.
+	shards map[uint64]map[EventKey]*egopb.Event
 }
 
 var _ persistence.EventsStore = (*EventStore)(nil)
@@ -53,6 +58,7 @@ func NewEventsStore() *EventStore {
 	return &EventStore{
 		db:        &sync.Map{},
 		connected: atomic.NewBool(false),
+		shards:    make(map[uint64]map[EventKey]*egopb.Event),
 	}
 }
 
@@ -72,6 +78,11 @@ func (x *EventStore) Disconnect(_ context.Context) error {
 		x.db.Delete(key)
 		return true
 	})
+
+	x.shardsMutex.Lock()
+	x.shards = make(map[uint64]map[EventKey]*egopb.Event)
+	x.shardsMutex.Unlock()
+
 	x.connected.Store(false)
 	return nil
 }
@@ -89,8 +100,19 @@ func (x *EventStore) WriteEvents(_ context.Context, events []*egopb.Event) error
 		}
 	}
 
+	x.shardsMutex.Lock()
+	defer x.shardsMutex.Unlock()
+
 	for _, event := range events {
-		x.db.Store(keyOf(event), event)
+		key := keyOf(event)
+		x.db.Store(key, event)
+
+		shard, ok := x.shards[event.GetShard()]
+		if !ok {
+			shard = make(map[EventKey]*egopb.Event)
+			x.shards[event.GetShard()] = shard
+		}
+		shard[key] = event
 	}
 	return nil
 }
@@ -111,10 +133,14 @@ func (x *EventStore) Ping(ctx context.Context) error {
 }
 
 func (x *EventStore) DeleteEvents(_ context.Context, persistenceID string, toSequenceNumber uint64) error {
-	x.db.Range(func(key interface{}, _ any) bool {
+	x.shardsMutex.Lock()
+	defer x.shardsMutex.Unlock()
+
+	x.db.Range(func(key interface{}, value any) bool {
 		k := key.(EventKey)
 		if k.PersistenceID == persistenceID && k.SequenceNumber <= toSequenceNumber {
 			x.db.Delete(key)
+			delete(x.shards[value.(*egopb.Event).GetShard()], k)
 		}
 		return true
 	})
@@ -141,8 +167,8 @@ func (x *EventStore) ReplayEvents(_ context.Context, persistenceID string, fromS
 		return events[i].GetSequenceNumber() < events[j].GetSequenceNumber()
 	})
 
-	if len(events) > int(limit) {
-		events = events[:int(limit)]
+	if uint64(len(events)) > limit {
+		events = events[:limit]
 	}
 
 	return events, nil
@@ -192,14 +218,14 @@ func (x *EventStore) PersistenceIDs(_ context.Context, pageSize uint64, pageToke
 // EventsByShard returns at most limit events of the shard stamped at or after fromTimestamp,
 // ordered by timestamp, then by sequence number, then by persistence ID.
 func (x *EventStore) EventsByShard(_ context.Context, shardNumber uint64, fromTimestamp int64, limit uint64) ([]*egopb.Event, error) {
+	x.shardsMutex.RLock()
 	var events []*egopb.Event
-	x.db.Range(func(_ any, value any) bool {
-		event := value.(*egopb.Event)
-		if event.GetShard() == shardNumber && event.GetTimestamp() >= fromTimestamp {
+	for _, event := range x.shards[shardNumber] {
+		if event.GetTimestamp() >= fromTimestamp {
 			events = append(events, event)
 		}
-		return true
-	})
+	}
+	x.shardsMutex.RUnlock()
 
 	// The map iterates in no particular order: sort before cutting to the
 	// limit, so a limited read returns the oldest events.
@@ -222,14 +248,17 @@ func (x *EventStore) EventsByShard(_ context.Context, shardNumber uint64, fromTi
 }
 
 func (x *EventStore) ShardOffsets(context.Context) (map[uint64]int64, error) {
-	offsets := make(map[uint64]int64)
-	x.db.Range(func(_ any, value any) bool {
-		event := value.(*egopb.Event)
-		if event.GetTimestamp() > offsets[event.GetShard()] {
-			offsets[event.GetShard()] = event.GetTimestamp()
+	x.shardsMutex.RLock()
+	defer x.shardsMutex.RUnlock()
+
+	offsets := make(map[uint64]int64, len(x.shards))
+	for shard, events := range x.shards {
+		for _, event := range events {
+			if event.GetTimestamp() > offsets[shard] {
+				offsets[shard] = event.GetTimestamp()
+			}
 		}
-		return true
-	})
+	}
 	return offsets, nil
 }
 
