@@ -24,27 +24,64 @@ package migration
 
 import "github.com/tochemey/goakt/v4/log"
 
-// Option configures the Migrator.
-type Option interface {
-	apply(m *Migrator)
+const (
+	// DefaultPageSize is how many persistence IDs, or events of one entity, a
+	// migration reads at once unless WithPageSize says otherwise.
+	DefaultPageSize uint64 = 500
+	// DefaultParallelism is how many entities a migration processes at once
+	// unless WithParallelism says otherwise.
+	DefaultParallelism = 10
+)
+
+// settings holds the configuration every migration of this package shares.
+type settings struct {
+	// pageSize is how many persistence IDs, or events of one entity, are read at once.
+	pageSize uint64
+	// logger receives the migration's progress.
+	logger log.Logger
+	// parallelism is how many entities are migrated at once.
+	parallelism int
 }
 
-type optionFunc func(m *Migrator)
+// defaultSettings returns the settings a migration starts from.
+func defaultSettings() settings {
+	return settings{
+		pageSize:    DefaultPageSize,
+		logger:      log.DefaultLogger,
+		parallelism: DefaultParallelism,
+	}
+}
 
-func (f optionFunc) apply(m *Migrator) { f(m) }
+// Option configures a migration: the Migrator, the JournalMigrator or the
+// SnapshotMigrator.
+type Option interface {
+	apply(s *settings)
+}
+
+type optionFunc func(s *settings)
+
+func (f optionFunc) apply(s *settings) { f(s) }
 
 // WithPageSize sets the number of persistence IDs fetched per page
 // and the batch size for replaying events per entity.
-// Default is 500.
+// Values below one are treated as one. Default is DefaultPageSize.
 func WithPageSize(size uint64) Option {
-	return optionFunc(func(m *Migrator) {
-		m.pageSize = size
+	return optionFunc(func(s *settings) {
+		s.pageSize = max(size, 1)
 	})
 }
 
 // WithLogger sets the logger used during migration.
 func WithLogger(logger log.Logger) Option {
-	return optionFunc(func(m *Migrator) {
-		m.logger = logger
+	return optionFunc(func(s *settings) {
+		s.logger = logger
+	})
+}
+
+// WithParallelism sets how many entities a migration processes at once.
+// Values below one are treated as one. Default is DefaultParallelism.
+func WithParallelism(parallelism int) Option {
+	return optionFunc(func(s *settings) {
+		s.parallelism = max(parallelism, 1)
 	})
 }

@@ -30,10 +30,10 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
-	"github.com/tochemey/ego/v4/egopb"
-	"github.com/tochemey/ego/v4/encryption"
-	"github.com/tochemey/ego/v4/internal/extensions"
-	"github.com/tochemey/ego/v4/persistence"
+	"github.com/tochemey/ego/v5/egopb"
+	"github.com/tochemey/ego/v5/encryption"
+	"github.com/tochemey/ego/v5/internal/extensions"
+	"github.com/tochemey/ego/v5/persistence"
 )
 
 // persistSnapshotRequest is sent from the EventSourcedActor to the

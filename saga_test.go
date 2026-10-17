@@ -40,16 +40,16 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	"github.com/tochemey/ego/v4/egopb"
-	"github.com/tochemey/ego/v4/eventstream"
-	samplepb "github.com/tochemey/ego/v4/example/examplepb"
-	"github.com/tochemey/ego/v4/internal/extensions"
-	"github.com/tochemey/ego/v4/internal/pause"
-	mocks "github.com/tochemey/ego/v4/mocks/persistence"
-	"github.com/tochemey/ego/v4/offsetstore"
-	"github.com/tochemey/ego/v4/persistence"
-	testpb "github.com/tochemey/ego/v4/test/data/testpb"
-	"github.com/tochemey/ego/v4/testkit"
+	"github.com/tochemey/ego/v5/egopb"
+	"github.com/tochemey/ego/v5/eventstream"
+	samplepb "github.com/tochemey/ego/v5/example/examplepb"
+	"github.com/tochemey/ego/v5/internal/extensions"
+	"github.com/tochemey/ego/v5/internal/pause"
+	mocks "github.com/tochemey/ego/v5/mocks/persistence"
+	"github.com/tochemey/ego/v5/offsetstore"
+	"github.com/tochemey/ego/v5/persistence"
+	testpb "github.com/tochemey/ego/v5/test/data/testpb"
+	"github.com/tochemey/ego/v5/testkit"
 )
 
 const (
@@ -712,10 +712,15 @@ func TestSagaActor(t *testing.T) {
 		require.NotNil(t, pid)
 		pause.For(time.Second)
 
+		// the saga journaled its start already: its own event takes the next
+		// sequence number
+		latest, err := eventStore.GetLatestEvent(ctx, sagaID)
+		require.NoError(t, err)
+
 		eventAny, _ := anypb.New(&testpb.AccountCreated{AccountId: sagaID})
 		ownEvent := &egopb.Event{
 			PersistenceId:  sagaID, // same as saga ID → should be skipped
-			SequenceNumber: 1,
+			SequenceNumber: latest.GetSequenceNumber() + 1,
 			Event:          eventAny,
 		}
 		journalEvent(t, eventStore, stream, ownEvent)
@@ -2053,7 +2058,6 @@ func TestSagaPersistAndApplyEventsWriteFailure(t *testing.T) {
 	saga.eventsStore = eventStore
 	saga.sagaID = sagaID
 	saga.currentState = behavior.InitialState()
-	saga.shard = shardLocator{resolved: true}
 
 	event := &testpb.AccountCreated{AccountId: sagaID}
 
@@ -2091,7 +2095,7 @@ func TestSagaEventsCarryShard(t *testing.T) {
 	saga.eventsStore = eventStore
 	saga.sagaID = sagaID
 	saga.currentState = behavior.InitialState()
-	saga.shard = shardLocator{resolved: true, shard: sagaShard}
+	saga.shard = sagaShard
 
 	require.NoError(t, saga.persistAndApplyEvents(ctx, []Event{&testpb.AccountCreated{AccountId: sagaID}}))
 
@@ -2173,7 +2177,7 @@ func TestSagaStatusSurvivesRestart(t *testing.T) {
 	default:
 	}
 
-	assert.Equal(t, offsetBefore.GetValue(), sagaOffset(offsetStore, sagaID, sagaTestEventShard).GetValue(),
+	assert.Equal(t, offsetBefore.GetTimestamp(), sagaOffset(offsetStore, sagaID, sagaTestEventShard).GetTimestamp(),
 		"the restarted saga recorded an offset for an event it never handled")
 
 	stream.Close()
@@ -3022,7 +3026,6 @@ func TestSagaRecordStatusRetriesJournalWrite(t *testing.T) {
 	saga.sagaID = sagaID
 	saga.currentState = behavior.InitialState()
 	saga.logger = log.DiscardLogger
-	saga.shard = shardLocator{resolved: true}
 
 	saga.recordStatus(ctx, SagaCompleted)
 
@@ -3975,7 +3978,7 @@ func TestSagaResumesCompensationAfterRestart(t *testing.T) {
 
 		// the journal of a saga that crashed between its last confirmation and
 		// the completed status: compensating, then the only compensation confirmed
-		writeSagaBookkeeping(t, ctx, eventStore, sagaID, actorSystem.Partition(sagaID),
+		writeSagaBookkeeping(t, ctx, eventStore, sagaID, persistence.ShardFor(sagaID),
 			&egopb.SagaStatusChanged{Status: uint32(SagaCompensating), Timestamp: time.Now().UnixNano(), StartedAt: time.Now().UnixNano()},
 			&egopb.SagaCompensationConfirmed{EntityId: quickID, Timestamp: time.Now().UnixNano()},
 		)
@@ -4041,15 +4044,15 @@ func journalSagaTestEvent(t *testing.T, eventsStore persistence.EventsStore, str
 	})
 }
 
-// sagaOffset returns the offset a saga's journal runner recorded for the given
-// shard, or nil when the offset store holds no such row.
-func sagaOffset(store offsetstore.OffsetStore, sagaID string, shard uint64) *egopb.Offset {
-	offset, _ := store.GetCurrentOffset(context.Background(), &egopb.ProjectionId{
-		ProjectionName: sagaRunnerNamePrefix + sagaID,
-		ShardNumber:    shard,
-	})
+// sagaOffset returns the newest offset a saga's journal runner recorded on the
+// given shard, or nil when the offset store holds none.
+func sagaOffset(store offsetstore.OffsetStore, sagaID string, shard uint64) *egopb.EntityOffset {
+	offsets, _ := store.ReadOffsets(context.Background(), sagaRunnerNamePrefix+sagaID, shard, 1)
+	if len(offsets) == 0 {
+		return nil
+	}
 
-	return offset
+	return offsets[0]
 }
 
 // completeOnCredit is a saga event handler that completes the saga on an
@@ -4248,4 +4251,69 @@ func awaitSagaOffsetDeleted(t *testing.T, offsetStore offsetstore.OffsetStore, s
 	require.Eventually(t, func() bool {
 		return sagaOffset(offsetStore, sagaID, sagaTestEventShard) == nil
 	}, sagaOffsetWait, sagaOffsetPollInterval, "the offsets of the settled saga were not deleted")
+}
+
+// TestSagaStampsRecordsAfterRecoveredRecord asserts that a saga stamps its new
+// journal records after the latest record it recovered, and after each record
+// it writes, even when its clock is behind the one that stamped them.
+func TestSagaStampsRecordsAfterRecoveredRecord(t *testing.T) {
+	ctx := context.TODO()
+	sagaID := uuid.NewString()
+
+	eventStore := testkit.NewEventsStore()
+	require.NoError(t, eventStore.Connect(ctx))
+	defer eventStore.Disconnect(ctx) //nolint:errcheck
+
+	// the saga's start was recorded by a clock an hour ahead of this one
+	recovered := time.Now().Add(time.Hour).UnixNano()
+	require.NoError(t, eventStore.WriteEvents(ctx, []*egopb.Event{{
+		PersistenceId:  sagaID,
+		SequenceNumber: 1,
+		Event:          mustAny(t, &egopb.SagaStatusChanged{Status: uint32(SagaRunning), Timestamp: time.Now().UnixNano(), StartedAt: time.Now().UnixNano()}),
+		Timestamp:      recovered,
+		Shard:          persistence.ShardFor(sagaID),
+	}}))
+
+	stream := eventstream.New()
+	defer stream.Close()
+
+	offsetStore := newTestOffsetStore(t)
+	actorSystem := newSagaTestSystemWithOffsetStore(t, ctx, eventStore, stream, offsetStore)
+
+	handled := make(chan struct{}, 8)
+	behavior := &callbackSagaBehavior{
+		id: sagaID,
+		handleEvent: func(_ context.Context, _ Event, _ State) (*SagaAction, error) {
+			handled <- struct{}{}
+			// the saga journals its own event, then its completion
+			return &SagaAction{Events: []Event{&testpb.AccountCreated{AccountId: sagaID}}, Complete: true}, nil
+		},
+	}
+
+	_, err := actorSystem.Spawn(ctx, sagaID, newSagaActor(),
+		goakt.WithLongLived(),
+		goakt.WithDependencies(behavior, extensions.NewSagaConfig(0, false)))
+	require.NoError(t, err)
+	pause.For(time.Second)
+
+	journalSagaTestEvent(t, eventStore, stream, &testpb.AccountCreated{AccountId: uuid.NewString()})
+
+	select {
+	case <-handled:
+	case <-time.After(3 * time.Second):
+		t.Fatal("HandleEvent was not called")
+	}
+
+	pause.For(time.Second)
+
+	records, err := eventStore.ReplayEvents(ctx, sagaID, 1, 10, 10)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(records), 3, "the saga journals its event and its completion after the recovered start")
+
+	for index := 1; index < len(records); index++ {
+		assert.Greater(t, records[index].GetTimestamp(), records[index-1].GetTimestamp(),
+			"record %d must be stamped after record %d", records[index].GetSequenceNumber(), records[index-1].GetSequenceNumber())
+	}
+
+	require.NoError(t, actorSystem.Stop(ctx))
 }

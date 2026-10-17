@@ -20,20 +20,19 @@
 --  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 --  SOFTWARE.
 
+
+-- The snapshots of persistence.SnapshotStore (eGo v5).
 CREATE TABLE IF NOT EXISTS snapshots_store
 (
-    persistence_id    VARCHAR(255)          NOT NULL,
-    sequence_number   BIGINT                NOT NULL,
-    state_payload     BYTEA                 NOT NULL,
-    state_manifest    VARCHAR(255)          NOT NULL,
-    timestamp         BIGINT                NOT NULL,
+    persistence_id    VARCHAR(255)            NOT NULL,
+    sequence_number   BIGINT                  NOT NULL,
+    state_payload     BYTEA                   NOT NULL,
+    state_manifest    VARCHAR(255)            NOT NULL,
+    timestamp         BIGINT                  NOT NULL,
     encryption_key_id VARCHAR(255) DEFAULT '' NOT NULL,
-    is_encrypted      BOOLEAN DEFAULT FALSE NOT NULL,
+    is_encrypted      BOOLEAN DEFAULT FALSE   NOT NULL,
 
+    -- WriteSnapshot, GetLatestSnapshot, DeleteSnapshots, and the listing of
+    -- persistence IDs migration.SnapshotReader adds for the migration
     PRIMARY KEY (persistence_id, sequence_number)
 );
-
---- create indexes
-CREATE INDEX IF NOT EXISTS idx_snapshots_store_persistence_id ON snapshots_store(persistence_id);
-CREATE INDEX IF NOT EXISTS idx_snapshots_store_seqnumber ON snapshots_store(sequence_number);
-CREATE INDEX IF NOT EXISTS idx_snapshots_store_timestamp ON snapshots_store(timestamp);

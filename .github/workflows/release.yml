@@ -72,7 +72,7 @@ jobs:
       - name: Wait for ego module to be available on proxy
         run: |
           EGO_VERSION="${{ steps.ego-version.outputs.version }}"
-          MODULE="github.com/tochemey/ego/v4@${EGO_VERSION}"
+          MODULE="github.com/tochemey/ego/v5@${EGO_VERSION}"
           echo "Waiting for ${MODULE} on Go proxy..."
           for i in $(seq 1 30); do
             if go list -m "${MODULE}" 2>/dev/null; then
@@ -85,20 +85,23 @@ jobs:
           echo "::error::Timed out waiting for module on Go proxy"
           exit 1
 
-      - name: Update publishers and create tags
+      - name: Update the publishers and the migration command, and create their tags
         run: |
           EGO_VERSION="${{ steps.ego-version.outputs.version }}"
           BUMP_TYPE="${{ steps.bump-type.outputs.type }}"
-          PUBLISHERS="kafka nats pulsar websocket"
+          MODULES="publisher/kafka publisher/nats publisher/pulsar publisher/websocket cmd/migrate"
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          for PUB in $PUBLISHERS; do
-            echo "::group::Processing publisher: ${PUB}"
+          for MOD in $MODULES; do
+            echo "::group::Processing module: ${MOD}"
 
-            # Determine latest publisher tag and compute next version
-            PREFIX="publisher/${PUB}/v"
+            # Determine the module's latest tag and compute its next version.
+            # A major version above 1 needs the matching /vN suffix on the
+            # module path in its go.mod (e.g. github.com/tochemey/ego/publisher/kafka/v2),
+            # otherwise Go cannot resolve the tag.
+            PREFIX="${MOD}/v"
             LATEST=$(git tag -l "${PREFIX}*" --sort=-version:refname | head -1)
             if [ -z "$LATEST" ]; then
               CURRENT="0.0.0"
@@ -124,37 +127,37 @@ jobs:
             esac
 
             NEXT_VERSION="${MAJOR}.${MINOR}.${PATCH}"
-            echo "Publisher ${PUB}: ${CURRENT} -> ${NEXT_VERSION} (${BUMP_TYPE} bump)"
+            echo "Module ${MOD}: ${CURRENT} -> ${NEXT_VERSION} (${BUMP_TYPE} bump)"
 
             # Update go.mod
-            cd "publisher/${PUB}"
-            go get "github.com/tochemey/ego/v4@${EGO_VERSION}"
+            cd "${MOD}"
+            go get "github.com/tochemey/ego/v5@${EGO_VERSION}"
             go mod tidy
             cd ../..
 
             # Stage changes if any
-            if ! git diff --quiet "publisher/${PUB}/go.mod" "publisher/${PUB}/go.sum"; then
-              git add "publisher/${PUB}/go.mod" "publisher/${PUB}/go.sum"
-              echo "Staged go.mod changes for ${PUB}"
+            if ! git diff --quiet "${MOD}/go.mod" "${MOD}/go.sum"; then
+              git add "${MOD}/go.mod" "${MOD}/go.sum"
+              echo "Staged go.mod changes for ${MOD}"
             else
-              echo "No go.mod changes for ${PUB}"
+              echo "No go.mod changes for ${MOD}"
             fi
 
             echo "::endgroup::"
           done
 
-          # Single commit for all publisher updates
+          # Single commit for all module updates
           if ! git diff --cached --quiet; then
-            git commit -m "chore(publishers): update ego dependency to ${EGO_VERSION}"
+            git commit -m "chore(modules): update ego dependency to ${EGO_VERSION}"
             git push origin HEAD:main
             echo "Pushed dependency updates to main."
           else
             echo "No dependency changes to commit."
           fi
 
-          # Create and push all publisher tags from the current HEAD
-          for PUB in $PUBLISHERS; do
-            PREFIX="publisher/${PUB}/v"
+          # Create and push all module tags from the current HEAD
+          for MOD in $MODULES; do
+            PREFIX="${MOD}/v"
             LATEST=$(git tag -l "${PREFIX}*" --sort=-version:refname | head -1)
             if [ -z "$LATEST" ]; then
               CURRENT="0.0.0"
@@ -180,31 +183,31 @@ jobs:
             esac
 
             NEXT_VERSION="${MAJOR}.${MINOR}.${PATCH}"
-            TAG="publisher/${PUB}/v${NEXT_VERSION}"
+            TAG="${MOD}/v${NEXT_VERSION}"
             git tag "${TAG}"
             echo "Created tag: ${TAG}"
           done
 
           git push origin --tags
-          echo "Pushed all publisher tags."
+          echo "Pushed all module tags."
 
-      - name: Create publisher GitHub releases
+      - name: Create the GitHub releases of the publishers and the migration command
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PAT }}
         run: |
           EGO_VERSION="${{ steps.ego-version.outputs.version }}"
           BUMP_TYPE="${{ steps.bump-type.outputs.type }}"
-          PUBLISHERS="kafka nats pulsar websocket"
+          MODULES="publisher/kafka publisher/nats publisher/pulsar publisher/websocket cmd/migrate"
 
-          for PUB in $PUBLISHERS; do
-            PREFIX="publisher/${PUB}/v"
+          for MOD in $MODULES; do
+            PREFIX="${MOD}/v"
             LATEST=$(git tag -l "${PREFIX}*" --sort=-version:refname | head -1)
             VERSION="${LATEST#${PREFIX}}"
 
             gh release create "${LATEST}" \
-              --title "${PUB} publisher v${VERSION}" \
-              --notes "Release of \`${PUB}\` publisher v${VERSION}, updated to ego ${EGO_VERSION}." \
+              --title "${MOD} v${VERSION}" \
+              --notes "Release of \`${MOD}\` v${VERSION}, updated to ego ${EGO_VERSION}." \
               --latest=false
 
-            echo "Created release for ${PUB} publisher v${VERSION}"
+            echo "Created release for ${MOD} v${VERSION}"
           done

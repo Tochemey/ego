@@ -31,7 +31,7 @@ import (
 	gerrors "github.com/tochemey/goakt/v4/errors"
 	"github.com/tochemey/goakt/v4/supervisor"
 
-	"github.com/tochemey/ego/v4/internal/extensions"
+	"github.com/tochemey/ego/v5/internal/extensions"
 )
 
 // runnerFailed is the internal message the projection runner sends to its
@@ -95,6 +95,10 @@ func (x *ProjectionActor) PreStart(ctx *goakt.Context) error {
 		return fmt.Errorf("projection %q is not registered: register it with ego.WithProjection on every node", ctx.ActorName())
 	}
 
+	if err := options.Validate(); err != nil {
+		return fmt.Errorf("projection %q: %w", ctx.ActorName(), err)
+	}
+
 	opts := []runnerOption{
 		withLogger(ctx.ActorSystem().Logger()),
 		withRecoveryStrategy(options.Recovery),
@@ -106,6 +110,10 @@ func (x *ProjectionActor) PreStart(ctx *goakt.Context) error {
 
 	if options.DeadLetterHandler != nil {
 		opts = append(opts, withDeadLetterHandler(options.DeadLetterHandler))
+	}
+
+	if options.TransactionalHandler != nil {
+		opts = append(opts, withTransactionalHandler(options.TransactionalHandler))
 	}
 
 	if ext := ctx.Extension(extensions.EventAdaptersExtensionID); ext != nil {

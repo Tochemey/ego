@@ -4,7 +4,7 @@ package egopb;
 
 import "google/protobuf/any.proto";
 
-option go_package = "github.com/tochemey/ego/v4/egopb;egopb";
+option go_package = "github.com/tochemey/ego/v5/egopb;egopb";
 
 // Event defines the event that needs to be persisted onto the events store
 message Event {
@@ -118,24 +118,21 @@ message SagaStatusReply {
   uint64 sequence_number = 4;
 }
 
-// Offset defines the projection offset
-message Offset {
-  // Specifies the shard number
+// EntityOffset records how far a projection has processed the events of one
+// persistence ID: the last sequence number it processed, and that event's
+// timestamp. A projection's position on a shard is the newest timestamp among
+// the entity offsets of that shard.
+message EntityOffset {
+  // Specifies the shard of the persistence ID
   uint64 shard_number = 1;
-  // Specifies the projection name.
-  string projection_name = 2;
-  // Specifies the value
-  int64 value = 3;
-  // Specifies the timestamp
-  int64 timestamp = 5;
-}
-
-// ProjectionId defines the projection id
-message ProjectionId {
-  // Specifies the projection name
-  string projection_name = 1;
-  // Specifies the shard number
-  uint64 shard_number = 2;
+  // Specifies the persistence unique identifier
+  string persistence_id = 2;
+  // Specifies the sequence number of the last event processed
+  uint64 sequence_number = 3;
+  // Specifies the timestamp of the last event processed, in Unix nanoseconds
+  int64 timestamp = 4;
+  // Specifies when the projection processed the event, in Unix nanoseconds
+  int64 consumed_at = 5;
 }
 
 // Snapshot defines a point-in-time snapshot of an event-sourced entity's state.

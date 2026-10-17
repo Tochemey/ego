@@ -27,14 +27,17 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/tochemey/goakt/v4/log"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/tochemey/ego/v4/egopb"
-	"github.com/tochemey/ego/v4/testkit"
+	"github.com/tochemey/ego/v5/egopb"
+	mockspersistence "github.com/tochemey/ego/v5/mocks/persistence"
+	testpb "github.com/tochemey/ego/v5/test/data/testpb"
+	"github.com/tochemey/ego/v5/testkit"
 )
 
 // buildLegacyEventBytes constructs raw protobuf bytes for an Event that includes
@@ -383,5 +386,120 @@ func TestMigratorOptions(t *testing.T) {
 		m := New(nil, nil)
 		assert.EqualValues(t, 500, m.pageSize)
 		assert.NotNil(t, m.logger)
+	})
+}
+
+func TestMigratorPagesThroughLargeEntities(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("keeps the state of the latest legacy event across pages", func(t *testing.T) {
+		eventsStore := testkit.NewEventsStore()
+		require.NoError(t, eventsStore.Connect(ctx))
+		snapshotStore := testkit.NewSnapshotStore()
+		require.NoError(t, snapshotStore.Connect(ctx))
+
+		eventAny, err := anypb.New(&testpb.AccountCredited{AccountId: "account-1"})
+		require.NoError(t, err)
+		for sequenceNumber := uint64(1); sequenceNumber <= 5; sequenceNumber++ {
+			state, err := anypb.New(&testpb.Account{AccountId: "account-1", AccountBalance: float64(sequenceNumber)})
+			require.NoError(t, err)
+			writeLegacyEvent(t, eventsStore, "account-1", sequenceNumber, eventAny, state, int64(sequenceNumber), 1)
+		}
+
+		migrator := New(eventsStore, snapshotStore, WithPageSize(2), WithLogger(log.DiscardLogger))
+		require.NoError(t, migrator.Run(ctx))
+
+		snapshot, err := snapshotStore.GetLatestSnapshot(ctx, "account-1")
+		require.NoError(t, err)
+		require.NotNil(t, snapshot)
+		assert.EqualValues(t, 5, snapshot.GetSequenceNumber())
+	})
+
+	t.Run("fails when the latest event cannot be read", func(t *testing.T) {
+		eventsStore := new(mockspersistence.EventsStore)
+		eventsStore.EXPECT().Ping(mock.Anything).Return(nil)
+		eventsStore.EXPECT().PersistenceIDs(mock.Anything, mock.Anything, "").Return([]string{"account-1"}, "", nil)
+		eventsStore.EXPECT().GetLatestEvent(mock.Anything, "account-1").Return(nil, assert.AnError)
+		snapshotStore := testkit.NewSnapshotStore()
+		require.NoError(t, snapshotStore.Connect(ctx))
+
+		err := New(eventsStore, snapshotStore, WithLogger(log.DiscardLogger)).Run(ctx)
+		require.ErrorIs(t, err, assert.AnError)
+		assert.ErrorContains(t, err, "failed to migrate entity account-1")
+	})
+
+	t.Run("stops an entity whose journal ends before its latest event", func(t *testing.T) {
+		eventsStore := new(mockspersistence.EventsStore)
+		eventsStore.EXPECT().Ping(mock.Anything).Return(nil)
+		eventsStore.EXPECT().PersistenceIDs(mock.Anything, mock.Anything, "").Return([]string{"account-1"}, "", nil)
+		eventsStore.EXPECT().GetLatestEvent(mock.Anything, "account-1").Return(&egopb.Event{PersistenceId: "account-1", SequenceNumber: 3}, nil)
+		eventsStore.EXPECT().ReplayEvents(mock.Anything, "account-1", uint64(1), uint64(3), mock.Anything).Return(nil, nil)
+		snapshotStore := new(mockspersistence.SnapshotStore)
+		snapshotStore.EXPECT().Ping(mock.Anything).Return(nil)
+
+		require.NoError(t, New(eventsStore, snapshotStore, WithLogger(log.DiscardLogger)).Run(ctx))
+		snapshotStore.AssertNotCalled(t, "WriteSnapshot", mock.Anything, mock.Anything)
+	})
+}
+
+func TestMigratorFailures(t *testing.T) {
+	ctx := context.Background()
+
+	// legacyJournal returns a reachable mocked journal holding account-1 up to event 2.
+	legacyJournal := func() *mockspersistence.EventsStore {
+		eventsStore := new(mockspersistence.EventsStore)
+		eventsStore.EXPECT().Ping(mock.Anything).Return(nil)
+		eventsStore.EXPECT().PersistenceIDs(mock.Anything, mock.Anything, "").Return([]string{"account-1"}, "", nil)
+		eventsStore.EXPECT().GetLatestEvent(mock.Anything, "account-1").Return(&egopb.Event{PersistenceId: "account-1", SequenceNumber: 2}, nil)
+		return eventsStore
+	}
+
+	t.Run("when the events store is not reachable", func(t *testing.T) {
+		eventsStore := new(mockspersistence.EventsStore)
+		eventsStore.EXPECT().Ping(mock.Anything).Return(assert.AnError)
+
+		err := New(eventsStore, new(mockspersistence.SnapshotStore), WithLogger(log.DiscardLogger)).Run(ctx)
+		require.ErrorIs(t, err, assert.AnError)
+		assert.ErrorContains(t, err, "events store not reachable")
+	})
+
+	t.Run("when the snapshot store is not reachable", func(t *testing.T) {
+		eventsStore := new(mockspersistence.EventsStore)
+		eventsStore.EXPECT().Ping(mock.Anything).Return(nil)
+		snapshotStore := new(mockspersistence.SnapshotStore)
+		snapshotStore.EXPECT().Ping(mock.Anything).Return(assert.AnError)
+
+		err := New(eventsStore, snapshotStore, WithLogger(log.DiscardLogger)).Run(ctx)
+		require.ErrorIs(t, err, assert.AnError)
+		assert.ErrorContains(t, err, "snapshot store not reachable")
+	})
+
+	t.Run("when the events cannot be read", func(t *testing.T) {
+		eventsStore := legacyJournal()
+		eventsStore.EXPECT().ReplayEvents(mock.Anything, "account-1", uint64(1), uint64(2), mock.Anything).Return(nil, assert.AnError)
+		snapshotStore := new(mockspersistence.SnapshotStore)
+		snapshotStore.EXPECT().Ping(mock.Anything).Return(nil)
+
+		err := New(eventsStore, snapshotStore, WithLogger(log.DiscardLogger)).Run(ctx)
+		require.ErrorIs(t, err, assert.AnError)
+	})
+
+	t.Run("when the snapshot cannot be written", func(t *testing.T) {
+		eventAny, err := anypb.New(&testpb.AccountCredited{AccountId: "account-1"})
+		require.NoError(t, err)
+		state, err := anypb.New(&testpb.Account{AccountId: "account-1"})
+		require.NoError(t, err)
+		legacy := new(egopb.Event)
+		require.NoError(t, proto.Unmarshal(buildLegacyEventBytes(t, "account-1", 2, eventAny, state, 1, 1), legacy))
+
+		eventsStore := legacyJournal()
+		eventsStore.EXPECT().ReplayEvents(mock.Anything, "account-1", uint64(1), uint64(2), mock.Anything).Return([]*egopb.Event{legacy}, nil)
+		snapshotStore := new(mockspersistence.SnapshotStore)
+		snapshotStore.EXPECT().Ping(mock.Anything).Return(nil)
+		snapshotStore.EXPECT().WriteSnapshot(mock.Anything, mock.Anything).Return(assert.AnError)
+
+		err = New(eventsStore, snapshotStore, WithLogger(log.DiscardLogger)).Run(ctx)
+		require.ErrorIs(t, err, assert.AnError)
+		assert.ErrorContains(t, err, "failed to write snapshot")
 	})
 }

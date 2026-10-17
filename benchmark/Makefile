@@ -18,11 +18,11 @@ GO_TEST     = go test -v -run='^$$' -benchtime=$(BENCHTIME) -count=$(BENCHCOUNT)
 .PHONY: _use-local _use-released
 
 _use-local:
-	@go mod edit -replace github.com/tochemey/ego/v4=../
+	@go mod edit -replace github.com/tochemey/ego/v5=../
 	@go mod tidy
 
 _use-released:
-	@go mod edit -dropreplace github.com/tochemey/ego/v4 2>/dev/null || true
+	@go mod edit -dropreplace github.com/tochemey/ego/v5 2>/dev/null || true
 	@go mod tidy
 
 # ---------------------------------------------------------------------------
@@ -184,6 +184,19 @@ bench-durable-multi:
 
 bench-durable-multi-local: _use-local
 	$(GO_TEST) -bench='BenchmarkDurableStateActor_MultipleEntities$$' .
+	@$(MAKE) _use-released
+
+# ---------------------------------------------------------------------------
+# Sagas
+# ---------------------------------------------------------------------------
+.PHONY: bench-saga bench-saga-local
+
+## bench-saga: journal reads and reaction latency of 10, 100 and 1000 sagas (in-memory store)
+bench-saga:
+	$(GO_TEST) -bench='BenchmarkSagaFanout' .
+
+bench-saga-local: _use-local
+	$(GO_TEST) -bench='BenchmarkSagaFanout' .
 	@$(MAKE) _use-released
 
 # ---------------------------------------------------------------------------

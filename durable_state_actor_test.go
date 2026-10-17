@@ -40,14 +40,14 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	"github.com/tochemey/ego/v4/egopb"
-	"github.com/tochemey/ego/v4/eventstream"
-	"github.com/tochemey/ego/v4/internal/extensions"
-	"github.com/tochemey/ego/v4/internal/pause"
-	mocks "github.com/tochemey/ego/v4/mocks/persistence"
-	"github.com/tochemey/ego/v4/persistence"
-	testpb "github.com/tochemey/ego/v4/test/data/testpb"
-	"github.com/tochemey/ego/v4/testkit"
+	"github.com/tochemey/ego/v5/egopb"
+	"github.com/tochemey/ego/v5/eventstream"
+	"github.com/tochemey/ego/v5/internal/extensions"
+	"github.com/tochemey/ego/v5/internal/pause"
+	mocks "github.com/tochemey/ego/v5/mocks/persistence"
+	"github.com/tochemey/ego/v5/persistence"
+	testpb "github.com/tochemey/ego/v5/test/data/testpb"
+	"github.com/tochemey/ego/v5/testkit"
 )
 
 const (

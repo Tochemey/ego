@@ -28,10 +28,10 @@ import (
 	goakt "github.com/tochemey/goakt/v4/actor"
 	"github.com/tochemey/goakt/v4/extension"
 
-	"github.com/tochemey/ego/v4/eventstream"
-	"github.com/tochemey/ego/v4/internal/extensions"
-	"github.com/tochemey/ego/v4/offsetstore"
-	"github.com/tochemey/ego/v4/persistence"
+	"github.com/tochemey/ego/v5/eventstream"
+	"github.com/tochemey/ego/v5/internal/extensions"
+	"github.com/tochemey/ego/v5/offsetstore"
+	"github.com/tochemey/ego/v5/persistence"
 )
 
 // requiredExtension returns the extension registered under id as T.

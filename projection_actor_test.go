@@ -40,17 +40,17 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/tochemey/ego/v4/egopb"
-	"github.com/tochemey/ego/v4/encryption"
-	"github.com/tochemey/ego/v4/eventadapter"
-	"github.com/tochemey/ego/v4/internal/extensions"
-	"github.com/tochemey/ego/v4/internal/pause"
-	mocksoffsetstore "github.com/tochemey/ego/v4/mocks/offsetstore"
-	mockseventstore "github.com/tochemey/ego/v4/mocks/persistence"
-	"github.com/tochemey/ego/v4/persistence"
-	"github.com/tochemey/ego/v4/projection"
-	testpb "github.com/tochemey/ego/v4/test/data/testpb"
-	"github.com/tochemey/ego/v4/testkit"
+	"github.com/tochemey/ego/v5/egopb"
+	"github.com/tochemey/ego/v5/encryption"
+	"github.com/tochemey/ego/v5/eventadapter"
+	"github.com/tochemey/ego/v5/internal/extensions"
+	"github.com/tochemey/ego/v5/internal/pause"
+	mocksoffsetstore "github.com/tochemey/ego/v5/mocks/offsetstore"
+	mockseventstore "github.com/tochemey/ego/v5/mocks/persistence"
+	"github.com/tochemey/ego/v5/persistence"
+	"github.com/tochemey/ego/v5/projection"
+	testpb "github.com/tochemey/ego/v5/test/data/testpb"
+	"github.com/tochemey/ego/v5/testkit"
 )
 
 func TestProjection(t *testing.T) {
@@ -127,17 +127,10 @@ func TestProjection(t *testing.T) {
 		// wait for the data to be persisted by the database since this an eventual consistency case
 		pause.For(2 * time.Second)
 
-		// create the projection id
-		projectionID := &egopb.ProjectionId{
-			ProjectionName: projectionName,
-			ShardNumber:    shardNumber,
-		}
-
-		// let us grab the current offset
-		actual, err := offsetStore.GetCurrentOffset(ctx, projectionID)
+		// the projection's position on the shard is its last event
+		positions, err := offsetStore.LatestOffsets(ctx, projectionName)
 		require.NoError(t, err)
-		require.NotNil(t, actual)
-		require.EqualValues(t, journals[9].GetTimestamp(), actual.GetValue())
+		require.EqualValues(t, journals[9].GetTimestamp(), positions[shardNumber])
 
 		// free resources
 		require.NoError(t, journalStore.Disconnect(ctx))
@@ -539,6 +532,32 @@ func TestProjectionActorPreStartFailure(t *testing.T) {
 	})
 }
 
+func TestProjectionActorInvalidOptions(t *testing.T) {
+	ctx := context.TODO()
+
+	eventsStore := mockseventstore.NewEventsStore(t)
+	offsetStore := mocksoffsetstore.NewOffsetStore(t)
+
+	actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+		goakt.WithLogger(log.DiscardLogger),
+		goakt.WithExtensions(
+			extensions.NewEventsStore(eventsStore),
+			extensions.NewOffsetStore(offsetStore),
+			extensions.NewProjectionExtension(map[string]*projection.Options{
+				"without-handler": {BufferSize: 500},
+			})),
+		goakt.WithActorInitMaxRetries(1))
+	require.NoError(t, err)
+	require.NoError(t, actorSystem.Start(ctx))
+	t.Cleanup(func() { _ = actorSystem.Stop(ctx) })
+
+	pause.For(time.Second)
+
+	// the actor reads its options on whichever node runs it, so it checks them too
+	_, err = actorSystem.Spawn(ctx, "without-handler", NewProjectionActor(), goakt.WithLongLived())
+	require.Error(t, err)
+}
+
 func TestProjectionActorRunnerFailure(t *testing.T) {
 	t.Run("recovers from transient store failure without restarting", func(t *testing.T) {
 		ctx := context.TODO()
@@ -607,14 +626,9 @@ func TestProjectionActorRunnerFailure(t *testing.T) {
 		// the first pull fails; the runner retries in place with backoff and
 		// replays the stalled backlog once the store recovers, with no actor
 		// restart involved
-		projectionID := &egopb.ProjectionId{
-			ProjectionName: projectionName,
-			ShardNumber:    shardNumber,
-		}
-
 		require.Eventually(t, func() bool {
-			actual, err := offsetStore.GetCurrentOffset(ctx, projectionID)
-			return err == nil && actual.GetValue() == journals[count-1].GetTimestamp()
+			positions, err := offsetStore.LatestOffsets(ctx, projectionName)
+			return err == nil && positions[shardNumber] == journals[count-1].GetTimestamp()
 		}, 10*time.Second, 100*time.Millisecond)
 
 		require.True(t, pid.IsRunning())

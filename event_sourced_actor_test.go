@@ -46,17 +46,17 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	"github.com/tochemey/ego/v4/egopb"
-	"github.com/tochemey/ego/v4/encryption"
-	"github.com/tochemey/ego/v4/eventadapter"
-	"github.com/tochemey/ego/v4/eventstream"
-	"github.com/tochemey/ego/v4/internal/extensions"
-	"github.com/tochemey/ego/v4/internal/pause"
-	mockencryption "github.com/tochemey/ego/v4/mocks/encryption"
-	mockadapter "github.com/tochemey/ego/v4/mocks/eventadapter"
-	mocks "github.com/tochemey/ego/v4/mocks/persistence"
-	testpb "github.com/tochemey/ego/v4/test/data/testpb"
-	"github.com/tochemey/ego/v4/testkit"
+	"github.com/tochemey/ego/v5/egopb"
+	"github.com/tochemey/ego/v5/encryption"
+	"github.com/tochemey/ego/v5/eventadapter"
+	"github.com/tochemey/ego/v5/eventstream"
+	"github.com/tochemey/ego/v5/internal/extensions"
+	"github.com/tochemey/ego/v5/internal/pause"
+	mockencryption "github.com/tochemey/ego/v5/mocks/encryption"
+	mockadapter "github.com/tochemey/ego/v5/mocks/eventadapter"
+	mocks "github.com/tochemey/ego/v5/mocks/persistence"
+	testpb "github.com/tochemey/ego/v5/test/data/testpb"
+	"github.com/tochemey/ego/v5/testkit"
 )
 
 func TestEventSourcedActor(t *testing.T) {
@@ -4406,4 +4406,76 @@ func TestEventSourcedActorStampsEventsAfterHandling(t *testing.T) {
 	// Stamped after the handler ran: the event is younger than the handler's
 	// delay at the time the command was answered.
 	assert.Less(t, repliedAt-latest.GetTimestamp(), int64(handlerDelay))
+}
+
+// TestEventSourcedActorStampsAfterRecoveredEvent asserts that an entity stamps
+// its new events after the latest event it recovered, and after each event it
+// writes, even when its clock is behind the one that stamped them.
+func TestEventSourcedActorStampsAfterRecoveredEvent(t *testing.T) {
+	run := func(t *testing.T, entityCfg *extensions.EntityConfig) {
+		ctx := context.TODO()
+
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		// the entity's first event was stamped by a clock an hour ahead of this one
+		recovered := time.Now().Add(time.Hour).UnixNano()
+		eventAny, err := anypb.New(&testpb.AccountCreated{AccountId: persistenceID, AccountBalance: 500})
+		require.NoError(t, err)
+		require.NoError(t, eventStore.WriteEvents(ctx, []*egopb.Event{{
+			PersistenceId:  persistenceID,
+			SequenceNumber: 1,
+			Event:          eventAny,
+			Timestamp:      recovered,
+		}}))
+
+		eventStream := eventstream.New()
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+			),
+			goakt.WithActorInitMaxRetries(3))
+		require.NoError(t, err)
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		spawnOptions := []goakt.SpawnOption{goakt.WithLongLived(), goakt.WithStashing(), goakt.WithDependencies(behavior)}
+		if entityCfg != nil {
+			spawnOptions = append(spawnOptions, goakt.WithDependencies(behavior, entityCfg))
+		}
+
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), newEventSourcedActor(), spawnOptions...)
+		require.NoError(t, err)
+		pause.For(time.Second)
+
+		for range 2 {
+			reply, err := goakt.Ask(ctx, pid, &testpb.CreditAccount{AccountId: persistenceID, Balance: 250}, 5*time.Second)
+			require.NoError(t, err)
+			require.IsType(t, new(egopb.CommandReply_StateReply), reply.(*egopb.CommandReply).GetReply())
+		}
+
+		events, err := eventStore.ReplayEvents(ctx, persistenceID, 1, 3, 3)
+		require.NoError(t, err)
+		require.Len(t, events, 3)
+
+		assert.Greater(t, events[1].GetTimestamp(), recovered, "the first new event is stamped after the recovered one")
+		assert.Greater(t, events[2].GetTimestamp(), events[1].GetTimestamp(), "the next event is stamped after the one just written")
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		eventStream.Close()
+		pause.For(time.Second)
+		require.NoError(t, actorSystem.Stop(ctx))
+	}
+
+	t.Run("writing each command's events directly", func(t *testing.T) {
+		run(t, nil)
+	})
+
+	t.Run("writing the events in batches", func(t *testing.T) {
+		run(t, &extensions.EntityConfig{BatchThreshold: 100, BatchFlushWindow: 100 * time.Millisecond})
+	})
 }

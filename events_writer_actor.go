@@ -23,13 +23,11 @@
 package ego
 
 import (
-	"time"
-
 	goakt "github.com/tochemey/goakt/v4/actor"
 
-	"github.com/tochemey/ego/v4/egopb"
-	"github.com/tochemey/ego/v4/eventstream"
-	"github.com/tochemey/ego/v4/persistence"
+	"github.com/tochemey/ego/v5/egopb"
+	"github.com/tochemey/ego/v5/eventstream"
+	"github.com/tochemey/ego/v5/persistence"
 )
 
 // persistEventsRequest is sent from the [EventSourcedActor] to the
@@ -38,6 +36,9 @@ import (
 type persistEventsRequest struct {
 	envelopes []*egopb.Event
 	topic     string
+	// previousTimestamp is the timestamp of the entity's latest event already
+	// written, or zero before its first write. The events are stamped after it.
+	previousTimestamp int64
 }
 
 // persistEventsResponse is sent from the [eventsWriterActor] back to the
@@ -46,6 +47,9 @@ type persistEventsRequest struct {
 // decide whether to stop itself.
 type persistEventsResponse struct {
 	Err error
+	// LastTimestamp is the timestamp of the last event written. It is set
+	// only when the write succeeds.
+	LastTimestamp int64
 }
 
 // eventsWriterActor persists events to the events store and publishes them to
@@ -109,13 +113,10 @@ func (a *eventsWriterActor) PostStop(_ *goakt.Context) error {
 // Events are stamped here, just before the write, and not when their command
 // arrived: the journal is read back in timestamp order, so a stamp that
 // predates the write by the time the command took to handle lets a pull commit
-// past an event that is not in the store yet. The events of one write get
-// increasing timestamps a nanosecond apart, so no two of them share one.
+// past an event that is not in the store yet. The stamps never fall at or
+// before the entity's previous event (see stampEvents).
 func (a *eventsWriterActor) handlePersistEvents(ctx *goakt.ReceiveContext, req *persistEventsRequest) {
-	stamp := time.Now().UnixNano()
-	for index, envelope := range req.envelopes {
-		envelope.Timestamp = stamp + int64(index)
-	}
+	lastTimestamp := stampEvents(req.envelopes, req.previousTimestamp)
 
 	if err := a.eventsStore.WriteEvents(ctx.Context(), req.envelopes); err != nil {
 		ctx.Response(&persistEventsResponse{Err: err})
@@ -126,5 +127,5 @@ func (a *eventsWriterActor) handlePersistEvents(ctx *goakt.ReceiveContext, req *
 		a.eventsStream.Publish(req.topic, envelope)
 	}
 
-	ctx.Response(&persistEventsResponse{})
+	ctx.Response(&persistEventsResponse{LastTimestamp: lastTimestamp})
 }

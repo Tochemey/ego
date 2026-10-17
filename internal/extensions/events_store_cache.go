@@ -29,8 +29,8 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
-	"github.com/tochemey/ego/v4/egopb"
-	"github.com/tochemey/ego/v4/persistence"
+	"github.com/tochemey/ego/v5/egopb"
+	"github.com/tochemey/ego/v5/persistence"
 )
 
 const (

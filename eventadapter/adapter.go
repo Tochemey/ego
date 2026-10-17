@@ -38,9 +38,12 @@ type EventAdapter interface {
 	// If the adapter does not apply to this event, it returns the
 	// event unchanged with no error.
 	//
-	// The revision parameter is the event's sequence number, which
-	// can be used to distinguish between different schema eras for
-	// the same type URL.
+	// The revision parameter is the event's sequence number within its
+	// entity's journal. It is not a schema version: entities reach a
+	// given sequence number at different times, so it cannot tell which
+	// schema an event was written with. Recognize an older schema by the
+	// event's type URL or by its content instead; additive protobuf field
+	// changes need no adapter at all.
 	Adapt(event *anypb.Any, revision uint64) (*anypb.Any, error)
 }
 

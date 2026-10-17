@@ -45,21 +45,21 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
-	"github.com/tochemey/ego/v4/egopb"
-	"github.com/tochemey/ego/v4/encryption"
-	samplepb "github.com/tochemey/ego/v4/example/examplepb"
-	"github.com/tochemey/ego/v4/internal/extensions"
-	"github.com/tochemey/ego/v4/internal/pause"
-	"github.com/tochemey/ego/v4/internal/syncmap"
-	egomock "github.com/tochemey/ego/v4/mocks/ego"
-	mockencryption "github.com/tochemey/ego/v4/mocks/encryption"
-	mockoffsetstore "github.com/tochemey/ego/v4/mocks/offsetstore"
-	mockpersistence "github.com/tochemey/ego/v4/mocks/persistence"
-	"github.com/tochemey/ego/v4/offsetstore"
-	"github.com/tochemey/ego/v4/persistence"
-	"github.com/tochemey/ego/v4/projection"
-	testpb "github.com/tochemey/ego/v4/test/data/testpb"
-	"github.com/tochemey/ego/v4/testkit"
+	"github.com/tochemey/ego/v5/egopb"
+	"github.com/tochemey/ego/v5/encryption"
+	samplepb "github.com/tochemey/ego/v5/example/examplepb"
+	"github.com/tochemey/ego/v5/internal/extensions"
+	"github.com/tochemey/ego/v5/internal/pause"
+	"github.com/tochemey/ego/v5/internal/syncmap"
+	egomock "github.com/tochemey/ego/v5/mocks/ego"
+	mockencryption "github.com/tochemey/ego/v5/mocks/encryption"
+	mockoffsetstore "github.com/tochemey/ego/v5/mocks/offsetstore"
+	mockpersistence "github.com/tochemey/ego/v5/mocks/persistence"
+	"github.com/tochemey/ego/v5/offsetstore"
+	"github.com/tochemey/ego/v5/persistence"
+	"github.com/tochemey/ego/v5/projection"
+	testpb "github.com/tochemey/ego/v5/test/data/testpb"
+	"github.com/tochemey/ego/v5/testkit"
 )
 
 // NewEventSourcedEntity is a test alias used by older tests; the helper file
@@ -415,6 +415,37 @@ func TestEngineStartProjectionNotRegistered(t *testing.T) {
 	err := engine.StartProjection(ctx, "unknown")
 	require.ErrorIs(t, err, ErrProjectionNotRegistered)
 	require.Contains(t, err.Error(), "unknown")
+}
+
+// TestEngineStartProjectionInvalidOptions verifies that StartProjection fails
+// fast when a projection's options do not set exactly one handler.
+func TestEngineStartProjectionInvalidOptions(t *testing.T) {
+	ctx := context.Background()
+	store := testkit.NewEventsStore()
+	require.NoError(t, store.Connect(ctx))
+	t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+	offsetStore := testkit.NewOffsetStore()
+	require.NoError(t, offsetStore.Connect(ctx))
+	t.Cleanup(func() { _ = offsetStore.Disconnect(ctx) })
+
+	engine := newTestEngine(t, "Sample", store,
+		WithLogger(DiscardLogger),
+		WithOffsetStore(offsetStore),
+		WithProjection("without-handler", &projection.Options{BufferSize: 100}),
+		WithProjection("with-both-handlers", &projection.Options{
+			Handler:              projection.NewDiscardHandler(),
+			TransactionalHandler: &committingHandler{offsets: offsetStore},
+		}),
+	)
+	require.NoError(t, engine.Start(ctx))
+	t.Cleanup(func() { _ = engine.Stop(ctx) })
+
+	err := engine.StartProjection(ctx, "without-handler")
+	require.ErrorIs(t, err, projection.ErrHandlerRequired)
+	require.Contains(t, err.Error(), "without-handler")
+
+	require.ErrorIs(t, engine.StartProjection(ctx, "with-both-handlers"), projection.ErrConflictingHandlers)
 }
 
 // countingProjectionHandler records how many events it processed so tests can
@@ -1116,6 +1147,34 @@ func TestEngineEraseEntity(t *testing.T) {
 		stored, err = durableStore.GetLatestState(ctx, entityID)
 		require.NoError(t, err)
 		assert.Nil(t, stored, "the durable state survived the erasure")
+	})
+
+	t.Run("full=true deletes the snapshots of an entity whose events are gone", func(t *testing.T) {
+		store := testkit.NewEventsStore()
+		require.NoError(t, store.Connect(ctx))
+		t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+		snapshotStore := testkit.NewSnapshotStore()
+		require.NoError(t, snapshotStore.Connect(ctx))
+		t.Cleanup(func() { _ = snapshotStore.Disconnect(ctx) })
+
+		engine := newTestEngine(t, "Sample", store, WithLogger(DiscardLogger), WithSnapshotStore(snapshotStore))
+		require.NoError(t, engine.Start(ctx))
+
+		// the retention policy deleted every event up to the latest snapshot,
+		// so the journal holds nothing while the snapshots remain
+		entityID := uuid.NewString()
+		state, err := anypb.New(&testpb.Account{AccountId: entityID, AccountBalance: 100})
+		require.NoError(t, err)
+		for _, sequenceNumber := range []uint64{3, 6} {
+			require.NoError(t, snapshotStore.WriteSnapshot(ctx, &egopb.Snapshot{PersistenceId: entityID, SequenceNumber: sequenceNumber, State: state}))
+		}
+
+		require.NoError(t, engine.EraseEntity(ctx, entityID, true))
+
+		latest, err := snapshotStore.GetLatestSnapshot(ctx, entityID)
+		require.NoError(t, err)
+		assert.Nil(t, latest, "a snapshot survived the erasure")
 	})
 
 	t.Run("erasure stops the live entity", func(t *testing.T) {
@@ -1878,12 +1937,13 @@ func TestEngineProjectionLagClampsNegative(t *testing.T) {
 	const projectionName = "future-projection"
 	future := time.Now().Add(24 * time.Hour).UnixNano()
 	for shard := range shardOffsets {
-		require.NoError(t, offsetStore.WriteOffset(ctx, &egopb.Offset{
-			ProjectionName: projectionName,
+		require.NoError(t, offsetStore.WriteOffsets(ctx, projectionName, []*egopb.EntityOffset{{
 			ShardNumber:    shard,
-			Value:          future,
-			Timestamp:      time.Now().UnixMilli(),
-		}))
+			PersistenceId:  "future-entity",
+			SequenceNumber: 1,
+			Timestamp:      future,
+			ConsumedAt:     time.Now().UnixNano(),
+		}}))
 	}
 
 	lags, err := engine.ProjectionLag(ctx, projectionName)
@@ -2193,13 +2253,30 @@ func TestEngineEraseEntityStoreErrors(t *testing.T) {
 			Return(nil)
 
 		snapStore := new(mockpersistence.SnapshotStore)
-		snapStore.On("DeleteSnapshots", mock.Anything, mock.AnythingOfType("string"), uint64(7)).
+		snapStore.On("GetLatestSnapshot", mock.Anything, mock.AnythingOfType("string")).
+			Return(&egopb.Snapshot{SequenceNumber: 6}, nil)
+		snapStore.On("DeleteSnapshots", mock.Anything, mock.AnythingOfType("string"), uint64(6)).
 			Return(errors.New("snap fail"))
 
 		engine := synthEngineWithStores(eventsStore, snapStore, nil)
 		err := engine.EraseEntity(ctx, "pid-3", true)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to delete snapshots for erasure")
+	})
+
+	t.Run("GetLatestSnapshot error", func(t *testing.T) {
+		eventsStore := new(mockpersistence.EventsStore)
+		eventsStore.On("GetLatestEvent", mock.Anything, mock.AnythingOfType("string")).
+			Return(nil, nil)
+
+		snapStore := new(mockpersistence.SnapshotStore)
+		snapStore.On("GetLatestSnapshot", mock.Anything, mock.AnythingOfType("string")).
+			Return(nil, errors.New("snap read fail"))
+
+		engine := synthEngineWithStores(eventsStore, snapStore, nil)
+		err := engine.EraseEntity(ctx, "pid-5", true)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to get latest snapshot for erasure")
 	})
 
 	t.Run("DeleteKey error", func(t *testing.T) {
@@ -2215,7 +2292,7 @@ func TestEngineEraseEntityStoreErrors(t *testing.T) {
 }
 
 // TestEngineProjectionLagStoreErrors covers ProjectionLag's per-store error
-// wraps: ShardOffsets failure and GetCurrentOffset failure.
+// wraps: ShardOffsets failure and LatestOffsets failure.
 func TestEngineProjectionLagStoreErrors(t *testing.T) {
 	ctx := context.Background()
 
@@ -2231,25 +2308,25 @@ func TestEngineProjectionLagStoreErrors(t *testing.T) {
 		require.Nil(t, lags)
 	})
 
-	t.Run("GetCurrentOffset failure", func(t *testing.T) {
+	t.Run("LatestOffsets failure", func(t *testing.T) {
 		eventsStore := new(mockpersistence.EventsStore)
 		eventsStore.On("ShardOffsets", mock.Anything).Return(map[uint64]int64{1: 100}, nil)
 
 		offsetStore := new(mockoffsetstore.OffsetStore)
-		offsetStore.On("GetCurrentOffset", mock.Anything, mock.AnythingOfType("*egopb.ProjectionId")).
-			Return(nil, errors.New("offset down"))
+		offsetStore.On("LatestOffsets", mock.Anything, "any").Return(map[uint64]int64(nil), errors.New("offset down"))
 
 		engine := synthEngineWithStores(eventsStore, nil, offsetStore)
 		lags, err := engine.ProjectionLag(ctx, "any")
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "failed to get offset for shard")
+		require.Contains(t, err.Error(), "failed to fetch the offsets of projection any")
 		require.Nil(t, lags)
 	})
 }
 
 // TestEngineProjectionLagComputation drives the lag arithmetic directly:
 // lag is the difference between the shard's latest event timestamp (as
-// reported by ShardOffsets) and the projection's committed offset.
+// reported by ShardOffsets) and the projection's position on the shard (as
+// reported by LatestOffsets).
 func TestEngineProjectionLagComputation(t *testing.T) {
 	ctx := context.Background()
 
@@ -2257,8 +2334,7 @@ func TestEngineProjectionLagComputation(t *testing.T) {
 	eventsStore.On("ShardOffsets", mock.Anything).Return(map[uint64]int64{7: 1500}, nil)
 
 	offsetStore := new(mockoffsetstore.OffsetStore)
-	offsetStore.On("GetCurrentOffset", mock.Anything, mock.AnythingOfType("*egopb.ProjectionId")).
-		Return(&egopb.Offset{Value: 500}, nil)
+	offsetStore.On("LatestOffsets", mock.Anything, "any").Return(map[uint64]int64{7: 500}, nil)
 
 	engine := synthEngineWithStores(eventsStore, nil, offsetStore)
 	lags, err := engine.ProjectionLag(ctx, "any")

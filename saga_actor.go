@@ -33,12 +33,12 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
-	"github.com/tochemey/ego/v4/egopb"
-	"github.com/tochemey/ego/v4/eventstream"
-	"github.com/tochemey/ego/v4/internal/extensions"
-	"github.com/tochemey/ego/v4/offsetstore"
-	"github.com/tochemey/ego/v4/persistence"
-	"github.com/tochemey/ego/v4/projection"
+	"github.com/tochemey/ego/v5/egopb"
+	"github.com/tochemey/ego/v5/eventstream"
+	"github.com/tochemey/ego/v5/internal/extensions"
+	"github.com/tochemey/ego/v5/offsetstore"
+	"github.com/tochemey/ego/v5/persistence"
+	"github.com/tochemey/ego/v5/projection"
 )
 
 const (
@@ -121,10 +121,11 @@ type SagaActor struct {
 	// start time and its running status must be recorded once it is up.
 	firstStart bool
 
-	// shard is the journal shard the saga's own events belong to. It is
-	// resolved from the saga ID the same way entities derive theirs, so saga
-	// events land on the shard that owns the saga. See shardOf for when.
-	shard shardLocator
+	// shard is the journal shard of the saga's own events (see persistence.ShardFor).
+	shard uint64
+	// lastEventTimestamp is the timestamp of the saga's latest journal record,
+	// or zero before its first one. The next records are stamped after it.
+	lastEventTimestamp int64
 
 	// startedAt is the wall clock time, in nanoseconds, at which the saga
 	// first moved to SagaRunning. It is journaled with every status
@@ -189,6 +190,7 @@ func (s *SagaActor) PreStart(ctx *goakt.Context) error {
 	s.eventsStream = eventsStream
 	s.offsetStore = offsetStore
 	s.sagaID = ctx.ActorName()
+	s.shard = persistence.ShardFor(s.sagaID)
 
 	for _, dependency := range ctx.Dependencies() {
 		if dependency == nil {
@@ -367,6 +369,7 @@ func (s *SagaActor) recover(ctx context.Context) error {
 		return nil
 	}
 
+	s.lastEventTimestamp = latestEvent.GetTimestamp()
 	latestSeqNr := latestEvent.GetSequenceNumber()
 	events, err := s.eventsStore.ReplayEvents(ctx, s.sagaID, 1, latestSeqNr, latestSeqNr)
 	if err != nil {
@@ -551,8 +554,7 @@ func (s *SagaActor) persistAndApplyEvents(ctx context.Context, events []Event) e
 			SequenceNumber: pendingCounter,
 			IsDeleted:      false,
 			Event:          eventAny,
-			Timestamp:      time.Now().UnixNano(),
-			Shard:          s.shardOf(),
+			Shard:          s.shard,
 		})
 
 		newState, err := s.behavior.ApplyEvent(ctx, event, pendingState)
@@ -563,12 +565,14 @@ func (s *SagaActor) persistAndApplyEvents(ctx context.Context, events []Event) e
 		pendingState = newState
 	}
 
+	lastTimestamp := stampEvents(envelopes, s.lastEventTimestamp)
 	if err := s.eventsStore.WriteEvents(ctx, envelopes); err != nil {
 		return err
 	}
 
 	s.currentState = pendingState
 	s.eventsCounter = pendingCounter
+	s.lastEventTimestamp = lastTimestamp
 	return nil
 }
 
@@ -816,19 +820,20 @@ func (s *SagaActor) journalBookkeeping(ctx context.Context, message proto.Messag
 	}
 
 	sequenceNumber := s.eventsCounter + 1
-	envelope := &egopb.Event{
+	envelopes := []*egopb.Event{{
 		PersistenceId:  s.sagaID,
 		SequenceNumber: sequenceNumber,
 		Event:          messageAny,
-		Timestamp:      time.Now().UnixNano(),
-		Shard:          s.shardOf(),
-	}
+		Shard:          s.shard,
+	}}
 
-	if err := s.eventsStore.WriteEvents(ctx, []*egopb.Event{envelope}); err != nil {
+	lastTimestamp := stampEvents(envelopes, s.lastEventTimestamp)
+	if err := s.eventsStore.WriteEvents(ctx, envelopes); err != nil {
 		return err
 	}
 
 	s.eventsCounter = sequenceNumber
+	s.lastEventTimestamp = lastTimestamp
 	return nil
 }
 
@@ -946,19 +951,4 @@ func (s *SagaActor) handleOffsetsDeleted(outcome *sagaOffsetsDeleted) {
 	}
 
 	s.logger.Debugf("saga %s: deleted the offsets of %s", s.sagaID, outcome.projectionName)
-}
-
-// shardOf returns the shard the saga's own events are journaled on.
-//
-// The start of a saga is journaled in PostStart. Actor system releases up to
-// v4.6.1 ran PostStart before publishing the saga to the cluster, so the
-// shard looked up for that record is not kept: on those releases it is zero
-// in a cluster. The shard is resolved and kept from the first record written
-// after the start.
-func (s *SagaActor) shardOf() uint64 {
-	if s.firstStart {
-		return s.actorSystem.Partition(s.sagaID)
-	}
-
-	return s.shard.locate(s.actorSystem, s.sagaID)
 }

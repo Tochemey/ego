@@ -31,10 +31,10 @@ import (
 	"github.com/tochemey/goakt/v4/log"
 	"google.golang.org/protobuf/types/known/anypb"
 
-	"github.com/tochemey/ego/v4/encryption"
-	"github.com/tochemey/ego/v4/eventadapter"
-	"github.com/tochemey/ego/v4/projection"
-	"github.com/tochemey/ego/v4/testkit"
+	"github.com/tochemey/ego/v5/encryption"
+	"github.com/tochemey/ego/v5/eventadapter"
+	"github.com/tochemey/ego/v5/projection"
+	"github.com/tochemey/ego/v5/testkit"
 )
 
 func TestOption(t *testing.T) {
@@ -52,6 +52,20 @@ func TestOption(t *testing.T) {
 		var r projectionRunner
 		withMaxBufferSize(5).Apply(&r)
 		assert.Equal(t, 5, r.maxBufferSize)
+	})
+	t.Run("WithPullInterval keeps the default when not positive", func(t *testing.T) {
+		r := projectionRunner{pullInterval: defaultPullInterval}
+		withPullInterval(0).Apply(&r)
+		assert.Equal(t, defaultPullInterval, r.pullInterval, "the pull ticker needs a positive interval")
+		withPullInterval(-time.Second).Apply(&r)
+		assert.Equal(t, defaultPullInterval, r.pullInterval)
+	})
+	t.Run("WithMaxBufferSize keeps the default below one", func(t *testing.T) {
+		r := projectionRunner{maxBufferSize: defaultBufferSize}
+		withMaxBufferSize(0).Apply(&r)
+		assert.Equal(t, defaultBufferSize, r.maxBufferSize, "a buffer of zero events could never make progress")
+		withMaxBufferSize(-1).Apply(&r)
+		assert.Equal(t, defaultBufferSize, r.maxBufferSize)
 	})
 	t.Run("WithStartOffset", func(t *testing.T) {
 		var r projectionRunner
