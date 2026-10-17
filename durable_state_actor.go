@@ -34,11 +34,11 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
-	"github.com/tochemey/ego/v4/egopb"
-	"github.com/tochemey/ego/v4/eventstream"
-	"github.com/tochemey/ego/v4/internal/extensions"
-	"github.com/tochemey/ego/v4/internal/runner"
-	"github.com/tochemey/ego/v4/persistence"
+	"github.com/tochemey/ego/v5/egopb"
+	"github.com/tochemey/ego/v5/eventstream"
+	"github.com/tochemey/ego/v5/internal/extensions"
+	"github.com/tochemey/ego/v5/internal/runner"
+	"github.com/tochemey/ego/v5/persistence"
 )
 
 // statesTopic is the single in-process pub/sub topic eGo's durable-state
@@ -62,14 +62,12 @@ type DurableStateActor struct {
 	stateDeleted    bool
 	lastCommandTime time.Time
 	eventsStream    eventstream.Stream
-	actorSystem     goakt.ActorSystem
 	persistenceID   string
 	tracer          trace.Tracer
 	metrics         *metrics
 
-	// shard is the journal shard of the entity's state records, resolved when
-	// the first one is written.
-	shard shardLocator
+	// shard is the shard of the entity's state records (see persistence.ShardFor).
+	shard uint64
 }
 
 // implements the goakt.Actor interface
@@ -95,6 +93,7 @@ func (entity *DurableStateActor) PreStart(ctx *goakt.Context) error {
 	entity.stateStore = stateStore
 	entity.eventsStream = eventsStream
 	entity.persistenceID = ctx.ActorName()
+	entity.shard = persistence.ShardFor(entity.persistenceID)
 
 	for _, dependency := range ctx.Dependencies() {
 		if dependency != nil {
@@ -137,7 +136,7 @@ func (entity *DurableStateActor) PreStart(ctx *goakt.Context) error {
 func (entity *DurableStateActor) Receive(ctx *goakt.ReceiveContext) {
 	switch message := ctx.Message().(type) {
 	case *goakt.PostStart:
-		entity.actorSystem = ctx.ActorSystem()
+		// nothing to do: the entity recovered its state in PreStart
 	case *egopb.GetStateCommand:
 		entity.sendStateReply(ctx)
 	default:
@@ -288,7 +287,7 @@ func (entity *DurableStateActor) deleteState(receiveContext *goakt.ReceiveContex
 		VersionNumber:  version,
 		ResultingState: deletedAny,
 		Timestamp:      deletedAt.UnixNano(),
-		Shard:          entity.shard.locate(entity.actorSystem, entity.persistenceID),
+		Shard:          entity.shard,
 	})
 
 	entity.currentState = entity.behavior.InitialState()
@@ -385,7 +384,7 @@ func (entity *DurableStateActor) persistStateAndPublish(ctx context.Context, sta
 		VersionNumber:  version,
 		ResultingState: stateAny,
 		Timestamp:      commandTime.UnixNano(),
-		Shard:          entity.shard.locate(entity.actorSystem, entity.persistenceID),
+		Shard:          entity.shard,
 	}
 
 	if err := entity.stateStore.WriteState(ctx, durableState); err != nil {

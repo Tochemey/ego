@@ -23,7 +23,7 @@
 package eventstream
 
 import (
-	"github.com/tochemey/ego/v4/internal/syncmap"
+	"github.com/tochemey/ego/v5/internal/syncmap"
 )
 
 type Stream interface {

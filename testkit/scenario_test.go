@@ -31,7 +31,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 
-	testpb "github.com/tochemey/ego/v4/test/data/testpb"
+	testpb "github.com/tochemey/ego/v5/test/data/testpb"
 )
 
 // ---------------------------------------------------------------------------

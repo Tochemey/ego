@@ -26,8 +26,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"runtime/debug"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -41,14 +44,14 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
-	"github.com/tochemey/ego/v4/egopb"
-	"github.com/tochemey/ego/v4/encryption"
-	"github.com/tochemey/ego/v4/eventadapter"
-	"github.com/tochemey/ego/v4/eventstream"
-	"github.com/tochemey/ego/v4/internal/ticker"
-	"github.com/tochemey/ego/v4/offsetstore"
-	"github.com/tochemey/ego/v4/persistence"
-	"github.com/tochemey/ego/v4/projection"
+	"github.com/tochemey/ego/v5/egopb"
+	"github.com/tochemey/ego/v5/encryption"
+	"github.com/tochemey/ego/v5/eventadapter"
+	"github.com/tochemey/ego/v5/eventstream"
+	"github.com/tochemey/ego/v5/internal/ticker"
+	"github.com/tochemey/ego/v5/offsetstore"
+	"github.com/tochemey/ego/v5/persistence"
+	"github.com/tochemey/ego/v5/projection"
 )
 
 // numWorkers is the fixed size of the persistent shard-processing goroutine pool.
@@ -138,8 +141,8 @@ type projectionRunner struct {
 	retrier *retry.Retrier
 
 	// wgPool pools *sync.WaitGroup for per-batch synchronisation.
-	// Proto message pointers (*egopb.ProjectionId, *egopb.Offset) are NOT
-	// pooled: the OffsetStore interface methods accept pointer arguments that
+	// Proto message pointers (*egopb.EntityOffset) are NOT pooled: the
+	// OffsetStore interface methods accept pointer arguments that
 	// implementations (including testify mocks) may retain after the call
 	// returns, so pooling and resetting those pointers causes data races.
 	wgPool sync.Pool
@@ -158,12 +161,31 @@ type projectionRunner struct {
 	// encryptor decrypts event payloads before handing them to the handler.
 	encryptor encryption.Encryptor
 
-	// committedOffsets caches the last committed offset per shard, sparing a
-	// GetCurrentOffset round trip on every pull. The projection runs as a
-	// cluster singleton, so this runner is the sole writer of its offsets
-	// and the cache cannot go stale.
-	committedOffsetsMu sync.RWMutex
-	committedOffsets   map[uint64]int64
+	// shards holds what the runner knows about every shard it has read: its
+	// position, the recently processed persistence IDs and its backtracking
+	// progress. A shard's state is loaded from the offset store the first time
+	// the shard is read, and dropped after a failed read so the next one starts
+	// again from what the offset store holds. The projection runs as a cluster
+	// singleton, so this runner is the sole writer of its offsets.
+	//
+	// shardsMu guards the map only. A shard's state is owned by the one worker
+	// reading the shard during a pass, and by the pass loop between passes,
+	// while the workers are idle: pendingShards and deleteOldOffsets update it
+	// under the read lock for that reason.
+	shardsMu sync.RWMutex
+	shards   map[uint64]*shardState
+
+	// startFloor is the timestamp the projection starts from on a shard it has
+	// no offset on: the later of the configured starting offset and the start
+	// offset ResetOffset recorded. Events of a persistence ID whose previous
+	// event is older than it are accepted without that previous event.
+	startFloor int64
+
+	// offsetSettings governs how offsets are tracked, backtracked and cleaned.
+	offsetSettings offsetSettings
+
+	// lastOffsetCleanup is when old offsets were last deleted from the offset store.
+	lastOffsetCleanup time.Time
 
 	// pendingBuf is reused across pull passes to collect pending shards.
 	// Passes are serialized by processingLoop, so no locking is needed.
@@ -209,20 +231,22 @@ func newProjectionRunner(name string,
 	offsetStore offsetstore.OffsetStore,
 	opts ...runnerOption) *projectionRunner {
 	runner := &projectionRunner{
-		name:             name,
-		logger:           log.NewZap(log.ErrorLevel, os.Stderr),
-		handler:          handler,
-		eventsStore:      eventsStore,
-		offsetsStore:     offsetStore,
-		recovery:         projection.NewRecovery(),
-		stopSignal:       make(chan struct{}, 1),
-		running:          atomic.NewBool(false),
-		pullInterval:     time.Second,
-		maxBufferSize:    500,
-		startingOffset:   ZeroTime,
-		resetOffsetTo:    ZeroTime,
-		committedOffsets: make(map[uint64]int64),
-		nudge:            make(chan struct{}, 1),
+		name:              name,
+		logger:            log.NewZap(log.ErrorLevel, os.Stderr),
+		handler:           handler,
+		eventsStore:       eventsStore,
+		offsetsStore:      offsetStore,
+		recovery:          projection.NewRecovery(),
+		stopSignal:        make(chan struct{}, 1),
+		running:           atomic.NewBool(false),
+		pullInterval:      time.Second,
+		maxBufferSize:     500,
+		startingOffset:    ZeroTime,
+		resetOffsetTo:     ZeroTime,
+		shards:            make(map[uint64]*shardState),
+		offsetSettings:    defaultOffsetSettings(),
+		lastOffsetCleanup: time.Now(),
+		nudge:             make(chan struct{}, 1),
 	}
 
 	for _, opt := range opts {
@@ -387,6 +411,8 @@ func (x *projectionRunner) runPass(ctx context.Context) bool {
 
 	if len(shards) == 0 {
 		x.storeFailures = 0
+		// an idle projection still cleans its old offsets up
+		x.deleteOldOffsets(ctx)
 		return true
 	}
 
@@ -470,6 +496,7 @@ drain:
 		time.AfterFunc(readLag, x.requestPull)
 	}
 
+	x.deleteOldOffsets(ctx)
 	return true
 }
 
@@ -504,10 +531,10 @@ func storeRetryDelay(failures int) time.Duration {
 	return delay
 }
 
-// pendingShards returns the shards whose latest event offset, reported by a
-// single ShardOffsets round trip, is past their committed offset. Shards not
-// yet in the committed-offset cache are returned unconditionally: doProcess
-// resolves their offset on first encounter and an empty read is harmless.
+// pendingShards returns the shards to read in this pass: a shard the runner
+// has not read yet, a shard whose newest event, reported by a single
+// ShardOffsets round trip, is past the shard's position, a shard whose last
+// read filled the buffer, and a shard that is due for a backtracking read.
 // The returned slice is backed by pendingBuf and only valid until the next
 // pass.
 func (x *projectionRunner) pendingShards(ctx context.Context) ([]uint64, error) {
@@ -516,43 +543,26 @@ func (x *projectionRunner) pendingShards(ctx context.Context) ([]uint64, error) 
 		return nil, err
 	}
 
-	if len(shardOffsets) == 0 {
-		return nil, nil
-	}
-
 	shards := x.pendingBuf[:0]
+	now := time.Now()
 
-	// A configured starting offset is the floor a shard resumes from (see
-	// currentOffset), so the pending decision must mirror it: a shard whose
-	// committed offset is already past the floor resumes from that offset.
-	if !x.startingOffset.IsZero() {
-		startOffset := x.startingOffset.UnixNano()
-
-		x.committedOffsetsMu.RLock()
-		for shard, latest := range shardOffsets {
-			resumeFrom := startOffset
-			if committed, known := x.committedOffsets[shard]; known && committed > resumeFrom {
-				resumeFrom = committed
-			}
-
-			if latest > resumeFrom {
-				shards = append(shards, shard)
-			}
+	// Passes are serialized and the workers are idle while this runs, so the
+	// shard states can be updated here without racing a read of the shard.
+	x.shardsMu.RLock()
+	for shard, newest := range shardOffsets {
+		state, known := x.shards[shard]
+		if !known || newest > state.latest || state.lastReadFull || state.backtracking {
+			shards = append(shards, shard)
+			continue
 		}
-		x.committedOffsetsMu.RUnlock()
 
-		x.pendingBuf = shards
-		return shards, nil
-	}
-
-	x.committedOffsetsMu.RLock()
-	for shard, latest := range shardOffsets {
-		committed, known := x.committedOffsets[shard]
-		if !known || latest > committed {
+		state.idlePasses++
+		if state.shouldBacktrack(x.offsetSettings, x.maxBufferSize, now) {
+			state.backtracking = true
 			shards = append(shards, shard)
 		}
 	}
-	x.committedOffsetsMu.RUnlock()
+	x.shardsMu.RUnlock()
 
 	x.pendingBuf = shards
 	return shards, nil
@@ -599,7 +609,7 @@ func (x *projectionRunner) worker(ctx context.Context) {
 			if !ok {
 				return
 			}
-			if err := x.doProcess(ctx, item.shard); err != nil && ctx.Err() == nil {
+			if err := x.processShard(ctx, item.shard); err != nil && ctx.Err() == nil {
 				// Only forward processing errors, not context-cancellation noise
 				// that arises from a concurrent Stop() call.
 				select {
@@ -614,147 +624,443 @@ func (x *projectionRunner) worker(ctx context.Context) {
 	}
 }
 
-// doProcess processes all events of a given persistent entity and hand them over to the handler
-func (x *projectionRunner) doProcess(ctx context.Context, shard uint64) error {
+// processShard reads one shard: from its position in a normal read, or behind
+// it when the shard is backtracking. A failed read drops the shard's state, so
+// the next read starts again from what the offset store holds; every event
+// processed before the failure was recorded there already.
+func (x *projectionRunner) processShard(ctx context.Context, shard uint64) error {
 	if !x.running.Load() {
 		return nil
 	}
 
-	currOffset, err := x.currentOffset(ctx, shard)
+	state, err := x.shardState(ctx, shard)
 	if err != nil {
 		return err
 	}
 
-	events, nextOffset, err := x.eventsStore.GetShardEvents(ctx, shard, currOffset, uint64(x.maxBufferSize))
+	if state.backtracking {
+		err = x.backtrack(ctx, shard, state)
+	}
+
+	// A shard that is done backtracking reads from its position right away,
+	// so new events do not wait for the next pass.
+	if err == nil && !state.backtracking {
+		err = x.readShard(ctx, shard, state)
+	}
+
+	if err != nil {
+		x.dropShardState(shard)
+	}
+
+	return err
+}
+
+// shardState returns the state of the shard, loading it from the offset store
+// the first time the shard is read.
+func (x *projectionRunner) shardState(ctx context.Context, shard uint64) (*shardState, error) {
+	x.shardsMu.RLock()
+	state, ok := x.shards[shard]
+	x.shardsMu.RUnlock()
+
+	if ok {
+		return state, nil
+	}
+
+	offsets, err := x.offsetsStore.ReadOffsets(ctx, x.name, shard, offsetReadLimit)
+	if err != nil {
+		return nil, err
+	}
+
+	state = newShardState(offsets, x.startFloor, x.offsetSettings.timeWindow)
+
+	x.shardsMu.Lock()
+	x.shards[shard] = state
+	x.shardsMu.Unlock()
+
+	return state, nil
+}
+
+// dropShardState forgets the state of the shard.
+func (x *projectionRunner) dropShardState(shard uint64) {
+	x.shardsMu.Lock()
+	delete(x.shards, shard)
+	x.shardsMu.Unlock()
+}
+
+// readShard reads the events of the shard from its position on, at most a
+// buffer of them, and processes those at least readLag old.
+//
+// The read starts at the position's timestamp itself: several events can share
+// a timestamp, and the projection may have stopped among them. Those it has
+// already processed are recognized as duplicates.
+func (x *projectionRunner) readShard(ctx context.Context, shard uint64, state *shardState) error {
+	from := state.latest
+	events, full, err := x.readEvents(ctx, shard, state, from)
 	if err != nil {
 		return err
 	}
 
-	events, nextOffset = x.settledEvents(events, nextOffset)
-
-	if len(events) >= x.maxBufferSize {
+	if full {
 		// A full buffer means more events are pending on this shard.
 		x.sawFullBatch.Store(true)
 	}
 
-	var attrs attribute.Set
-	if x.metrics != nil {
-		attrs = attribute.NewSet(
-			attribute.String("projection_name", x.name),
-			attribute.Int64("shard", int64(shard)),
-		)
+	state.lastReadFull = full
+	events = x.settledEvents(events)
+	if len(events) > 0 {
+		state.idlePasses = 0
+		state.readSinceBacktracking += len(events)
 	}
 
-	if len(events) == 0 {
-		// Projection is caught up — reset gauges so Grafana doesn't show stale values.
-		if x.metrics != nil {
-			x.metrics.projectionLag.Record(ctx, 0, metric.WithAttributeSet(attrs))
-			x.metrics.projectionOffset.Record(ctx, currOffset, metric.WithAttributeSet(attrs))
-			x.metrics.projectionBehind.Record(ctx, 0, metric.WithAttributeSet(attrs))
-		}
-		return nil
-	}
+	x.recordLag(ctx, shard, from, len(events))
 
-	// Record projection lag metrics when telemetry is enabled.
-	if x.metrics != nil {
-		// Use wall-clock lag: how far behind real time the projection is.
-		// Event timestamps use time.UnixNano(), so compute lag in nanoseconds
-		// and convert to milliseconds for the gauge.
-		lagMs := (time.Now().UnixNano() - currOffset) / int64(time.Millisecond)
-		if lagMs < 0 || currOffset == 0 {
-			lagMs = 0
-		}
-		x.metrics.projectionLag.Record(ctx, lagMs, metric.WithAttributeSet(attrs))
-		x.metrics.projectionOffset.Record(ctx, currOffset, metric.WithAttributeSet(attrs))
-		x.metrics.projectionBehind.Record(ctx, int64(len(events)), metric.WithAttributeSet(attrs))
-	}
-
-	if err := x.processEvents(ctx, shard, events, nextOffset); err != nil {
+	if err := x.processEvents(ctx, shard, state, events); err != nil {
 		return err
 	}
 
-	// A partial buffer means the shard is now caught up. Record that here:
-	// caught-up shards are skipped by subsequent pulls, so the gauges would
-	// otherwise retain the pre-processing values.
-	if x.metrics != nil && len(events) < x.maxBufferSize {
-		x.metrics.projectionLag.Record(ctx, 0, metric.WithAttributeSet(attrs))
-		x.metrics.projectionOffset.Record(ctx, nextOffset, metric.WithAttributeSet(attrs))
-		x.metrics.projectionBehind.Record(ctx, 0, metric.WithAttributeSet(attrs))
+	if state.shouldBacktrack(x.offsetSettings, x.maxBufferSize, time.Now()) {
+		state.backtracking = true
+	}
+
+	if !full {
+		// The shard is caught up: reset the gauges, which would otherwise keep
+		// the values recorded before the read.
+		x.recordLag(ctx, shard, state.latest, 0)
 	}
 
 	return nil
 }
 
-// settledEvents returns the events of a shard batch that are at least readLag
-// old, together with the offset to commit for them. Events are ordered by
-// timestamp, so the younger ones form the tail of the batch; a non-empty tail
-// is held back for a later pass and the pass loop is told so. An empty result
-// carries no offset.
-func (x *projectionRunner) settledEvents(events []*egopb.Event, nextOffset int64) ([]*egopb.Event, int64) {
-	cutoff := time.Now().Add(-readLag).UnixNano()
-
-	settled := len(events)
-	for settled > 0 && events[settled-1].GetTimestamp() > cutoff {
-		settled--
+// backtrack reads the shard again behind its position, to process the events
+// that became visible after the projection had read past their timestamp. Most
+// events it reads were processed already and are skipped as duplicates. The
+// shard stays in backtracking until a read no longer fills the buffer.
+func (x *projectionRunner) backtrack(ctx context.Context, shard uint64, state *shardState) error {
+	from, to := state.backtrackingRange(x.offsetSettings, time.Now())
+	if from > to {
+		state.stopBacktracking()
+		return nil
 	}
 
-	if settled == len(events) {
-		return events, nextOffset
+	events, full, err := x.readEvents(ctx, shard, state, from)
+	if err != nil {
+		return err
 	}
 
-	x.sawHeldBack.Store(true)
-
-	if settled == 0 {
-		return nil, 0
+	inRange := eventsUpTo(events, to)
+	if err := x.processEvents(ctx, shard, state, inRange); err != nil {
+		return err
 	}
 
-	return events[:settled], events[settled-1].GetTimestamp()
+	if full && len(inRange) == len(events) {
+		// More events are within the range: carry on at the next pass.
+		state.latestBacktracking = inRange[len(inRange)-1].GetTimestamp()
+		x.sawFullBatch.Store(true)
+		return nil
+	}
+
+	state.latestBacktracking = to
+	state.stopBacktracking()
+	return nil
 }
 
-// currentOffset returns the committed offset for a projection shard,
-// consulting the offset store only on the first encounter of the shard and
-// the in-memory cache afterwards.
-func (x *projectionRunner) currentOffset(ctx context.Context, shard uint64) (int64, error) {
-	x.committedOffsetsMu.RLock()
-	currOffset, cached := x.committedOffsets[shard]
-	x.committedOffsetsMu.RUnlock()
-
-	if !cached {
-		offset, err := x.offsetsStore.GetCurrentOffset(ctx, &egopb.ProjectionId{
-			ProjectionName: x.name,
-			ShardNumber:    shard,
-		})
-		if err != nil {
-			return 0, err
-		}
-		currOffset = offset.GetValue()
-		x.committedOffsetsMu.Lock()
-		x.committedOffsets[shard] = currOffset
-		x.committedOffsetsMu.Unlock()
+// readEvents reads at most a buffer of events of the shard, from the timestamp
+// on, and reports whether more events are pending on the shard past the
+// buffer: one more event than the buffer holds is read for that. A read that
+// cannot make progress fails (see checkProgress).
+func (x *projectionRunner) readEvents(ctx context.Context, shard uint64, state *shardState, from int64) ([]*egopb.Event, bool, error) {
+	events, err := x.eventsStore.EventsByShard(ctx, shard, from, uint64(x.maxBufferSize)+1)
+	if err != nil {
+		return nil, false, err
 	}
 
-	// The starting offset is a floor, not an override: once the shard has
-	// committed an offset past it the projection resumes from there instead
-	// of replaying the same events on every pass.
-	if !x.startingOffset.IsZero() {
-		if startOffset := x.startingOffset.UnixNano(); currOffset < startOffset {
-			currOffset = startOffset
-		}
+	full := len(events) > x.maxBufferSize
+	if full {
+		events = events[:x.maxBufferSize]
 	}
 
-	return currOffset, nil
+	if err := x.checkProgress(shard, state, events, from, full); err != nil {
+		return nil, false, err
+	}
+
+	return events, full, nil
 }
 
-// processEvents applies the projection handler to every event of the batch,
-// then commits the batch offset once. A failure mid-batch commits nothing, so
-// the whole batch is re-pulled on the next pass (at-least-once delivery).
-func (x *projectionRunner) processEvents(ctx context.Context, shard uint64, events []*egopb.Event, nextOffset int64) error {
+// checkProgress fails a read that cannot make progress: a full buffer of
+// events all stamped at the timestamp the read started from, all processed
+// already, with more events pending past them. The next read would start there
+// and return the same events again, so the projection could never get past
+// them: the events sharing that timestamp fill the buffer.
+func (x *projectionRunner) checkProgress(shard uint64, state *shardState, events []*egopb.Event, from int64, full bool) error {
+	if !full {
+		return nil
+	}
+
 	for _, envelope := range events {
+		if envelope.GetTimestamp() != from {
+			return nil
+		}
+
+		record, known := state.entities[envelope.GetPersistenceId()]
+		if !known || record.check(envelope.GetSequenceNumber()) != duplicate {
+			return nil
+		}
+	}
+
+	return &projectionRunnerError{err: fmt.Errorf("projection=(%s) found %d events on shard %d with the timestamp %d, filling its buffer: increase the projection's buffer size",
+		x.name, x.maxBufferSize, shard, from)}
+}
+
+// settledEvents drops the tail of a read that is younger than readLag and
+// tells the pass loop so: an event is processed only once it is at least that
+// old (see readLag).
+func (x *projectionRunner) settledEvents(events []*egopb.Event) []*egopb.Event {
+	settled := eventsUpTo(events, time.Now().Add(-readLag).UnixNano())
+	if len(settled) < len(events) {
+		x.sawHeldBack.Store(true)
+	}
+
+	return settled
+}
+
+// eventsUpTo returns the events of a read stamped at or before the timestamp.
+// A read is ordered by timestamp, so the events after it form its tail.
+func eventsUpTo(events []*egopb.Event, timestamp int64) []*egopb.Event {
+	end := len(events)
+	for end > 0 && events[end-1].GetTimestamp() > timestamp {
+		end--
+	}
+
+	return events[:end]
+}
+
+// processEvents processes the events of one read in order, then records the
+// last processed event of every persistence ID in the offset store in a single
+// write. When an event cannot be processed, the events processed before it are
+// still recorded, and the error is returned.
+func (x *projectionRunner) processEvents(ctx context.Context, shard uint64, state *shardState, events []*egopb.Event) error {
+	offsets := make(map[string]*egopb.EntityOffset)
+	consumedAt := time.Now().UnixNano()
+
+	var failure error
+	for _, envelope := range events {
+		if failure = x.consume(ctx, shard, state, envelope, offsets, consumedAt); failure != nil {
+			break
+		}
+	}
+
+	if err := x.writeOffsets(ctx, shard, state, offsets); err != nil {
+		return errors.Join(failure, err)
+	}
+
+	state.evict(x.offsetSettings.timeWindow)
+	return failure
+}
+
+// consume validates an event against the offsets of its persistence ID and
+// processes it accordingly: an accepted event is delivered, a duplicate is
+// skipped, and an event after a gap makes the projection replay the missing
+// events of its persistence ID first.
+func (x *projectionRunner) consume(ctx context.Context, shard uint64, state *shardState, envelope *egopb.Event, offsets map[string]*egopb.EntityOffset, consumedAt int64) error {
+	outcome, err := x.validate(ctx, shard, state, envelope)
+	if err != nil {
+		return err
+	}
+
+	switch outcome {
+	case accepted:
+		return x.deliver(ctx, shard, state, envelope, offsets, consumedAt)
+	case duplicate:
+		return nil
+	default:
+		return x.replay(ctx, shard, state, envelope, offsets, consumedAt)
+	}
+}
+
+// validate checks an event against the last processed event of its
+// persistence ID, which is loaded from the offset store when the projection
+// does not hold it in memory.
+//
+// An event of a persistence ID the projection has no offset for is accepted
+// when it is the persistence ID's first event. A later one is accepted only when
+// its previous event no longer exists or is older than the point the
+// projection keeps offsets for, or than the point it started from: otherwise
+// that previous event has not been processed yet.
+func (x *projectionRunner) validate(ctx context.Context, shard uint64, state *shardState, envelope *egopb.Event) (validation, error) {
+	persistenceID := envelope.GetPersistenceId()
+	sequenceNumber := envelope.GetSequenceNumber()
+
+	if record, known := state.entities[persistenceID]; known {
+		return record.check(sequenceNumber), nil
+	}
+
+	offset, err := x.offsetsStore.ReadEntityOffset(ctx, x.name, shard, persistenceID)
+	if err != nil {
+		return rejected, err
+	}
+
+	if offset != nil {
+		record := entityRecord{sequenceNumber: offset.GetSequenceNumber(), timestamp: offset.GetTimestamp()}
+		state.entities[persistenceID] = record
+		return record.check(sequenceNumber), nil
+	}
+
+	if sequenceNumber == 1 {
+		return accepted, nil
+	}
+
+	previous, err := x.eventsStore.ReplayEvents(ctx, persistenceID, sequenceNumber-1, sequenceNumber-1, 1)
+	if err != nil {
+		return rejected, err
+	}
+
+	acceptBefore := max(state.latest-x.offsetSettings.deleteAfter.Nanoseconds(), x.startFloor)
+	if len(previous) == 0 || previous[0].GetTimestamp() < acceptBefore {
+		return accepted, nil
+	}
+
+	return rejected, nil
+}
+
+// deliver hands an accepted event to the handler and records it as processed.
+// eGo's own framework events and events stamped before the point the
+// projection starts from are recorded without reaching the handler: they still
+// take a sequence number of their persistence ID.
+func (x *projectionRunner) deliver(ctx context.Context, shard uint64, state *shardState, envelope *egopb.Event, offsets map[string]*egopb.EntityOffset, consumedAt int64) error {
+	if envelope.GetTimestamp() >= x.startFloor {
 		if err := x.processEnvelope(ctx, envelope); err != nil {
 			return &projectionRunnerError{err: err}
 		}
 	}
-	return x.commitOffset(ctx, shard, nextOffset, events[len(events)-1].GetPersistenceId())
+
+	persistenceID := envelope.GetPersistenceId()
+	state.remember(persistenceID, envelope.GetSequenceNumber(), envelope.GetTimestamp())
+	offsets[persistenceID] = &egopb.EntityOffset{
+		ShardNumber:    shard,
+		PersistenceId:  persistenceID,
+		SequenceNumber: envelope.GetSequenceNumber(),
+		Timestamp:      envelope.GetTimestamp(),
+		ConsumedAt:     consumedAt,
+	}
+
+	return nil
+}
+
+// replay delivers, in sequence order, the events of a persistence ID from the
+// one after its last processed event up to the given event, which came after
+// a gap. When the events store does not return every one of them, the read
+// fails and is retried with backoff: a missing event is never skipped.
+func (x *projectionRunner) replay(ctx context.Context, shard uint64, state *shardState, envelope *egopb.Event, offsets map[string]*egopb.EntityOffset, consumedAt int64) error {
+	persistenceID := envelope.GetPersistenceId()
+	to := envelope.GetSequenceNumber()
+
+	from := uint64(1)
+	if record, ok := state.entities[persistenceID]; ok {
+		from = record.sequenceNumber + 1
+	}
+
+	expected := to - from + 1
+	events, err := x.eventsStore.ReplayEvents(ctx, persistenceID, from, to, expected)
+	if err != nil {
+		return err
+	}
+
+	if uint64(len(events)) != expected {
+		return fmt.Errorf("projection=(%s) cannot process event %d of %s: %d of its events %d to %d are in the events store",
+			x.name, to, persistenceID, len(events), from, to)
+	}
+
+	for _, replayed := range events {
+		outcome, err := x.validate(ctx, shard, state, replayed)
+		if err != nil {
+			return err
+		}
+
+		if outcome != accepted {
+			return fmt.Errorf("projection=(%s) cannot process event %d of %s: its replay is out of sequence",
+				x.name, replayed.GetSequenceNumber(), persistenceID)
+		}
+
+		if err := x.deliver(ctx, shard, state, replayed, offsets, consumedAt); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// writeOffsets records the given offsets of the shard in the offset store in
+// a single write.
+func (x *projectionRunner) writeOffsets(ctx context.Context, shard uint64, state *shardState, offsets map[string]*egopb.EntityOffset) error {
+	if len(offsets) == 0 {
+		return nil
+	}
+
+	batch := slices.SortedFunc(maps.Values(offsets), func(left, right *egopb.EntityOffset) int {
+		return strings.Compare(left.GetPersistenceId(), right.GetPersistenceId())
+	})
+
+	if err := x.offsetsStore.WriteOffsets(ctx, x.name, batch); err != nil {
+		return fmt.Errorf("failed to persist the offsets of shard %d: %w", shard, err)
+	}
+
+	state.dirty = true
+	return nil
+}
+
+// recordLag records the projection gauges of the shard when telemetry is
+// enabled: how far behind the current time the read started, where it
+// started, and how many events it returned.
+func (x *projectionRunner) recordLag(ctx context.Context, shard uint64, from int64, pending int) {
+	if x.metrics == nil {
+		return
+	}
+
+	attrs := attribute.NewSet(
+		attribute.String("projection_name", x.name),
+		attribute.Int64("shard", int64(shard)),
+	)
+
+	lagMs := int64(0)
+	if pending > 0 && from > 0 {
+		lagMs = max((time.Now().UnixNano()-from)/int64(time.Millisecond), 0)
+	}
+
+	x.metrics.projectionLag.Record(ctx, lagMs, metric.WithAttributeSet(attrs))
+	x.metrics.projectionOffset.Record(ctx, from, metric.WithAttributeSet(attrs))
+	x.metrics.projectionBehind.Record(ctx, int64(pending), metric.WithAttributeSet(attrs))
+}
+
+// deleteOldOffsets deletes, at most once per delete interval, the offsets of
+// every shard written since the previous deletion that are older than the
+// delete window behind the shard's position and were recorded longer ago than
+// the consumed window. The newest offset of a shard is never older than its
+// position, so it is always kept. A failed deletion is logged and retried at
+// the next interval.
+func (x *projectionRunner) deleteOldOffsets(ctx context.Context) {
+	if time.Since(x.lastOffsetCleanup) < x.offsetSettings.deleteInterval {
+		return
+	}
+
+	x.lastOffsetCleanup = time.Now()
+	consumedBefore := time.Now().Add(-x.offsetSettings.deleteAfterConsumed).UnixNano()
+
+	x.shardsMu.RLock()
+	defer x.shardsMu.RUnlock()
+
+	for shard, state := range x.shards {
+		if !state.dirty {
+			continue
+		}
+
+		before := state.latest - x.offsetSettings.deleteAfter.Nanoseconds()
+		if err := x.offsetsStore.DeleteOffsetsBefore(ctx, x.name, shard, before, consumedBefore); err != nil {
+			x.logger.Error(fmt.Errorf("projection=(%s) failed to delete old offsets of shard %d: %w", x.name, shard, err))
+			continue
+		}
+
+		state.dirty = false
+	}
 }
 
 // processEnvelope handles a single event.
@@ -878,32 +1184,6 @@ func (x *projectionRunner) logHandlerError(err error, persistenceID string, seqN
 	x.logger.Error(fmt.Errorf("failed to process event for persistence id=%s, revision=%d: %w", persistenceID, seqNr, err))
 }
 
-// commitOffset persists the processed offset for the given shard.
-// time.Now().UnixMilli() is used directly, avoiding the two intermediate
-// allocations that timestamppb.Now().AsTime().UnixMilli() would produce.
-// Note: *egopb.Offset is NOT pooled because the OffsetStore interface permits
-// implementations to retain the pointer after WriteOffset returns.
-func (x *projectionRunner) commitOffset(ctx context.Context, shard uint64, nextOffset int64, persistenceID string) error {
-	offset := &egopb.Offset{
-		ShardNumber:    shard,
-		ProjectionName: x.name,
-		Value:          nextOffset,
-		Timestamp:      time.Now().UnixMilli(),
-	}
-
-	if err := x.offsetsStore.WriteOffset(ctx, offset); err != nil {
-		return fmt.Errorf("failed to persist offset for persistence id=%s: %w", persistenceID, err)
-	}
-
-	// Keep the committed-offset cache in sync so subsequent pulls skip
-	// shards that are already caught up.
-	x.committedOffsetsMu.Lock()
-	x.committedOffsets[shard] = nextOffset
-	x.committedOffsetsMu.Unlock()
-
-	return nil
-}
-
 // projectionRunnerError reports an event that cannot be processed: a failed
 // decryption, a failed event adaptation, or a handler error under the Fail
 // and RetryAndFail recovery policies. Retrying would only replay the same
@@ -953,6 +1233,18 @@ func (x *projectionRunner) preStart(ctx context.Context) error {
 			x.logger.Error(fmtErr)
 			return fmtErr
 		}
+	}
+
+	startOffset, err := x.offsetsStore.StartOffset(ctx, x.name)
+	if err != nil {
+		fmtErr := fmt.Errorf("failed to read the start offset of projection=%s: %w", x.name, err)
+		x.logger.Error(fmtErr)
+		return fmtErr
+	}
+
+	x.startFloor = startOffset
+	if !x.startingOffset.IsZero() {
+		x.startFloor = max(x.startFloor, x.startingOffset.UnixNano())
 	}
 
 	return nil

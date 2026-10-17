@@ -24,13 +24,14 @@ package testkit
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"sync"
 
 	"go.uber.org/atomic"
 
-	"github.com/tochemey/ego/v4/egopb"
-	"github.com/tochemey/ego/v4/persistence"
+	"github.com/tochemey/ego/v5/egopb"
+	"github.com/tochemey/ego/v5/persistence"
 )
 
 type EventKey struct {
@@ -41,6 +42,9 @@ type EventKey struct {
 type EventStore struct {
 	db        *sync.Map
 	connected *atomic.Bool
+	// writeMutex makes every WriteEvents call atomic: its duplicate check and
+	// its stores happen without another write in between.
+	writeMutex sync.Mutex
 }
 
 var _ persistence.EventsStore = (*EventStore)(nil)
@@ -72,15 +76,31 @@ func (x *EventStore) Disconnect(_ context.Context) error {
 	return nil
 }
 
+// WriteEvents stores the events atomically. It stores nothing and returns an error when any
+// of the events is already stored.
 func (x *EventStore) WriteEvents(_ context.Context, events []*egopb.Event) error {
+	x.writeMutex.Lock()
+	defer x.writeMutex.Unlock()
+
 	for _, event := range events {
-		key := EventKey{
-			PersistenceID:  event.GetPersistenceId(),
-			SequenceNumber: event.GetSequenceNumber(),
+		key := keyOf(event)
+		if _, exists := x.db.Load(key); exists {
+			return fmt.Errorf("event %d of %s is already stored", key.SequenceNumber, key.PersistenceID)
 		}
-		x.db.Store(key, event)
+	}
+
+	for _, event := range events {
+		x.db.Store(keyOf(event), event)
 	}
 	return nil
+}
+
+// keyOf returns the key the event is stored under.
+func keyOf(event *egopb.Event) EventKey {
+	return EventKey{
+		PersistenceID:  event.GetPersistenceId(),
+		SequenceNumber: event.GetSequenceNumber(),
+	}
 }
 
 func (x *EventStore) Ping(ctx context.Context) error {
@@ -165,73 +185,40 @@ func (x *EventStore) PersistenceIDs(_ context.Context, pageSize uint64, pageToke
 	sort.Strings(keys)
 
 	// step 3: paginate the sorted keys
-	startIndex := 0
-	if pageToken != "" {
-		// Find the index of the pageToken in the sorted keys
-		for i, key := range keys {
-			if key > pageToken {
-				startIndex = i
-				break
-			}
-		}
-	}
-
-	// Collect up to pageSize items starting from startIndex
-	endIndex := startIndex + int(pageSize)
-	if endIndex > len(keys) {
-		endIndex = len(keys)
-	}
-	persistenceIDs = keys[startIndex:endIndex]
-
-	// step 4: determine the nextPageToken
-	switch {
-	case endIndex < len(keys):
-		nextPageToken = keys[endIndex]
-	default:
-		nextPageToken = ""
-	}
-
+	persistenceIDs, nextPageToken = pageOf(keys, pageSize, pageToken)
 	return persistenceIDs, nextPageToken, nil
 }
 
-func (x *EventStore) GetShardEvents(_ context.Context, shardNumber uint64, offset int64, limit uint64) ([]*egopb.Event, int64, error) {
-	var shardEvents []*egopb.Event
+// EventsByShard returns at most limit events of the shard stamped at or after fromTimestamp,
+// ordered by timestamp, then by sequence number, then by persistence ID.
+func (x *EventStore) EventsByShard(_ context.Context, shardNumber uint64, fromTimestamp int64, limit uint64) ([]*egopb.Event, error) {
+	var events []*egopb.Event
 	x.db.Range(func(_ any, value any) bool {
 		event := value.(*egopb.Event)
-		if event.GetShard() == shardNumber {
-			shardEvents = append(shardEvents, value.(*egopb.Event))
+		if event.GetShard() == shardNumber && event.GetTimestamp() >= fromTimestamp {
+			events = append(events, event)
 		}
 		return true
 	})
 
-	if len(shardEvents) == 0 {
-		return nil, 0, nil
-	}
-
-	var events []*egopb.Event
-	for _, event := range shardEvents {
-		if event.GetTimestamp() > offset {
-			events = append(events, event)
-		}
-	}
-
-	if len(events) == 0 {
-		return nil, 0, nil
-	}
-
 	// The map iterates in no particular order: sort before cutting to the
-	// limit, so a limited read returns the oldest pending events and the
-	// offset it reports never skips any.
+	// limit, so a limited read returns the oldest events.
 	sort.SliceStable(events, func(i, j int) bool {
-		return events[i].GetTimestamp() < events[j].GetTimestamp()
+		if events[i].GetTimestamp() != events[j].GetTimestamp() {
+			return events[i].GetTimestamp() < events[j].GetTimestamp()
+		}
+
+		if events[i].GetSequenceNumber() != events[j].GetSequenceNumber() {
+			return events[i].GetSequenceNumber() < events[j].GetSequenceNumber()
+		}
+		return events[i].GetPersistenceId() < events[j].GetPersistenceId()
 	})
 
 	if uint64(len(events)) > limit {
 		events = events[:limit]
 	}
 
-	nextOffset := events[len(events)-1].GetTimestamp()
-	return events, nextOffset, nil
+	return events, nil
 }
 
 func (x *EventStore) ShardOffsets(context.Context) (map[uint64]int64, error) {
@@ -244,4 +231,20 @@ func (x *EventStore) ShardOffsets(context.Context) (map[uint64]int64, error) {
 		return true
 	})
 	return offsets, nil
+}
+
+// pageOf returns the page of the sorted persistence IDs that starts after pageToken, the last
+// persistence ID of the previous page, and the token of the next page: empty for the last one.
+func pageOf(sortedIDs []string, pageSize uint64, pageToken string) (persistenceIDs []string, nextPageToken string) {
+	startIndex := 0
+	if pageToken != "" {
+		startIndex = sort.Search(len(sortedIDs), func(i int) bool { return sortedIDs[i] > pageToken })
+	}
+
+	endIndex := min(startIndex+int(pageSize), len(sortedIDs))
+	if endIndex > startIndex && endIndex < len(sortedIDs) {
+		nextPageToken = sortedIDs[endIndex-1]
+	}
+
+	return sortedIDs[startIndex:endIndex], nextPageToken
 }

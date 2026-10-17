@@ -25,8 +25,8 @@ package ego
 import (
 	goakt "github.com/tochemey/goakt/v4/actor"
 
-	"github.com/tochemey/ego/v4/internal/extensions"
-	"github.com/tochemey/ego/v4/persistence"
+	"github.com/tochemey/ego/v5/internal/extensions"
+	"github.com/tochemey/ego/v5/persistence"
 )
 
 // applyRetentionRequest is sent from the [snapshotsWriterActor] to the

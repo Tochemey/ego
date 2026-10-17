@@ -6,7 +6,7 @@
 
 <p align="center">
   <a href="https://github.com/Tochemey/ego/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/Tochemey/ego/build.yml?branch=main" alt="Build status"></a>
-  <a href="https://pkg.go.dev/github.com/tochemey/ego/v4"><img src="https://pkg.go.dev/badge/github.com/tochemey/ego/v4.svg" alt="Go reference"></a>
+  <a href="https://pkg.go.dev/github.com/tochemey/ego/v5"><img src="https://pkg.go.dev/badge/github.com/tochemey/ego/v5.svg" alt="Go reference"></a>
   <a href="https://go.dev/doc/install"><img src="https://img.shields.io/github/go-mod/go-version/Tochemey/ego" alt="Go version"></a>
   <a href="https://codecov.io/gh/Tochemey/ego"><img src="https://codecov.io/gh/Tochemey/ego/branch/main/graph/badge.svg?token=Z5b9gM6Mnt" alt="Code coverage"></a>
   <a href="https://github.com/Tochemey/ego/releases/latest"><img src="https://img.shields.io/github/v/release/Tochemey/ego?label=release" alt="Latest release"></a>
@@ -40,6 +40,7 @@ eGo deliberately does not hide the actor runtime. Your application creates and o
 - [Testing](#testing)
 - [Examples](#examples)
 - [Upgrading](#upgrading)
+    - [Running the migration tool](#running-the-migration-tool)
 - [Contributing](#contributing)
 
 ## Features
@@ -58,7 +59,7 @@ eGo deliberately does not hide the actor runtime. Your application creates and o
 
 ## Requirements
 
-- Go 1.26 or later
+- Go 1.27 or later
 - Basic familiarity with [Go-Akt](https://github.com/Tochemey/goakt#readme)
 - Protobuf messages for commands, events, and state
 
@@ -67,7 +68,7 @@ For production use, provide durable implementations of the stores your applicati
 ## Installation
 
 ```bash
-go get github.com/tochemey/ego/v4
+go get github.com/tochemey/ego/v5
 ```
 
 ## Quick start
@@ -84,9 +85,9 @@ import (
 
     accountpb "example.com/myapp/gen/account/v1"
     goakt "github.com/tochemey/goakt/v4/actor"
-    "github.com/tochemey/ego/v4"
-    "github.com/tochemey/ego/v4/projection"
-    "github.com/tochemey/ego/v4/testkit"
+    "github.com/tochemey/ego/v5"
+    "github.com/tochemey/ego/v5/projection"
+    "github.com/tochemey/ego/v5/testkit"
 )
 
 func main() {
@@ -266,7 +267,7 @@ Entity-specific options are passed when an entity is spawned:
 
 Event-sourced entities additionally support `WithSnapshotInterval`, `WithRetentionPolicy`, `WithBatchThreshold`, and `WithBatchFlushWindow`.
 
-API details and defaults are documented on [pkg.go.dev](https://pkg.go.dev/github.com/tochemey/ego/v4).
+API details and defaults are documented on [pkg.go.dev](https://pkg.go.dev/github.com/tochemey/ego/v5).
 
 ## Snapshots and retention
 
@@ -387,7 +388,7 @@ The two projections consume the same event journal independently. Each uses its 
 
 Projection handlers receive events with at-least-once delivery. They must be idempotent and safe for concurrent calls across different shards; events within one shard are delivered sequentially.
 
-Offsets are event timestamps, taken just before the event is written by the node that persists it. The runner reads 100 ms behind the current time: an event reaches the handler only once it is at least that old, so an event that lands in the store after a pull already passed its timestamp, because its write was still in flight or because a peer's clock lags slightly, is still ahead of the committed offset when it becomes visible. A write that takes longer than that window, or skew beyond it, can still cause an event to be skipped, so keep node clocks synchronized. All events of one entity land on the same shard and are delivered in order; events of different entities carry no ordering guarantee.
+Every event belongs to one of 1024 journal shards, fixed by its persistence ID (`persistence.ShardFor`) and independent of the cluster's partitioning, so all events of one entity are on one shard and are delivered in sequence-number order; events of different entities carry no ordering guarantee. A projection records, per entity, the last event it processed. It reads each shard by timestamp, 100 ms behind the current time, and checks every event against its entity's record: an event it processed already is skipped, and an event that follows a gap makes it replay the entity's missing events first. A missing event that cannot be found is never skipped: the shard is retried until it appears. A projection also reads its shards again up to two minutes behind its position, so an event that became visible late, because its write was slow or its node's clock lagged, is still delivered. An event that becomes visible more than two minutes late is caught only when its entity writes again, so keep node clocks synchronized. A projection's buffer must hold more events than ever share one timestamp on a shard; the default of 500 leaves ample room.
 
 The engine also supports:
 
@@ -483,7 +484,7 @@ sys, err := goakt.NewActorSystem("accounts",
 )
 ```
 
-You retain full control over discovery, partitioning, quorum, replicas, TLS, remoting, and any additional cluster knobs Go-Akt exposes. eGo derives cluster behavior (e.g. running projections as singletons) directly from `sys.InCluster()` at runtime — no separate cluster flag to keep in sync.
+You retain full control over discovery, partitioning, quorum, replicas, TLS, remoting, and any additional cluster knobs Go-Akt exposes. eGo derives cluster behavior (e.g. running projections as singletons) directly from `sys.InCluster()` at runtime — no separate cluster flag to keep in sync. Journal shards do not depend on the cluster: changing the partition count, the hasher or the number of nodes never moves an entity's events.
 
 Single-node deployments do not need `ClusterKinds` or `WithEntityKinds`.
 
@@ -520,7 +521,7 @@ eGo defines small interfaces for:
 - [`persistence.StateStore`](./persistence/state_store.go)
 - [`offsetstore.OffsetStore`](./offsetstore/offset_store.go)
 
-Applications may implement these interfaces directly. The [ego-contrib](https://github.com/Tochemey/ego-contrib) project provides ready-to-use implementations:
+Applications may implement these interfaces directly. An events store must write the events of one call atomically and reject an event whose persistence ID and sequence number it already holds; `EventsByShard` returns a shard's events from a timestamp on, inclusive, ordered by timestamp and then sequence number. An offset store keeps one row per entity a projection processed, keyed by projection, shard, timestamp, persistence ID and sequence number. The godoc of each interface spells out its contract, including the SQL each method maps to. The [ego-contrib](https://github.com/Tochemey/ego-contrib) project provides ready-to-use implementations:
 
 - **Event stores**: memory, Postgres, SQLite
 - **Offset stores**: memory, Postgres, SQLite
@@ -618,7 +619,97 @@ make run-saga
 
 ## Upgrading
 
-See the [changelog](./CHANGELOG.md) for breaking changes and version-specific migration instructions.
+See the [changelog](./CHANGELOG.md) for breaking changes and version-specific migration instructions. The [`migration`](./migration) package copies a journal written by an earlier release into the current layout (`migration.NewJournalMigrator`), copies the latest snapshot of every entity (`migration.NewSnapshotMigrator`) and resumes the projections on the migrated journal (`migration.ResumeProjections`). The [`cmd/migrate`](./cmd/migrate) module runs them as a command line tool: give `migrate.NewCommand` a function that opens your stores, run `migrate journal --source ... --target ...` while the old deployment still writes, then stop its writers and run `migrate all` once to copy the remainder and resume the projections. Every migration pages through the stores and migrates several entities at once (`--parallelism`, default 10), so it handles journals of any size; the journal and snapshot copies can be stopped and run again, and continue where the target stops. Resume the projections only once: resuming replaces every offset a projection holds.
+
+### Running the migration tool
+
+The tool is not a prebuilt binary: it is the Go package `github.com/tochemey/ego/cmd/migrate`, a module of its own so that eGo itself does not depend on cobra. You build it once for your database, in the project that holds your store implementations or in a small module of its own:
+
+```shell
+go get github.com/tochemey/ego/v5@latest
+go get github.com/tochemey/ego/cmd/migrate@latest
+```
+
+Then write a `main`, for instance in `cmd/migrate/main.go` of your project, that gives `migrate.NewCommand` an opener: a function that turns the `--source` and `--target` flags into the stores to read and write. For SQL stores the two flags are connection strings.
+
+```go
+package main
+
+import (
+    "context"
+    "os"
+    "os/signal"
+
+    "github.com/jackc/pgx/v5/pgxpool"
+
+    "github.com/tochemey/ego/cmd/migrate"
+)
+
+func main() {
+    ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+    defer stop()
+
+    if err := migrate.NewCommand(openStores).ExecuteContext(ctx); err != nil {
+        os.Exit(1)
+    }
+}
+
+// openStores opens the v4 stores at config.Source and the v5 stores at config.Target.
+func openStores(ctx context.Context, config migrate.Config) (*migrate.Stores, migrate.Release, error) {
+    source, err := pgxpool.New(ctx, config.Source)
+    if err != nil {
+        return nil, nil, err
+    }
+
+    target, err := pgxpool.New(ctx, config.Target)
+    if err != nil {
+        source.Close()
+        return nil, nil, err
+    }
+
+    stores := &migrate.Stores{
+        SourceJournal:   newLegacyEventsStore(source),   // reads the v4 events_store table
+        TargetJournal:   newEventsStore(target),         // the v5 events store
+        SourceSnapshots: newLegacySnapshotStore(source), // reads the v4 snapshots_store table
+        TargetSnapshots: newSnapshotStore(target),       // the v5 snapshot store
+        LegacyOffsets:   newLegacyOffsetReader(source),  // reads the v4 offsets_store table
+        TargetOffsets:   newOffsetStore(target),         // the v5 offset store
+    }
+
+    release := func(context.Context) error {
+        source.Close()
+        target.Close()
+        return nil
+    }
+
+    return stores, release, nil
+}
+```
+
+What each source store must provide, all read-only against the v4 tables:
+
+- `SourceJournal` is a `migration.JournalReader`: `Ping`, `PersistenceIDs`, `GetLatestEvent` and `ReplayEvents`. A v4 events store already has them.
+- `SourceSnapshots` is a `migration.SnapshotReader`: `Ping`, `GetLatestSnapshot` and `PersistenceIDs`. A v4 snapshot store lacks the listing; wrap it with one query, `SELECT DISTINCT persistence_id FROM snapshots_store WHERE persistence_id > $1 ORDER BY persistence_id LIMIT $2`, returning the last ID of the page as the next token.
+- `LegacyOffsets` is a `migration.LegacyOffsetReader`: one query, `SELECT projection_name, current_offset FROM offsets_store`, returned as a map from projection name to its offsets.
+
+The target stores are your v5 implementations. Create the v5 tables first; the [cluster example](./example/cluster/k8s/postgres.yaml) has the schema. Then build the tool from your project and run it in this order:
+
+```shell
+go build -o migrate ./cmd/migrate
+
+# 1. While the v4 deployment still runs: copy the journal and snapshots.
+#    Run it as often as you like; every run continues where the previous one stopped.
+./migrate journal --source "$V4_DSN" --target "$V5_DSN"
+
+# 2. Stop every v4 writer.
+
+# 3. Copy the remainder and resume the projections, once.
+./migrate all --source "$V4_DSN" --target "$V5_DSN"
+
+# 4. Start the v5 deployment.
+```
+
+`--parallelism` (default 10) sets how many entities are migrated at once and `--page-size` (default 500) how many persistence IDs, or events of one entity, are read at once. Interrupting a run with Ctrl-C is safe: the stores are released and the next run resumes. `migrate legacy-snapshots` is only for journals written by releases that stored the resulting state in every event; it writes a snapshot of each entity's latest state from those events.
 
 ## Contributing
 

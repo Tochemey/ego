@@ -31,7 +31,7 @@ import (
 	gerrors "github.com/tochemey/goakt/v4/errors"
 	"github.com/tochemey/goakt/v4/supervisor"
 
-	"github.com/tochemey/ego/v4/internal/extensions"
+	"github.com/tochemey/ego/v5/internal/extensions"
 )
 
 // runnerFailed is the internal message the projection runner sends to its

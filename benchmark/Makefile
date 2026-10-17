@@ -18,11 +18,11 @@ GO_TEST     = go test -v -run='^$$' -benchtime=$(BENCHTIME) -count=$(BENCHCOUNT)
 .PHONY: _use-local _use-released
 
 _use-local:
-	@go mod edit -replace github.com/tochemey/ego/v4=../
+	@go mod edit -replace github.com/tochemey/ego/v5=../
 	@go mod tidy
 
 _use-released:
-	@go mod edit -dropreplace github.com/tochemey/ego/v4 2>/dev/null || true
+	@go mod edit -dropreplace github.com/tochemey/ego/v5 2>/dev/null || true
 	@go mod tidy
 
 # ---------------------------------------------------------------------------

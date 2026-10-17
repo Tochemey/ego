@@ -209,7 +209,7 @@ Runs `psql` inside the PostgreSQL pod and prints snapshots of all three tables �
 |--------------------|-----------------------------------------------------------|
 | `account_balances` | Projection read model — current balance per account       |
 | `events_store`     | Raw event log — last 20 events with sequence and manifest |
-| `offsets_store`    | Projection progress — current offset per shard            |
+| `offsets_store`    | Projection progress — last processed event per entity     |
 
 Row counts for all three tables are shown at the end. While a transfer saga runs, its progress shows up in `offsets_store` under the projection name `ego.saga.<transfer id>`; those rows are removed once the saga settles.
 
@@ -447,7 +447,7 @@ A separate headless service (`ego-cluster-headless`) is kept for gossip-based pe
 
 ## Dependency Isolation
 
-This example is a **separate Go module** (`github.com/tochemey/ego/v4/example/cluster`) with its own `go.mod`. Heavy dependencies like `k8s.io/client-go`, `github.com/jackc/pgx/v5`, and the OpenTelemetry SDK are confined to this module and do not affect the core eGo library.
+This example is a **separate Go module** (`github.com/tochemey/ego/v5/example/cluster`) with its own `go.mod`. Heavy dependencies like `k8s.io/client-go`, `github.com/jackc/pgx/v5`, and the OpenTelemetry SDK are confined to this module and do not affect the core eGo library.
 
 ## Cleanup
 

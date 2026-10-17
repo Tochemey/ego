@@ -20,9 +20,34 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// Package migration provides utilities for migrating event-sourced entities from
-// the legacy format (where events carried resulting_state inline) to the new format
-// (where snapshots are stored separately in a SnapshotStore).
+// Package migration provides utilities for migrating the data of earlier eGo
+// releases. The command in github.com/tochemey/ego/cmd/migrate runs them
+// from the command line.
+//
+// The JournalMigrator copies a journal into an events store in the layout eGo
+// reads it with: every event on the shard of its persistence ID, with the
+// timestamps of every persistence ID increasing. The SnapshotMigrator copies
+// the latest snapshot of every entity. ResumeProjections then makes every
+// projection resume on the migrated journal:
+//
+//	if err := migration.NewJournalMigrator(legacyEventsStore, eventsStore).Run(ctx); err != nil {
+//	    log.Fatal(err)
+//	}
+//	if err := migration.NewSnapshotMigrator(legacyEventsStore, legacySnapshotStore, snapshotStore).Run(ctx); err != nil {
+//	    log.Fatal(err)
+//	}
+//	if _, err := migration.ResumeProjections(ctx, offsetStore, legacyOffsetReader); err != nil {
+//	    log.Fatal(err)
+//	}
+//
+// Every migrator reads the persistence IDs one page at a time and migrates
+// several entities at once (see WithPageSize and WithParallelism), so its
+// memory does not grow with the size of the stores, and every migrator can be
+// stopped and run again.
+//
+// The Migrator moves event-sourced entities from the legacy format (where
+// events carried resulting_state inline) to the format where snapshots are
+// stored separately in a SnapshotStore.
 //
 // Usage:
 //
@@ -45,12 +70,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/tochemey/goakt/v4/log"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
-	"github.com/tochemey/ego/v4/egopb"
-	"github.com/tochemey/ego/v4/persistence"
+	"github.com/tochemey/ego/v5/egopb"
+	"github.com/tochemey/ego/v5/persistence"
 )
 
 // legacyResultingStateFieldNumber is the protobuf field number that was used
@@ -61,29 +85,29 @@ const legacyResultingStateFieldNumber = 5
 // Migrator reads legacy events that embedded resulting_state and seeds
 // the snapshot store with the latest state for each entity.
 type Migrator struct {
-	eventsStore   persistence.EventsStore
+	settings
+	eventsStore   JournalReader
 	snapshotStore persistence.SnapshotStore
-	pageSize      uint64
-	logger        log.Logger
 }
 
-// New creates a Migrator.
-func New(eventsStore persistence.EventsStore, snapshotStore persistence.SnapshotStore, opts ...Option) *Migrator {
+// New creates a Migrator reading the legacy events of eventsStore, which every
+// persistence.EventsStore can be, and writing snapshots to snapshotStore.
+func New(eventsStore JournalReader, snapshotStore persistence.SnapshotStore, opts ...Option) *Migrator {
 	m := &Migrator{
+		settings:      defaultSettings(),
 		eventsStore:   eventsStore,
 		snapshotStore: snapshotStore,
-		pageSize:      500,
-		logger:        log.DefaultLogger,
 	}
 	for _, opt := range opts {
-		opt.apply(m)
+		opt.apply(&m.settings)
 	}
 	return m
 }
 
 // Run executes the migration. It iterates over all persistence IDs in the events
-// store and, for each entity, extracts the resulting_state from the latest event
-// that carried one, writing it as a snapshot.
+// store, several entities at a time (see WithParallelism), and, for each
+// entity, extracts the resulting_state from the latest event that carried one,
+// writing it as a snapshot.
 //
 // The operation is idempotent: running it multiple times produces the same result.
 // Events in the store are not modified.
@@ -95,49 +119,41 @@ func (m *Migrator) Run(ctx context.Context) error {
 		return fmt.Errorf("migration: snapshot store not reachable: %w", err)
 	}
 
-	var (
-		pageToken string
-		total     int
-	)
-
-	for {
-		ids, nextToken, err := m.eventsStore.PersistenceIDs(ctx, m.pageSize, pageToken)
-		if err != nil {
-			return fmt.Errorf("migration: failed to list persistence IDs: %w", err)
+	total, err := forEachEntity(ctx, m.eventsStore, m.settings, func(ctx context.Context, persistenceID string) error {
+		if err := m.migrateEntity(ctx, persistenceID); err != nil {
+			return fmt.Errorf("failed to migrate entity %s: %w", persistenceID, err)
 		}
-
-		for _, id := range ids {
-			if err := m.migrateEntity(ctx, id); err != nil {
-				return fmt.Errorf("migration: failed to migrate entity %s: %w", id, err)
-			}
-			total++
-		}
-
-		if nextToken == "" || len(ids) == 0 {
-			break
-		}
-		pageToken = nextToken
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("migration: %w", err)
 	}
 
 	m.logger.Infof("migration: completed successfully, processed %d entities", total)
 	return nil
 }
 
-// migrateEntity processes a single entity: reads its events and finds
-// the latest one with a resulting_state, then writes a snapshot.
+// migrateEntity processes a single entity: reads its events a page at a time
+// and finds the latest one with a resulting_state, then writes a snapshot.
 func (m *Migrator) migrateEntity(ctx context.Context, persistenceID string) error {
-	// Use a safe large limit that won't overflow when cast to int.
-	const maxLimit = uint64(1<<63 - 1)
-	events, err := m.eventsStore.ReplayEvents(ctx, persistenceID, 1, maxLimit, maxLimit)
-	if err != nil {
+	latest, err := m.eventsStore.GetLatestEvent(ctx, persistenceID)
+	if err != nil || latest == nil {
 		return err
 	}
 
 	var bestSnapshot *egopb.Snapshot
-	for _, evt := range events {
-		state := extractLegacyResultingState(evt)
-		if state != nil {
-			if bestSnapshot == nil || evt.GetSequenceNumber() > bestSnapshot.GetSequenceNumber() {
+	for from := uint64(1); from <= latest.GetSequenceNumber(); {
+		events, err := m.eventsStore.ReplayEvents(ctx, persistenceID, from, latest.GetSequenceNumber(), m.pageSize)
+		if err != nil {
+			return err
+		}
+
+		if len(events) == 0 {
+			break
+		}
+
+		for _, evt := range events {
+			if state := extractLegacyResultingState(evt); state != nil {
 				bestSnapshot = &egopb.Snapshot{
 					PersistenceId:  persistenceID,
 					SequenceNumber: evt.GetSequenceNumber(),
@@ -146,6 +162,8 @@ func (m *Migrator) migrateEntity(ctx context.Context, persistenceID string) erro
 				}
 			}
 		}
+
+		from = events[len(events)-1].GetSequenceNumber() + 1
 	}
 
 	if bestSnapshot == nil {

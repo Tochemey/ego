@@ -30,8 +30,8 @@ import (
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/tochemey/ego/v4"
-	"github.com/tochemey/ego/v4/egopb"
+	"github.com/tochemey/ego/v5"
+	"github.com/tochemey/ego/v5/egopb"
 )
 
 // EventsPublisher defines a Kafka publisher.

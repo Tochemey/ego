@@ -24,13 +24,15 @@ package testkit
 
 import (
 	"context"
+	"maps"
+	"slices"
 	"sort"
 	"sync"
 
 	"go.uber.org/atomic"
 
-	"github.com/tochemey/ego/v4/egopb"
-	"github.com/tochemey/ego/v4/persistence"
+	"github.com/tochemey/ego/v5/egopb"
+	"github.com/tochemey/ego/v5/persistence"
 )
 
 // SnapshotKey is a composite key for snapshot storage
@@ -121,4 +123,17 @@ func (x *SnapshotStore) DeleteSnapshots(_ context.Context, persistenceID string,
 		return true
 	})
 	return nil
+}
+
+// PersistenceIDs returns a page of the persistence IDs that have a snapshot, sorted, starting
+// after pageToken: the last persistence ID of the previous page.
+func (x *SnapshotStore) PersistenceIDs(_ context.Context, pageSize uint64, pageToken string) ([]string, string, error) {
+	seen := make(map[string]struct{})
+	x.db.Range(func(key any, _ any) bool {
+		seen[key.(SnapshotKey).PersistenceID] = struct{}{}
+		return true
+	})
+
+	persistenceIDs, nextPageToken := pageOf(slices.Sorted(maps.Keys(seen)), pageSize, pageToken)
+	return persistenceIDs, nextPageToken, nil
 }

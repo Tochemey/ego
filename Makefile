@@ -87,8 +87,8 @@ docker-lint: docker-image
 docker-test: docker-image
 	@echo "Running tests with race detector..."
 	$(DOCKER_RUN) sh -c '\
-		PKGS=$$(go list -mod=vendor ./... | grep -v -E "(egopb|test|example|mocks)") && \
-		go test -mod=vendor -p 1 -timeout 0 -race -v \
+		PKGS=$$(go list -mod=vendor -buildvcs=false ./... | grep -v -E "(egopb|test|example|mocks)") && \
+		go test -mod=vendor -buildvcs=false -p 1 -timeout 0 -race -v \
 			-coverprofile=coverage.out -covermode=atomic \
 			-coverpkg=$$(echo $$PKGS | tr " " ",") \
 			$$PKGS'

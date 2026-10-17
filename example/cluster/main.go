@@ -52,9 +52,9 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 
-	"github.com/tochemey/ego/v4"
-	samplepb "github.com/tochemey/ego/v4/example/examplepb"
-	"github.com/tochemey/ego/v4/projection"
+	"github.com/tochemey/ego/v5"
+	samplepb "github.com/tochemey/ego/v5/example/examplepb"
+	"github.com/tochemey/ego/v5/projection"
 )
 
 const (

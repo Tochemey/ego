@@ -22,7 +22,7 @@
 
 package ego
 
-import "github.com/tochemey/ego/v4/testkit"
+import "github.com/tochemey/ego/v5/testkit"
 
 // The testkit declares the behavior subsets it needs rather than importing ego,
 // because ego's own tests import the testkit. Structural compatibility only holds

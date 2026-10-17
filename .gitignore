@@ -18,3 +18,8 @@ gen/
 .config/
 *.out
 .local/
+# binaries go build writes next to the example mains
+example/cluster/cluster
+example/durablestate/durablestate
+example/eventssourced/eventssourced
+example/saga/saga

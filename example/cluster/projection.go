@@ -30,8 +30,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/protobuf/types/known/anypb"
 
-	samplepb "github.com/tochemey/ego/v4/example/examplepb"
-	"github.com/tochemey/ego/v4/projection"
+	samplepb "github.com/tochemey/ego/v5/example/examplepb"
+	"github.com/tochemey/ego/v5/projection"
 )
 
 // AccountBalanceHandler implements projection.Handler.

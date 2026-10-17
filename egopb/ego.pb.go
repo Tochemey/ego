@@ -703,35 +703,40 @@ func (x *SagaStatusReply) GetSequenceNumber() uint64 {
 	return 0
 }
 
-// Offset defines the projection offset
-type Offset struct {
+// EntityOffset records how far a projection has processed the events of one
+// persistence ID: the last sequence number it processed, and that event's
+// timestamp. A projection's position on a shard is the newest timestamp among
+// the entity offsets of that shard.
+type EntityOffset struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Specifies the shard number
+	// Specifies the shard of the persistence ID
 	ShardNumber uint64 `protobuf:"varint,1,opt,name=shard_number,json=shardNumber,proto3" json:"shard_number,omitempty"`
-	// Specifies the projection name.
-	ProjectionName string `protobuf:"bytes,2,opt,name=projection_name,json=projectionName,proto3" json:"projection_name,omitempty"`
-	// Specifies the value
-	Value int64 `protobuf:"varint,3,opt,name=value,proto3" json:"value,omitempty"`
-	// Specifies the timestamp
-	Timestamp     int64 `protobuf:"varint,5,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	// Specifies the persistence unique identifier
+	PersistenceId string `protobuf:"bytes,2,opt,name=persistence_id,json=persistenceId,proto3" json:"persistence_id,omitempty"`
+	// Specifies the sequence number of the last event processed
+	SequenceNumber uint64 `protobuf:"varint,3,opt,name=sequence_number,json=sequenceNumber,proto3" json:"sequence_number,omitempty"`
+	// Specifies the timestamp of the last event processed, in Unix nanoseconds
+	Timestamp int64 `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	// Specifies when the projection processed the event, in Unix nanoseconds
+	ConsumedAt    int64 `protobuf:"varint,5,opt,name=consumed_at,json=consumedAt,proto3" json:"consumed_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *Offset) Reset() {
-	*x = Offset{}
+func (x *EntityOffset) Reset() {
+	*x = EntityOffset{}
 	mi := &file_ego_ego_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *Offset) String() string {
+func (x *EntityOffset) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*Offset) ProtoMessage() {}
+func (*EntityOffset) ProtoMessage() {}
 
-func (x *Offset) ProtoReflect() protoreflect.Message {
+func (x *EntityOffset) ProtoReflect() protoreflect.Message {
 	mi := &file_ego_ego_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -743,90 +748,42 @@ func (x *Offset) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use Offset.ProtoReflect.Descriptor instead.
-func (*Offset) Descriptor() ([]byte, []int) {
+// Deprecated: Use EntityOffset.ProtoReflect.Descriptor instead.
+func (*EntityOffset) Descriptor() ([]byte, []int) {
 	return file_ego_ego_proto_rawDescGZIP(), []int{11}
 }
 
-func (x *Offset) GetShardNumber() uint64 {
+func (x *EntityOffset) GetShardNumber() uint64 {
 	if x != nil {
 		return x.ShardNumber
 	}
 	return 0
 }
 
-func (x *Offset) GetProjectionName() string {
+func (x *EntityOffset) GetPersistenceId() string {
 	if x != nil {
-		return x.ProjectionName
+		return x.PersistenceId
 	}
 	return ""
 }
 
-func (x *Offset) GetValue() int64 {
+func (x *EntityOffset) GetSequenceNumber() uint64 {
 	if x != nil {
-		return x.Value
+		return x.SequenceNumber
 	}
 	return 0
 }
 
-func (x *Offset) GetTimestamp() int64 {
+func (x *EntityOffset) GetTimestamp() int64 {
 	if x != nil {
 		return x.Timestamp
 	}
 	return 0
 }
 
-// ProjectionId defines the projection id
-type ProjectionId struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Specifies the projection name
-	ProjectionName string `protobuf:"bytes,1,opt,name=projection_name,json=projectionName,proto3" json:"projection_name,omitempty"`
-	// Specifies the shard number
-	ShardNumber   uint64 `protobuf:"varint,2,opt,name=shard_number,json=shardNumber,proto3" json:"shard_number,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ProjectionId) Reset() {
-	*x = ProjectionId{}
-	mi := &file_ego_ego_proto_msgTypes[12]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ProjectionId) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ProjectionId) ProtoMessage() {}
-
-func (x *ProjectionId) ProtoReflect() protoreflect.Message {
-	mi := &file_ego_ego_proto_msgTypes[12]
+func (x *EntityOffset) GetConsumedAt() int64 {
 	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ProjectionId.ProtoReflect.Descriptor instead.
-func (*ProjectionId) Descriptor() ([]byte, []int) {
-	return file_ego_ego_proto_rawDescGZIP(), []int{12}
-}
-
-func (x *ProjectionId) GetProjectionName() string {
-	if x != nil {
-		return x.ProjectionName
-	}
-	return ""
-}
-
-func (x *ProjectionId) GetShardNumber() uint64 {
-	if x != nil {
-		return x.ShardNumber
+		return x.ConsumedAt
 	}
 	return 0
 }
@@ -855,7 +812,7 @@ type Snapshot struct {
 
 func (x *Snapshot) Reset() {
 	*x = Snapshot{}
-	mi := &file_ego_ego_proto_msgTypes[13]
+	mi := &file_ego_ego_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -867,7 +824,7 @@ func (x *Snapshot) String() string {
 func (*Snapshot) ProtoMessage() {}
 
 func (x *Snapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_ego_ego_proto_msgTypes[13]
+	mi := &file_ego_ego_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -880,7 +837,7 @@ func (x *Snapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Snapshot.ProtoReflect.Descriptor instead.
 func (*Snapshot) Descriptor() ([]byte, []int) {
-	return file_ego_ego_proto_rawDescGZIP(), []int{13}
+	return file_ego_ego_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *Snapshot) GetPersistenceId() string {
@@ -945,7 +902,7 @@ type DurableState struct {
 
 func (x *DurableState) Reset() {
 	*x = DurableState{}
-	mi := &file_ego_ego_proto_msgTypes[14]
+	mi := &file_ego_ego_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -957,7 +914,7 @@ func (x *DurableState) String() string {
 func (*DurableState) ProtoMessage() {}
 
 func (x *DurableState) ProtoReflect() protoreflect.Message {
-	mi := &file_ego_ego_proto_msgTypes[14]
+	mi := &file_ego_ego_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -970,7 +927,7 @@ func (x *DurableState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DurableState.ProtoReflect.Descriptor instead.
 func (*DurableState) Descriptor() ([]byte, []int) {
-	return file_ego_ego_proto_rawDescGZIP(), []int{14}
+	return file_ego_ego_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *DurableState) GetPersistenceId() string {
@@ -1055,15 +1012,14 @@ const file_ego_ego_proto_rawDesc = "" +
 	"\asaga_id\x18\x01 \x01(\tR\x06sagaId\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\rR\x06status\x12*\n" +
 	"\x05state\x18\x03 \x01(\v2\x14.google.protobuf.AnyR\x05state\x12'\n" +
-	"\x0fsequence_number\x18\x04 \x01(\x04R\x0esequenceNumber\"\x88\x01\n" +
-	"\x06Offset\x12!\n" +
-	"\fshard_number\x18\x01 \x01(\x04R\vshardNumber\x12'\n" +
-	"\x0fprojection_name\x18\x02 \x01(\tR\x0eprojectionName\x12\x14\n" +
-	"\x05value\x18\x03 \x01(\x03R\x05value\x12\x1c\n" +
-	"\ttimestamp\x18\x05 \x01(\x03R\ttimestamp\"Z\n" +
-	"\fProjectionId\x12'\n" +
-	"\x0fprojection_name\x18\x01 \x01(\tR\x0eprojectionName\x12!\n" +
-	"\fshard_number\x18\x02 \x01(\x04R\vshardNumber\"\xf3\x01\n" +
+	"\x0fsequence_number\x18\x04 \x01(\x04R\x0esequenceNumber\"\xc0\x01\n" +
+	"\fEntityOffset\x12!\n" +
+	"\fshard_number\x18\x01 \x01(\x04R\vshardNumber\x12%\n" +
+	"\x0epersistence_id\x18\x02 \x01(\tR\rpersistenceId\x12'\n" +
+	"\x0fsequence_number\x18\x03 \x01(\x04R\x0esequenceNumber\x12\x1c\n" +
+	"\ttimestamp\x18\x04 \x01(\x03R\ttimestamp\x12\x1f\n" +
+	"\vconsumed_at\x18\x05 \x01(\x03R\n" +
+	"consumedAt\"\xf3\x01\n" +
 	"\bSnapshot\x12%\n" +
 	"\x0epersistence_id\x18\x01 \x01(\tR\rpersistenceId\x12'\n" +
 	"\x0fsequence_number\x18\x02 \x01(\x04R\x0esequenceNumber\x12*\n" +
@@ -1077,7 +1033,7 @@ const file_ego_ego_proto_rawDesc = "" +
 	"\x0fresulting_state\x18\x03 \x01(\v2\x14.google.protobuf.AnyR\x0eresultingState\x12\x1c\n" +
 	"\ttimestamp\x18\x05 \x01(\x03R\ttimestamp\x12\x14\n" +
 	"\x05shard\x18\x06 \x01(\x04R\x05shardBs\n" +
-	"\tcom.egopbB\bEgoProtoH\x02P\x01Z&github.com/tochemey/ego/v4/egopb;egopb\xa2\x02\x03EXX\xaa\x02\x05Egopb\xca\x02\x05Egopb\xe2\x02\x11Egopb\\GPBMetadata\xea\x02\x05Egopbb\x06proto3"
+	"\tcom.egopbB\bEgoProtoH\x02P\x01Z&github.com/tochemey/ego/v5/egopb;egopb\xa2\x02\x03EXX\xaa\x02\x05Egopb\xca\x02\x05Egopb\xe2\x02\x11Egopb\\GPBMetadata\xea\x02\x05Egopbb\x06proto3"
 
 var (
 	file_ego_ego_proto_rawDescOnce sync.Once
@@ -1091,7 +1047,7 @@ func file_ego_ego_proto_rawDescGZIP() []byte {
 	return file_ego_ego_proto_rawDescData
 }
 
-var file_ego_ego_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_ego_ego_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_ego_ego_proto_goTypes = []any{
 	(*Event)(nil),                     // 0: egopb.Event
 	(*CommandReply)(nil),              // 1: egopb.CommandReply
@@ -1104,20 +1060,19 @@ var file_ego_ego_proto_goTypes = []any{
 	(*GetSagaStatus)(nil),             // 8: egopb.GetSagaStatus
 	(*DeletedState)(nil),              // 9: egopb.DeletedState
 	(*SagaStatusReply)(nil),           // 10: egopb.SagaStatusReply
-	(*Offset)(nil),                    // 11: egopb.Offset
-	(*ProjectionId)(nil),              // 12: egopb.ProjectionId
-	(*Snapshot)(nil),                  // 13: egopb.Snapshot
-	(*DurableState)(nil),              // 14: egopb.DurableState
-	(*anypb.Any)(nil),                 // 15: google.protobuf.Any
+	(*EntityOffset)(nil),              // 11: egopb.EntityOffset
+	(*Snapshot)(nil),                  // 12: egopb.Snapshot
+	(*DurableState)(nil),              // 13: egopb.DurableState
+	(*anypb.Any)(nil),                 // 14: google.protobuf.Any
 }
 var file_ego_ego_proto_depIdxs = []int32{
-	15, // 0: egopb.Event.event:type_name -> google.protobuf.Any
+	14, // 0: egopb.Event.event:type_name -> google.protobuf.Any
 	2,  // 1: egopb.CommandReply.state_reply:type_name -> egopb.StateReply
 	3,  // 2: egopb.CommandReply.error_reply:type_name -> egopb.ErrorReply
-	15, // 3: egopb.StateReply.state:type_name -> google.protobuf.Any
-	15, // 4: egopb.SagaStatusReply.state:type_name -> google.protobuf.Any
-	15, // 5: egopb.Snapshot.state:type_name -> google.protobuf.Any
-	15, // 6: egopb.DurableState.resulting_state:type_name -> google.protobuf.Any
+	14, // 3: egopb.StateReply.state:type_name -> google.protobuf.Any
+	14, // 4: egopb.SagaStatusReply.state:type_name -> google.protobuf.Any
+	14, // 5: egopb.Snapshot.state:type_name -> google.protobuf.Any
+	14, // 6: egopb.DurableState.resulting_state:type_name -> google.protobuf.Any
 	7,  // [7:7] is the sub-list for method output_type
 	7,  // [7:7] is the sub-list for method input_type
 	7,  // [7:7] is the sub-list for extension type_name
@@ -1140,7 +1095,7 @@ func file_ego_ego_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ego_ego_proto_rawDesc), len(file_ego_ego_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   15,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

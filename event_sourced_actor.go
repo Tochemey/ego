@@ -35,13 +35,13 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
-	"github.com/tochemey/ego/v4/egopb"
-	"github.com/tochemey/ego/v4/encryption"
-	"github.com/tochemey/ego/v4/eventadapter"
-	"github.com/tochemey/ego/v4/eventstream"
-	"github.com/tochemey/ego/v4/internal/extensions"
-	"github.com/tochemey/ego/v4/internal/runner"
-	"github.com/tochemey/ego/v4/persistence"
+	"github.com/tochemey/ego/v5/egopb"
+	"github.com/tochemey/ego/v5/encryption"
+	"github.com/tochemey/ego/v5/eventadapter"
+	"github.com/tochemey/ego/v5/eventstream"
+	"github.com/tochemey/ego/v5/internal/extensions"
+	"github.com/tochemey/ego/v5/internal/runner"
+	"github.com/tochemey/ego/v5/persistence"
 )
 
 const (
@@ -122,12 +122,11 @@ type EventSourcedActor struct {
 	eventsJanitor   *goakt.PID
 	persistTimeout  time.Duration
 
-	// actorSystem is kept from the PostStart message so buildEnvelopes, which
-	// receives a plain context, can resolve the shard.
-	actorSystem goakt.ActorSystem
-	// shard is the journal shard of the entity's events, resolved when the
-	// first one is written.
-	shard shardLocator
+	// shard is the journal shard of the entity's events (see persistence.ShardFor).
+	shard uint64
+	// lastEventTimestamp is the timestamp of the entity's latest event written,
+	// or zero before its first one. The next events are stamped after it.
+	lastEventTimestamp int64
 
 	// Event batching fields. Active only when batchThreshold > 0.
 	batchThreshold   int
@@ -174,6 +173,7 @@ func (entity *EventSourcedActor) PreStart(ctx *goakt.Context) error {
 	entity.eventsStore = eventsStore
 	entity.eventsStream = eventsStream
 	entity.persistenceID = ctx.ActorName()
+	entity.shard = persistence.ShardFor(entity.persistenceID)
 	entity.persistTimeout = defaultPersistTimeout
 
 	entity.loadOptionalExtensions(ctx)
@@ -198,7 +198,6 @@ func (entity *EventSourcedActor) PreStart(ctx *goakt.Context) error {
 func (entity *EventSourcedActor) Receive(ctx *goakt.ReceiveContext) {
 	switch msg := ctx.Message().(type) {
 	case *goakt.PostStart:
-		entity.actorSystem = ctx.ActorSystem()
 		entity.spawnChildren(ctx)
 	case *egopb.GetStateCommand:
 		entity.getStateAndReply(ctx)
@@ -363,6 +362,7 @@ func (entity *EventSourcedActor) recover(ctx context.Context) error {
 		return nil
 	}
 
+	entity.lastEventTimestamp = latestEvent.GetTimestamp()
 	latestSeqNr := latestEvent.GetSequenceNumber()
 
 	if replayFrom <= latestSeqNr {
@@ -598,7 +598,7 @@ func (entity *EventSourcedActor) buildEnvelopes(goCtx context.Context, events []
 		pendingCounter++
 		pendingState = resultingState
 
-		envelope, err := entity.marshalEvent(goCtx, event, pendingCounter, commandTime, entity.shard.locate(entity.actorSystem, entity.persistenceID))
+		envelope, err := entity.marshalEvent(goCtx, event, pendingCounter, commandTime, entity.shard)
 		if err != nil {
 			return nil, nil, 0, time.Time{}, err
 		}
@@ -649,11 +649,13 @@ func (entity *EventSourcedActor) marshalEvent(ctx context.Context, event Event, 
 }
 
 // persistEvents sends the event envelopes to the [eventsWriterActor] via a
-// synchronous Ask and returns an error when persistence fails.
+// synchronous Ask and returns an error when persistence fails. On success it
+// records the timestamp of the last event written.
 func (entity *EventSourcedActor) persistEvents(ctx *goakt.ReceiveContext, envelopes []*egopb.Event, topic string) error {
 	reply := ctx.Ask(entity.eventsWriter, &persistEventsRequest{
-		envelopes: envelopes,
-		topic:     topic,
+		envelopes:         envelopes,
+		topic:             topic,
+		previousTimestamp: entity.lastEventTimestamp,
 	}, entity.persistTimeout)
 
 	if reply == nil {
@@ -665,7 +667,12 @@ func (entity *EventSourcedActor) persistEvents(ctx *goakt.ReceiveContext, envelo
 		return fmt.Errorf("unexpected response type %T from event writer", reply)
 	}
 
-	return persistReply.Err
+	if persistReply.Err != nil {
+		return persistReply.Err
+	}
+
+	entity.lastEventTimestamp = persistReply.LastTimestamp
+	return nil
 }
 
 // applyConfirmedState updates the actor state after the events store has
@@ -875,11 +882,13 @@ func (entity *EventSourcedActor) flushBatch(ctx *goakt.ReceiveContext) {
 	envelopes := entity.batchBuffer
 	writer := entity.eventsWriter
 	timeout := entity.persistTimeout
+	previousTimestamp := entity.lastEventTimestamp
 
 	ctx.PipeTo(ctx.Self(), func() (any, error) {
 		reply, err := goakt.Ask(context.Background(), writer, &persistEventsRequest{
-			envelopes: envelopes,
-			topic:     topic,
+			envelopes:         envelopes,
+			topic:             topic,
+			previousTimestamp: previousTimestamp,
 		}, timeout)
 
 		if err != nil {
@@ -952,6 +961,7 @@ func (entity *EventSourcedActor) handleBatchPersistResponse(ctx *goakt.ReceiveCo
 	}
 
 	previousCounter := entity.eventsCounter
+	entity.lastEventTimestamp = resp.LastTimestamp
 	entity.applyConfirmedState(ctx.Context(), entity.batchState, entity.batchCounter, entity.batchTime, entity.batchNumEvents)
 
 	if entity.crossedSnapshotBoundary(previousCounter) {

@@ -31,9 +31,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/anypb"
 
-	"github.com/tochemey/ego/v4/egopb"
-	"github.com/tochemey/ego/v4/encryption"
-	testpb "github.com/tochemey/ego/v4/test/data/testpb"
+	"github.com/tochemey/ego/v5/egopb"
+	"github.com/tochemey/ego/v5/encryption"
+	testpb "github.com/tochemey/ego/v5/test/data/testpb"
 )
 
 // ---------------------------------------------------------------------------
@@ -201,63 +201,127 @@ func TestEventStore_PersistenceIDs(t *testing.T) {
 
 		ids, nextToken, err := store.PersistenceIDs(ctx, 2, "")
 		require.NoError(t, err)
-		assert.Len(t, ids, 2)
-		assert.NotEmpty(t, nextToken)
+		assert.Equal(t, []string{"pid-a", "pid-b"}, ids)
+		assert.Equal(t, "pid-b", nextToken)
 
-		ids2, _, err := store.PersistenceIDs(ctx, 10, nextToken)
+		ids2, lastToken, err := store.PersistenceIDs(ctx, 2, nextToken)
 		require.NoError(t, err)
-		assert.NotEmpty(t, ids2)
+		assert.Equal(t, []string{"pid-c"}, ids2)
+		assert.Empty(t, lastToken)
+	})
+
+	t.Run("walks every persistence ID exactly once one page at a time", func(t *testing.T) {
+		var (
+			walked    []string
+			pageToken string
+		)
+
+		for {
+			ids, nextToken, err := store.PersistenceIDs(ctx, 1, pageToken)
+			require.NoError(t, err)
+			walked = append(walked, ids...)
+			if nextToken == "" {
+				break
+			}
+			pageToken = nextToken
+		}
+
+		assert.Equal(t, []string{"pid-a", "pid-b", "pid-c"}, walked)
+	})
+
+	t.Run("returns nothing after the last persistence ID", func(t *testing.T) {
+		ids, nextToken, err := store.PersistenceIDs(ctx, 10, "pid-c")
+		require.NoError(t, err)
+		assert.Empty(t, ids)
+		assert.Empty(t, nextToken)
 	})
 
 	require.NoError(t, store.Disconnect(ctx))
 }
 
-func TestEventStore_GetShardEvents(t *testing.T) {
+func TestEventStore_EventsByShard(t *testing.T) {
 	ctx := context.TODO()
 	store := NewEventsStore()
 	require.NoError(t, store.Connect(ctx))
 
 	t.Run("no events for shard", func(t *testing.T) {
-		events, nextOffset, err := store.GetShardEvents(ctx, 99, 0, 10)
+		events, err := store.EventsByShard(ctx, 99, 0, 10)
 		require.NoError(t, err)
 		assert.Empty(t, events)
-		assert.EqualValues(t, 0, nextOffset)
 	})
 
-	t.Run("with shard events", func(t *testing.T) {
+	t.Run("returns the events of the shard only", func(t *testing.T) {
 		anyEvent, _ := anypb.New(&testpb.AccountCreated{AccountId: "acc-1", AccountBalance: 100})
-		ts := time.Now().UnixMilli()
-		events := []*egopb.Event{
+		ts := time.Now().UnixNano()
+		require.NoError(t, store.WriteEvents(ctx, []*egopb.Event{
 			{PersistenceId: "shard-test-1", SequenceNumber: 1, Event: anyEvent, Timestamp: ts, Shard: 5},
 			{PersistenceId: "shard-test-2", SequenceNumber: 1, Event: anyEvent, Timestamp: ts + 1, Shard: 5},
 			{PersistenceId: "shard-test-3", SequenceNumber: 1, Event: anyEvent, Timestamp: ts + 2, Shard: 6},
-		}
-		require.NoError(t, store.WriteEvents(ctx, events))
-
-		result, nextOffset, err := store.GetShardEvents(ctx, 5, 0, 10)
-		require.NoError(t, err)
-		assert.NotEmpty(t, result)
-		assert.Greater(t, nextOffset, int64(0))
-	})
-
-	t.Run("honors the limit and returns the oldest events first", func(t *testing.T) {
-		anyEvent, _ := anypb.New(&testpb.AccountCreated{AccountId: "acc-2", AccountBalance: 100})
-		ts := time.Now().UnixMilli()
-		require.NoError(t, store.WriteEvents(ctx, []*egopb.Event{
-			{PersistenceId: "limit-test-1", SequenceNumber: 1, Event: anyEvent, Timestamp: ts, Shard: 7},
-			{PersistenceId: "limit-test-2", SequenceNumber: 1, Event: anyEvent, Timestamp: ts + 1, Shard: 7},
-			{PersistenceId: "limit-test-3", SequenceNumber: 1, Event: anyEvent, Timestamp: ts + 2, Shard: 7},
 		}))
 
-		result, nextOffset, err := store.GetShardEvents(ctx, 7, 0, 2)
+		result, err := store.EventsByShard(ctx, 5, 0, 10)
 		require.NoError(t, err)
 		require.Len(t, result, 2)
-		assert.Equal(t, ts, result[0].GetTimestamp())
-		assert.Equal(t, ts+1, result[1].GetTimestamp())
-		assert.Equal(t, ts+1, nextOffset)
+		assert.Equal(t, "shard-test-1", result[0].GetPersistenceId())
+		assert.Equal(t, "shard-test-2", result[1].GetPersistenceId())
+	})
+
+	t.Run("includes the events at the given timestamp", func(t *testing.T) {
+		anyEvent, _ := anypb.New(&testpb.AccountCreated{AccountId: "acc-3", AccountBalance: 100})
+		ts := time.Now().UnixNano()
+		require.NoError(t, store.WriteEvents(ctx, []*egopb.Event{
+			{PersistenceId: "from-test-1", SequenceNumber: 1, Event: anyEvent, Timestamp: ts, Shard: 8},
+			{PersistenceId: "from-test-2", SequenceNumber: 1, Event: anyEvent, Timestamp: ts + 1, Shard: 8},
+		}))
+
+		result, err := store.EventsByShard(ctx, 8, ts+1, 10)
+		require.NoError(t, err)
+		require.Len(t, result, 1)
+		assert.Equal(t, "from-test-2", result[0].GetPersistenceId())
+	})
+
+	t.Run("orders by timestamp then sequence number and honors the limit", func(t *testing.T) {
+		anyEvent, _ := anypb.New(&testpb.AccountCreated{AccountId: "acc-2", AccountBalance: 100})
+		ts := time.Now().UnixNano()
+		require.NoError(t, store.WriteEvents(ctx, []*egopb.Event{
+			{PersistenceId: "limit-test-1", SequenceNumber: 2, Event: anyEvent, Timestamp: ts, Shard: 7},
+			{PersistenceId: "limit-test-2", SequenceNumber: 1, Event: anyEvent, Timestamp: ts, Shard: 7},
+			{PersistenceId: "limit-test-3", SequenceNumber: 1, Event: anyEvent, Timestamp: ts + 1, Shard: 7},
+		}))
+
+		result, err := store.EventsByShard(ctx, 7, 0, 2)
+		require.NoError(t, err)
+		require.Len(t, result, 2)
+		assert.Equal(t, "limit-test-2", result[0].GetPersistenceId())
+		assert.Equal(t, "limit-test-1", result[1].GetPersistenceId())
 	})
 
 	require.NoError(t, store.Disconnect(ctx))
+}
+
+func TestEventStore_WriteEventsRejectsStoredEvents(t *testing.T) {
+	ctx := context.TODO()
+	store := NewEventsStore()
+	require.NoError(t, store.Connect(ctx))
+	t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+	anyEvent, err := anypb.New(&testpb.AccountCreated{AccountId: "acc-1", AccountBalance: 100})
+	require.NoError(t, err)
+
+	require.NoError(t, store.WriteEvents(ctx, []*egopb.Event{
+		{PersistenceId: "entity-1", SequenceNumber: 1, Event: anyEvent},
+	}))
+
+	// the second event is new, but the first is stored already: nothing is written
+	err = store.WriteEvents(ctx, []*egopb.Event{
+		{PersistenceId: "entity-1", SequenceNumber: 2, Event: anyEvent},
+		{PersistenceId: "entity-1", SequenceNumber: 1, Event: anyEvent},
+	})
+	require.Error(t, err)
+
+	latest, err := store.GetLatestEvent(ctx, "entity-1")
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, latest.GetSequenceNumber())
 }
 
 func TestEventStore_ShardOffsets(t *testing.T) {
@@ -423,44 +487,6 @@ func TestOffsetStore_Ping(t *testing.T) {
 		store := NewOffsetStore()
 		require.NoError(t, store.Ping(ctx))
 	})
-}
-
-func TestOffsetStore_WriteAndGetOffset(t *testing.T) {
-	ctx := context.TODO()
-	store := NewOffsetStore()
-	require.NoError(t, store.Connect(ctx))
-
-	offset := &egopb.Offset{
-		ProjectionName: "proj-1",
-		ShardNumber:    1,
-		Value:          100,
-		Timestamp:      time.Now().UnixMilli(),
-	}
-
-	t.Run("write and read offset", func(t *testing.T) {
-		require.NoError(t, store.WriteOffset(ctx, offset))
-
-		projID := &egopb.ProjectionId{
-			ProjectionName: "proj-1",
-			ShardNumber:    1,
-		}
-		got, err := store.GetCurrentOffset(ctx, projID)
-		require.NoError(t, err)
-		require.NotNil(t, got)
-		assert.EqualValues(t, 100, got.GetValue())
-	})
-
-	t.Run("get non-existent offset", func(t *testing.T) {
-		projID := &egopb.ProjectionId{
-			ProjectionName: "non-existent",
-			ShardNumber:    99,
-		}
-		got, err := store.GetCurrentOffset(ctx, projID)
-		require.NoError(t, err)
-		assert.Nil(t, got)
-	})
-
-	require.NoError(t, store.Disconnect(ctx))
 }
 
 // ---------------------------------------------------------------------------
@@ -677,4 +703,34 @@ func TestDurableStore_DeleteState(t *testing.T) {
 
 	require.NoError(t, store.Disconnect(ctx))
 	require.Error(t, store.DeleteState(ctx, persistenceID, 0))
+}
+
+func TestSnapshotStore_PersistenceIDs(t *testing.T) {
+	ctx := context.Background()
+	store := NewSnapshotStore()
+	require.NoError(t, store.Connect(ctx))
+
+	persistenceIDs, nextPageToken, err := store.PersistenceIDs(ctx, 2, "")
+	require.NoError(t, err)
+	assert.Empty(t, persistenceIDs, "an empty store lists nothing")
+	assert.Empty(t, nextPageToken)
+
+	for _, snapshot := range []*egopb.Snapshot{
+		{PersistenceId: "c", SequenceNumber: 1},
+		{PersistenceId: "a", SequenceNumber: 1},
+		{PersistenceId: "a", SequenceNumber: 2},
+		{PersistenceId: "b", SequenceNumber: 1},
+	} {
+		require.NoError(t, store.WriteSnapshot(ctx, snapshot))
+	}
+
+	persistenceIDs, nextPageToken, err = store.PersistenceIDs(ctx, 2, "")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a", "b"}, persistenceIDs, "each persistence ID is listed once, sorted")
+	assert.Equal(t, "b", nextPageToken, "the token is the last persistence ID of the page")
+
+	persistenceIDs, nextPageToken, err = store.PersistenceIDs(ctx, 2, nextPageToken)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"c"}, persistenceIDs)
+	assert.Empty(t, nextPageToken, "the last page has no token")
 }
