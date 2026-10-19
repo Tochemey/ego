@@ -33,6 +33,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	goakt "github.com/tochemey/goakt/v4/actor"
+	"github.com/tochemey/goakt/v4/extension"
 	"github.com/tochemey/goakt/v4/log"
 	"go.opentelemetry.io/otel/metric/noop"
 	tracenoop "go.opentelemetry.io/otel/trace/noop"
@@ -43,6 +44,7 @@ import (
 	"github.com/tochemey/ego/v5/egopb"
 	"github.com/tochemey/ego/v5/encryption"
 	"github.com/tochemey/ego/v5/eventadapter"
+	"github.com/tochemey/ego/v5/eventstream"
 	"github.com/tochemey/ego/v5/internal/extensions"
 	"github.com/tochemey/ego/v5/internal/pause"
 	mocksoffsetstore "github.com/tochemey/ego/v5/mocks/offsetstore"
@@ -556,6 +558,150 @@ func TestProjectionActorInvalidOptions(t *testing.T) {
 	// the actor reads its options on whichever node runs it, so it checks them too
 	_, err = actorSystem.Spawn(ctx, "without-handler", NewProjectionActor(), goakt.WithLongLived())
 	require.Error(t, err)
+}
+
+func TestProjectionActorMissingDependencies(t *testing.T) {
+	projectionName := "db-writer"
+	registered := map[string]*projection.Options{
+		projectionName: {Handler: projection.NewDiscardHandler(), BufferSize: 500, PullInterval: time.Second, Recovery: projection.NewRecovery()},
+	}
+
+	testCases := []struct {
+		name          string
+		extensions    func(t *testing.T) []extension.Extension
+		expectedError string
+	}{
+		{
+			name: "fails without an offset store",
+			extensions: func(t *testing.T) []extension.Extension {
+				return []extension.Extension{
+					extensions.NewEventsStore(mockseventstore.NewEventsStore(t)),
+					extensions.NewProjectionExtension(registered),
+				}
+			},
+			expectedError: extensions.OffsetStoreExtensionID,
+		},
+		{
+			name: "fails without an events store",
+			extensions: func(t *testing.T) []extension.Extension {
+				return []extension.Extension{
+					extensions.NewOffsetStore(mocksoffsetstore.NewOffsetStore(t)),
+					extensions.NewProjectionExtension(registered),
+				}
+			},
+			expectedError: extensions.EventsStoreExtensionID,
+		},
+		{
+			name: "fails without the projection registry",
+			extensions: func(t *testing.T) []extension.Extension {
+				return []extension.Extension{
+					extensions.NewEventsStore(mockseventstore.NewEventsStore(t)),
+					extensions.NewOffsetStore(mocksoffsetstore.NewOffsetStore(t)),
+				}
+			},
+			expectedError: "projection registry extension is not available",
+		},
+		{
+			name: "fails when the projection is not registered",
+			extensions: func(t *testing.T) []extension.Extension {
+				return []extension.Extension{
+					extensions.NewEventsStore(mockseventstore.NewEventsStore(t)),
+					extensions.NewOffsetStore(mocksoffsetstore.NewOffsetStore(t)),
+					extensions.NewProjectionExtension(map[string]*projection.Options{}),
+				}
+			},
+			expectedError: "is not registered",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx := context.TODO()
+
+			actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+				goakt.WithLogger(log.DiscardLogger),
+				goakt.WithExtensions(testCase.extensions(t)...),
+				goakt.WithActorInitMaxRetries(1))
+			require.NoError(t, err)
+			require.NoError(t, actorSystem.Start(ctx))
+			t.Cleanup(func() { _ = actorSystem.Stop(ctx) })
+
+			pause.For(time.Second)
+
+			_, err = actorSystem.Spawn(ctx, projectionName, NewProjectionActor(), goakt.WithLongLived())
+			require.ErrorContains(t, err, testCase.expectedError)
+		})
+	}
+}
+
+func TestProjectionActorTransactionalHandler(t *testing.T) {
+	ctx := context.TODO()
+	persistenceID := uuid.NewString()
+	shardNumber := uint64(9)
+
+	journalStore := testkit.NewEventsStore()
+	require.NoError(t, journalStore.Connect(ctx))
+
+	offsetStore := testkit.NewOffsetStore()
+	require.NoError(t, offsetStore.Connect(ctx))
+
+	// committingHandler records the offsets under offsetsTestProjection, so the
+	// projection runs under that name
+	handler := &committingHandler{offsets: offsetStore}
+
+	eventsStream := eventstream.New()
+
+	actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+		goakt.WithLogger(log.DiscardLogger),
+		goakt.WithExtensions(
+			extensions.NewEventsStore(journalStore),
+			extensions.NewOffsetStore(offsetStore),
+			extensions.NewEventsStream(eventsStream),
+			extensions.NewProjectionExtension(map[string]*projection.Options{
+				offsetsTestProjection: {TransactionalHandler: handler, BufferSize: 500, PullInterval: 100 * time.Millisecond, Recovery: projection.NewRecovery()},
+			})),
+		goakt.WithActorInitMaxRetries(3))
+	require.NoError(t, err)
+	require.NoError(t, actorSystem.Start(ctx))
+
+	pause.For(time.Second)
+
+	event, err := anypb.New(&testpb.AccountCredited{})
+	require.NoError(t, err)
+
+	count := 10
+	timestamp := timestamppb.Now()
+	journals := make([]*egopb.Event, count)
+	for i := range count {
+		journals[i] = &egopb.Event{
+			PersistenceId:  persistenceID,
+			SequenceNumber: uint64(i + 1),
+			Event:          event,
+			Timestamp:      timestamp.AsTime().Unix(),
+			Shard:          shardNumber,
+		}
+	}
+
+	require.NoError(t, journalStore.WriteEvents(ctx, journals))
+
+	pid, err := actorSystem.Spawn(ctx, offsetsTestProjection, NewProjectionActor(), goakt.WithLongLived())
+	require.NoError(t, err)
+	require.NotNil(t, pid)
+
+	// the transactional handler, not the runner, commits every event's offset
+	require.Eventually(t, func() bool {
+		return len(handler.committedEvents()) == count
+	}, 10*time.Second, 100*time.Millisecond)
+
+	positions, err := offsetStore.LatestOffsets(ctx, offsetsTestProjection)
+	require.NoError(t, err)
+	require.EqualValues(t, journals[count-1].GetTimestamp(), positions[shardNumber])
+
+	// free resources
+	require.NoError(t, actorSystem.Stop(ctx))
+	eventsStream.Close()
+	require.NoError(t, journalStore.Disconnect(ctx))
+	require.NoError(t, offsetStore.Disconnect(ctx))
 }
 
 func TestProjectionActorRunnerFailure(t *testing.T) {
