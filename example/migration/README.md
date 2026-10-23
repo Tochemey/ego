@@ -9,7 +9,7 @@ The v4 database is seeded with the data a real v4 deployment accumulates, includ
 - **Events on cluster partitions.** v4 stored an event on its entity's cluster partition. Every event moves to the fixed shard `persistence.ShardFor` gives its entity.
 - **Clocks that stepped back.** One entity in ten has its second half of events stamped ten seconds before its first half. v5 timestamps of an entity strictly increase, so the migration restamps those events a nanosecond after their predecessor.
 - **Entities whose events retention deleted.** One entity in twenty-five keeps only a snapshot. The migration lists the snapshot store, not the journal, so these snapshots are copied too.
-- **Projection offsets per legacy shard.** Two projections committed one offset per v4 partition. Each resumes on the v5 journal from the oldest of them.
+- **Projection offsets per legacy shard.** Two projections committed one offset per v4 partition, except one partition holding events that the audit projection never committed on. The balances projection resumes on the v5 journal from the oldest of its offsets; the audit projection resumes from the start, since v4 would have read that partition from its start.
 - **Writes during the copy.** The journal is copied while a writer keeps appending events to the v4 journal, then copied again after the writer stops. The second run continues where the first one stopped.
 
 At the end the tool checks the v5 database against the v4 one: the same events with the same payloads, every event on its fixed shard, strictly increasing timestamps, the latest snapshot of every entity, and both projections resumed.
@@ -39,7 +39,7 @@ PASS  payloads         every event payload is copied unchanged
 PASS  shards           ... of ... entities were off persistence.ShardFor in v4, 0 in v5
 PASS  timestamps       ... events stamped at or before their previous one in v4, 0 in v5
 PASS  snapshots        latest snapshot of ... entities copied, ... of them with no event left
-PASS  projections      [audit balances] resume from their oldest v4 offset
+PASS  projections      audit from the start (v4 partitions holding events without its offset: 1); balances from its oldest v4 offset
 ```
 
 ## How it is built

@@ -30,6 +30,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/tochemey/ego/v5/egopb"
 	mocksoffsetstore "github.com/tochemey/ego/v5/mocks/offsetstore"
 	"github.com/tochemey/ego/v5/testkit"
 )
@@ -61,8 +62,57 @@ func TestResumeProjection(t *testing.T) {
 		assert.EqualValues(t, 100, start)
 	})
 
+	t.Run("can run again before the projection records an offset", func(t *testing.T) {
+		offsetStore := testkit.NewOffsetStore()
+		require.NoError(t, offsetStore.Connect(ctx))
+
+		require.NoError(t, ResumeProjection(ctx, offsetStore, "balances", []int64{300}))
+		require.NoError(t, ResumeProjection(ctx, offsetStore, "balances", []int64{100}))
+
+		start, err := offsetStore.StartOffset(ctx, "balances")
+		require.NoError(t, err)
+		assert.EqualValues(t, 100, start)
+	})
+
+	t.Run("refuses a projection that recorded offsets on the migrated journal", func(t *testing.T) {
+		offsetStore := testkit.NewOffsetStore()
+		require.NoError(t, offsetStore.Connect(ctx))
+		require.NoError(t, offsetStore.WriteOffsets(ctx, "balances", []*egopb.EntityOffset{
+			{ShardNumber: 1, PersistenceId: "account-1", SequenceNumber: 1, Timestamp: 500, ConsumedAt: 500},
+		}))
+
+		err := ResumeProjection(ctx, offsetStore, "balances", []int64{100})
+		require.ErrorIs(t, err, ErrProjectionStarted)
+		assert.ErrorContains(t, err, "balances")
+
+		// the offsets are kept
+		offset, err := offsetStore.ReadEntityOffset(ctx, "balances", 1, "account-1")
+		require.NoError(t, err)
+		require.NotNil(t, offset)
+	})
+
+	t.Run("fails when the offsets of the projection cannot be read", func(t *testing.T) {
+		offsetStore := new(mocksoffsetstore.OffsetStore)
+		offsetStore.EXPECT().LatestOffsets(mock.Anything, "balances").Return(nil, assert.AnError)
+
+		err := ResumeProjection(ctx, offsetStore, "balances", []int64{100})
+		require.ErrorIs(t, err, assert.AnError)
+		assert.ErrorContains(t, err, "failed to read the offsets of projection balances")
+		offsetStore.AssertNotCalled(t, "ResetOffset", mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	t.Run("starts from the beginning when a legacy shard has no offset", func(t *testing.T) {
+		offsetStore := new(mocksoffsetstore.OffsetStore)
+		offsetStore.EXPECT().LatestOffsets(mock.Anything, mock.Anything).Return(map[uint64]int64{}, nil).Maybe()
+		offsetStore.EXPECT().ResetOffset(mock.Anything, "balances", int64(0)).Return(nil)
+
+		require.NoError(t, ResumeProjection(ctx, offsetStore, "balances", []int64{300, 0, 200}))
+		offsetStore.AssertExpectations(t)
+	})
+
 	t.Run("starts from the beginning without legacy offsets", func(t *testing.T) {
 		offsetStore := new(mocksoffsetstore.OffsetStore)
+		offsetStore.EXPECT().LatestOffsets(mock.Anything, mock.Anything).Return(map[uint64]int64{}, nil).Maybe()
 		offsetStore.EXPECT().ResetOffset(mock.Anything, "balances", int64(0)).Return(nil)
 
 		require.NoError(t, ResumeProjection(ctx, offsetStore, "balances", nil))
@@ -71,6 +121,7 @@ func TestResumeProjection(t *testing.T) {
 
 	t.Run("fails when the start cannot be recorded", func(t *testing.T) {
 		offsetStore := new(mocksoffsetstore.OffsetStore)
+		offsetStore.EXPECT().LatestOffsets(mock.Anything, mock.Anything).Return(map[uint64]int64{}, nil).Maybe()
 		offsetStore.EXPECT().ResetOffset(mock.Anything, "balances", int64(100)).Return(assert.AnError)
 
 		err := ResumeProjection(ctx, offsetStore, "balances", []int64{100})
@@ -110,6 +161,7 @@ func TestResumeProjections(t *testing.T) {
 
 	t.Run("stops at the first projection that cannot resume, in name order", func(t *testing.T) {
 		offsetStore := new(mocksoffsetstore.OffsetStore)
+		offsetStore.EXPECT().LatestOffsets(mock.Anything, mock.Anything).Return(map[uint64]int64{}, nil).Maybe()
 		offsetStore.EXPECT().ResetOffset(mock.Anything, "audit", int64(50)).Return(nil)
 		offsetStore.EXPECT().ResetOffset(mock.Anything, "balances", int64(100)).Return(assert.AnError)
 

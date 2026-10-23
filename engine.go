@@ -1121,7 +1121,10 @@ func (engine *Engine) stopEntity(ctx context.Context, persistenceID string) erro
 // time between the timestamp of the newest event in the journal and the
 // projection's position on the shard, the newest timestamp among its offsets
 // there. A value of 0 means the projection is caught up on that shard. A shard
-// the projection has no offset on yet reports the age of its whole journal.
+// the projection has no offset on yet is measured from the point the
+// projection starts from, the later of the start offset OffsetStore.ResetOffset
+// recorded and the projection's Options.StartOffset, or, without either, from
+// the shard's oldest event, which costs one events store read per such shard.
 //
 // The engine must be started and an offset store must be configured; otherwise
 // an error is returned.
@@ -1153,12 +1156,35 @@ func (engine *Engine) ProjectionLag(ctx context.Context, projectionName string) 
 		return nil, fmt.Errorf("failed to fetch the offsets of projection %s: %w", projectionName, err)
 	}
 
+	recordedStart, err := offsetStore.StartOffset(ctx, projectionName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch the start offset of projection %s: %w", projectionName, err)
+	}
+
+	// The projection starts reading a shard from the later of both start
+	// offsets, as its runner does.
+	start := max(recordedStart, engine.configuredStartOffset(projectionName))
+
 	lags := make(map[uint64]time.Duration, len(shardOffsets))
 	for shard, latestTimestamp := range shardOffsets {
+		baseline := max(positions[shard], start)
+		if baseline == 0 {
+			// The projection reads the shard from its oldest event.
+			oldest, err := eventsStore.EventsByShard(ctx, shard, 0, 1)
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch the oldest event of shard %d: %w", shard, err)
+			}
+
+			baseline = latestTimestamp
+			if len(oldest) > 0 {
+				baseline = oldest[0].GetTimestamp()
+			}
+		}
+
 		// Both values are event timestamps in Unix nanoseconds, so their
 		// difference is a time.Duration. A negative value, from an offset
-		// written between the two reads above, is clamped to zero.
-		lags[shard] = time.Duration(max(latestTimestamp-positions[shard], 0))
+		// written between the reads above, is clamped to zero.
+		lags[shard] = time.Duration(max(latestTimestamp-baseline, 0))
 	}
 
 	return lags, nil
@@ -1401,4 +1427,26 @@ func (engine *Engine) sendState(stream *statesStream) {
 				msg.GetVersionNumber()))
 		}
 	}
+}
+
+// configuredStartOffset returns the Options.StartOffset registered for the
+// named projection, in Unix nanoseconds, or zero when the projection has none
+// or is not registered on this engine.
+func (engine *Engine) configuredStartOffset(projectionName string) int64 {
+	ref := engine.actorSystem.Load()
+	if ref == nil {
+		return 0
+	}
+
+	registry, ok := ref.sys.Extension(extensions.ProjectionExtensionID).(*extensions.ProjectionExtension)
+	if !ok {
+		return 0
+	}
+
+	options := registry.Get(projectionName)
+	if options == nil || options.StartOffset.IsZero() {
+		return 0
+	}
+
+	return options.StartOffset.UnixNano()
 }

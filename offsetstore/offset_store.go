@@ -49,7 +49,9 @@ type OffsetStore interface {
 	Ping(ctx context.Context) error
 	// WriteOffsets stores the given offsets of the projection in one atomic write: either every
 	// offset is stored or none is. Every offset is a new row; earlier offsets of the same
-	// persistence ID are kept until DeleteOffsetsBefore removes them.
+	// persistence ID are kept until DeleteOffsetsBefore removes them. Writing an offset that is
+	// stored already is not an error, and it stays stored once: SQL-backed stores insert with
+	// ON CONFLICT DO NOTHING.
 	WriteOffsets(ctx context.Context, projectionName string, offsets []*egopb.EntityOffset) error
 	// ReadOffsets returns at most limit offsets of the projection on the given shard, the newest
 	// timestamp first. A projection with no offset on the shard yields an empty result.

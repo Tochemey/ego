@@ -40,9 +40,12 @@
 // size of the stores. The journal and snapshot migrations can be stopped and
 // run again: an entity continues after what the target holds already, so they
 // can run while the legacy deployment still writes, with a final run once it
-// stops. The offsets migration runs once, after the writers are stopped and
-// before the migrated deployment starts its projections: it replaces every
-// offset the projections hold.
+// stops; turn its events retention off until then, or the events it deletes in
+// between leave a gap in the migrated journal. The offsets migration runs
+// once, after the writers are stopped and before the migrated deployment
+// starts its projections: it replaces every offset the projections hold, and
+// refuses a projection that recorded offsets on the migrated journal already
+// (migration.ErrProjectionStarted).
 package migrate
 
 import (
@@ -130,7 +133,8 @@ type Opener func(ctx context.Context, config Config) (*Stores, Release, error)
 //     every event's shard, then each entity's latest snapshot when both
 //     snapshot stores are provided.
 //   - offsets: makes every projection resume, on the migrated journal, from
-//     the oldest of the offsets it committed on the legacy offset store.
+//     the oldest of its legacy offsets, zero on a legacy shard it committed
+//     no offset on (see migration.LegacyOffsetReader).
 //   - legacy-snapshots: writes, for every entity whose legacy events carry
 //     their resulting state, a snapshot of its latest state.
 //   - all: runs journal, then offsets.

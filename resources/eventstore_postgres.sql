@@ -46,6 +46,10 @@ CREATE TABLE IF NOT EXISTS events_store
 -- EventsByShard:
 --   SELECT ... FROM events_store WHERE shard_number = $1 AND timestamp >= $2
 --   ORDER BY timestamp, sequence_number, persistence_id LIMIT $3
--- and ShardOffsets:
---   SELECT shard_number, MAX(timestamp) FROM events_store GROUP BY shard_number
-CREATE INDEX IF NOT EXISTS idx_events_store_shard ON events_store (shard_number, timestamp, sequence_number, persistence_id);
+-- and ShardOffsets, one backward index probe per shard instead of a scan of
+-- the whole journal:
+--   SELECT s.shard_number, latest.timestamp
+--   FROM generate_series(0, 1023) AS s(shard_number)
+--   CROSS JOIN LATERAL (SELECT timestamp FROM events_store
+--     WHERE shard_number = s.shard_number ORDER BY timestamp DESC LIMIT 1) AS latest
+CREATE INDEX IF NOT EXISTS idx_events_store_shard_timestamp ON events_store (shard_number, timestamp, sequence_number, persistence_id);

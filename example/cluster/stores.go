@@ -210,7 +210,13 @@ func (s *PostgresEventStore) EventsByShard(ctx context.Context, shardNumber uint
 }
 
 func (s *PostgresEventStore) ShardOffsets(ctx context.Context) (map[uint64]int64, error) {
-	rows, err := s.pool.Query(ctx, `SELECT shard_number, MAX(timestamp) FROM events_store GROUP BY shard_number`)
+	rows, err := s.pool.Query(ctx, `SELECT s.shard_number, latest.timestamp
+		FROM generate_series(0, $1::bigint) AS s(shard_number)
+		CROSS JOIN LATERAL (
+		  SELECT timestamp FROM events_store
+		  WHERE shard_number = s.shard_number
+		  ORDER BY timestamp DESC LIMIT 1
+		) AS latest`, int64(persistence.NumberOfShards-1))
 	if err != nil {
 		return nil, err
 	}

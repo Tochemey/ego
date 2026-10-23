@@ -71,6 +71,10 @@ const (
 	// offsets the migration resumes.
 	balancesProjection = "balances"
 	auditProjection    = "audit"
+	// auditUncommittedEntity is the entity whose v4 partition the audit
+	// projection committed no offset on, as a projection that had not read the
+	// partition yet. It keeps its events, so the partition holds events.
+	auditUncommittedEntity = 1
 )
 
 // eventsCopyColumns lists the events_store columns the seed copies, in row order.
@@ -91,7 +95,8 @@ func newSeedCommand() *cobra.Command {
 		Long: "Replaces the v4 data with a journal of --entities entities of --events events each, stamped on the " +
 			"entities' v4 cluster partitions. One entity in ten has a clock that stepped back half way through its " +
 			"journal, one in twenty-five lost every event to its retention policy and keeps only a snapshot, and two " +
-			"projections committed one offset per v4 partition.",
+			"projections committed one offset per v4 partition, except one partition the audit projection never " +
+			"committed on.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			pool, err := openPool(cmd.Context(), legacy)
@@ -234,17 +239,24 @@ func writeSnapshots(ctx context.Context, pool *pgxpool.Pool, index, eventsPerEnt
 }
 
 // writeLegacyOffsets stores, for both projections, one committed offset per v4
-// partition. The audit projection is ten days behind the balances one.
+// partition, except on the partition of auditUncommittedEntity, where the audit
+// projection committed none. The audit projection is ten days behind the
+// balances one.
 func writeLegacyOffsets(ctx context.Context, pool *pgxpool.Pool, base time.Time) error {
 	committedAt := time.Now().UnixNano()
 	positions := map[string]time.Time{
 		balancesProjection: base.Add(20 * 24 * time.Hour),
 		auditProjection:    base.Add(10 * 24 * time.Hour),
 	}
+	uncommitted := legacyShard(entityID(auditUncommittedEntity))
 
 	batch := &pgx.Batch{}
 	for projectionName, position := range positions {
 		for partition := range legacyPartitionCount {
+			if projectionName == auditProjection && uint32(partition) == uncommitted {
+				continue
+			}
+
 			batch.Queue(`INSERT INTO offsets_store (projection_name, shard_number, current_offset, timestamp) VALUES ($1, $2, $3, $4)`,
 				projectionName, partition, position.Add(time.Duration(partition)*time.Millisecond).UnixNano(), committedAt)
 		}

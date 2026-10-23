@@ -63,7 +63,10 @@ type JournalReader interface {
 // The migration is resumable: an entity whose events are partly copied already
 // continues after the last one the target holds. It can therefore run while
 // the legacy deployment still writes; once every writer is stopped, one more
-// run copies the remainder.
+// run copies the remainder. Turn the legacy deployment's events retention off
+// until the last run: events it deletes after a run, beyond what the target
+// holds, are missing from the target journal, and a projection stops at such a
+// gap.
 type JournalMigrator struct {
 	settings
 	source JournalReader

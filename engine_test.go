@@ -2335,11 +2335,152 @@ func TestEngineProjectionLagComputation(t *testing.T) {
 
 	offsetStore := new(mockoffsetstore.OffsetStore)
 	offsetStore.On("LatestOffsets", mock.Anything, "any").Return(map[uint64]int64{7: 500}, nil)
+	offsetStore.On("StartOffset", mock.Anything, "any").Return(int64(400), nil)
 
 	engine := synthEngineWithStores(eventsStore, nil, offsetStore)
 	lags, err := engine.ProjectionLag(ctx, "any")
 	require.NoError(t, err)
 	require.Equal(t, time.Duration(1000), lags[7])
+}
+
+// TestEngineProjectionLagWithoutPosition covers a shard the projection has no
+// offset on: its lag is measured from the projection's recorded start, or from
+// the shard's oldest event when the projection has no start.
+func TestEngineProjectionLagWithoutPosition(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("measures from the recorded start", func(t *testing.T) {
+		eventsStore := new(mockpersistence.EventsStore)
+		eventsStore.On("ShardOffsets", mock.Anything).Return(map[uint64]int64{7: 1500}, nil)
+
+		offsetStore := new(mockoffsetstore.OffsetStore)
+		offsetStore.On("LatestOffsets", mock.Anything, "any").Return(map[uint64]int64{}, nil)
+		offsetStore.On("StartOffset", mock.Anything, "any").Return(int64(400), nil)
+
+		engine := synthEngineWithStores(eventsStore, nil, offsetStore)
+		lags, err := engine.ProjectionLag(ctx, "any")
+		require.NoError(t, err)
+		require.Equal(t, time.Duration(1100), lags[7])
+		eventsStore.AssertNotCalled(t, "EventsByShard", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	})
+
+	t.Run("measures from the oldest event without a start", func(t *testing.T) {
+		eventsStore := new(mockpersistence.EventsStore)
+		eventsStore.On("ShardOffsets", mock.Anything).Return(map[uint64]int64{7: 1500}, nil)
+		eventsStore.On("EventsByShard", mock.Anything, uint64(7), int64(0), uint64(1)).Return([]*egopb.Event{{Timestamp: 200}}, nil)
+
+		offsetStore := new(mockoffsetstore.OffsetStore)
+		offsetStore.On("LatestOffsets", mock.Anything, "any").Return(map[uint64]int64{}, nil)
+		offsetStore.On("StartOffset", mock.Anything, "any").Return(int64(0), nil)
+
+		engine := synthEngineWithStores(eventsStore, nil, offsetStore)
+		lags, err := engine.ProjectionLag(ctx, "any")
+		require.NoError(t, err)
+		require.Equal(t, time.Duration(1300), lags[7])
+	})
+
+	t.Run("reports no lag when the shard's events are gone", func(t *testing.T) {
+		eventsStore := new(mockpersistence.EventsStore)
+		eventsStore.On("ShardOffsets", mock.Anything).Return(map[uint64]int64{7: 1500}, nil)
+		eventsStore.On("EventsByShard", mock.Anything, uint64(7), int64(0), uint64(1)).Return([]*egopb.Event{}, nil)
+
+		offsetStore := new(mockoffsetstore.OffsetStore)
+		offsetStore.On("LatestOffsets", mock.Anything, "any").Return(map[uint64]int64{}, nil)
+		offsetStore.On("StartOffset", mock.Anything, "any").Return(int64(0), nil)
+
+		engine := synthEngineWithStores(eventsStore, nil, offsetStore)
+		lags, err := engine.ProjectionLag(ctx, "any")
+		require.NoError(t, err)
+		require.Zero(t, lags[7])
+	})
+
+	t.Run("measures from the configured start offset", func(t *testing.T) {
+		store := testkit.NewEventsStore()
+		require.NoError(t, store.Connect(ctx))
+		t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+		offsetStore := testkit.NewOffsetStore()
+		require.NoError(t, offsetStore.Connect(ctx))
+		t.Cleanup(func() { _ = offsetStore.Disconnect(ctx) })
+
+		startOffset := time.Now()
+		engine := newTestEngine(t, "Sample", store,
+			WithLogger(DiscardLogger),
+			WithOffsetStore(offsetStore),
+			WithProjection("from-now", &projection.Options{Handler: projection.NewDiscardHandler(), StartOffset: startOffset}),
+		)
+		require.NoError(t, engine.Start(ctx))
+
+		// every event of the shard predates the start: the projection never reads them
+		event, err := anypb.New(&testpb.AccountCreated{AccountId: "account-1"})
+		require.NoError(t, err)
+		require.NoError(t, store.WriteEvents(ctx, []*egopb.Event{
+			{PersistenceId: "account-1", SequenceNumber: 1, Event: event, Timestamp: startOffset.Add(-2 * time.Second).UnixNano(), Shard: 7},
+			{PersistenceId: "account-1", SequenceNumber: 2, Event: event, Timestamp: startOffset.Add(-time.Second).UnixNano(), Shard: 7},
+		}))
+
+		lags, err := engine.ProjectionLag(ctx, "from-now")
+		require.NoError(t, err)
+		require.Zero(t, lags[7])
+	})
+
+	t.Run("measures from the oldest event without a configured start offset", func(t *testing.T) {
+		store := testkit.NewEventsStore()
+		require.NoError(t, store.Connect(ctx))
+		t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+		offsetStore := testkit.NewOffsetStore()
+		require.NoError(t, offsetStore.Connect(ctx))
+		t.Cleanup(func() { _ = offsetStore.Disconnect(ctx) })
+
+		engine := newTestEngine(t, "Sample", store,
+			WithLogger(DiscardLogger),
+			WithOffsetStore(offsetStore),
+			WithProjection("from-the-start", &projection.Options{Handler: projection.NewDiscardHandler()}),
+		)
+		require.NoError(t, engine.Start(ctx))
+
+		event, err := anypb.New(&testpb.AccountCreated{AccountId: "account-1"})
+		require.NoError(t, err)
+		oldest := time.Now().Add(-2 * time.Second)
+		require.NoError(t, store.WriteEvents(ctx, []*egopb.Event{
+			{PersistenceId: "account-1", SequenceNumber: 1, Event: event, Timestamp: oldest.UnixNano(), Shard: 7},
+			{PersistenceId: "account-1", SequenceNumber: 2, Event: event, Timestamp: oldest.Add(time.Second).UnixNano(), Shard: 7},
+		}))
+
+		lags, err := engine.ProjectionLag(ctx, "from-the-start")
+		require.NoError(t, err)
+		require.Equal(t, time.Second, lags[7])
+	})
+
+	t.Run("fails when the start cannot be read", func(t *testing.T) {
+		eventsStore := new(mockpersistence.EventsStore)
+		eventsStore.On("ShardOffsets", mock.Anything).Return(map[uint64]int64{7: 1500}, nil)
+
+		offsetStore := new(mockoffsetstore.OffsetStore)
+		offsetStore.On("LatestOffsets", mock.Anything, "any").Return(map[uint64]int64{}, nil)
+		offsetStore.On("StartOffset", mock.Anything, "any").Return(int64(0), errors.New("offset down"))
+
+		engine := synthEngineWithStores(eventsStore, nil, offsetStore)
+		lags, err := engine.ProjectionLag(ctx, "any")
+		require.ErrorContains(t, err, "failed to fetch the start offset of projection any")
+		require.Nil(t, lags)
+	})
+
+	t.Run("fails when the oldest event cannot be read", func(t *testing.T) {
+		eventsStore := new(mockpersistence.EventsStore)
+		eventsStore.On("ShardOffsets", mock.Anything).Return(map[uint64]int64{7: 1500}, nil)
+		eventsStore.On("EventsByShard", mock.Anything, uint64(7), int64(0), uint64(1)).Return([]*egopb.Event(nil), errors.New("events down"))
+
+		offsetStore := new(mockoffsetstore.OffsetStore)
+		offsetStore.On("LatestOffsets", mock.Anything, "any").Return(map[uint64]int64{}, nil)
+		offsetStore.On("StartOffset", mock.Anything, "any").Return(int64(0), nil)
+
+		engine := synthEngineWithStores(eventsStore, nil, offsetStore)
+		lags, err := engine.ProjectionLag(ctx, "any")
+		require.ErrorContains(t, err, "failed to fetch the oldest event of shard 7")
+		require.Nil(t, lags)
+	})
 }
 
 // TestEngineSagaSpawnError covers the Spawn-failure wrap in Engine.Saga

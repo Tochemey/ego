@@ -27,8 +27,11 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
+	"strings"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/cobra"
 
@@ -53,6 +56,10 @@ const (
 		FROM events_store`
 	// entityShardsQuery returns the lowest and highest shard of every persistence ID's events.
 	entityShardsQuery = `SELECT persistence_id, MIN(shard_number), MAX(shard_number) FROM events_store GROUP BY persistence_id`
+	// legacyPartitionsQuery returns the v4 partitions that hold events.
+	legacyPartitionsQuery = `SELECT DISTINCT shard_number FROM events_store`
+	// legacyCommittedOffsetsQuery returns every offset the v4 projections committed.
+	legacyCommittedOffsetsQuery = `SELECT projection_name, shard_number, current_offset FROM offsets_store`
 )
 
 // errVerificationFailed reports that the v5 data does not match the v4 data.
@@ -260,10 +267,17 @@ func checkSnapshots(ctx context.Context, legacy, target *pgxpool.Pool) (check, e
 	}, nil
 }
 
-// checkProjections verifies that every v4 projection resumes from the oldest
-// offset it committed, with no per-entity offset yet.
+// checkProjections verifies that every v4 projection resumes from its oldest
+// offset, or from the start when a v4 partition holding events has no offset of
+// it, with no per-entity offset yet. The expected starts are computed from the
+// raw v4 rows, apart from the reader the migration used.
 func checkProjections(ctx context.Context, legacy, target *pgxpool.Pool) (check, error) {
-	oldest, err := queryCounts(ctx, legacy, `SELECT projection_name, MIN(current_offset) FROM offsets_store GROUP BY projection_name`)
+	partitions, err := queryPartitions(ctx, legacy)
+	if err != nil {
+		return check{}, err
+	}
+
+	committed, err := queryLegacyOffsets(ctx, legacy)
 	if err != nil {
 		return check{}, err
 	}
@@ -278,10 +292,24 @@ func checkProjections(ctx context.Context, legacy, target *pgxpool.Pool) (check,
 		return check{}, err
 	}
 
+	expected := make(map[string]int64, len(committed))
+	resumed := make([]string, 0, len(committed))
+	for _, projectionName := range slices.Sorted(maps.Keys(committed)) {
+		start, uncommitted := expectedStart(partitions, committed[projectionName])
+		expected[projectionName] = start
+
+		if uncommitted > 0 {
+			resumed = append(resumed, fmt.Sprintf("%s from the start (v4 partitions holding events without its offset: %d)", projectionName, uncommitted))
+			continue
+		}
+
+		resumed = append(resumed, projectionName+" from its oldest v4 offset")
+	}
+
 	return check{
 		name:   "projections",
-		passed: maps.Equal(oldest, starts) && rows == 0,
-		detail: fmt.Sprintf("%v resume from their oldest v4 offset", slices.Sorted(maps.Keys(starts))),
+		passed: maps.Equal(expected, starts) && rows == 0,
+		detail: strings.Join(resumed, "; "),
 	}, nil
 }
 
@@ -340,4 +368,66 @@ func queryCounts(ctx context.Context, pool *pgxpool.Pool, query string) (map[str
 		counts[name] = value
 	}
 	return counts, rows.Err()
+}
+
+// queryPartitions returns the v4 partitions that hold events.
+func queryPartitions(ctx context.Context, pool *pgxpool.Pool) ([]int64, error) {
+	rows, err := pool.Query(ctx, legacyPartitionsQuery)
+	if err != nil {
+		return nil, err
+	}
+
+	return pgx.CollectRows(rows, pgx.RowTo[int64])
+}
+
+// queryLegacyOffsets returns every offset the v4 projections committed, by
+// projection and partition.
+func queryLegacyOffsets(ctx context.Context, pool *pgxpool.Pool) (map[string]map[int64]int64, error) {
+	rows, err := pool.Query(ctx, legacyCommittedOffsetsQuery)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	offsets := make(map[string]map[int64]int64)
+	for rows.Next() {
+		var (
+			projectionName string
+			partition      int64
+			offset         int64
+		)
+		if err := rows.Scan(&projectionName, &partition, &offset); err != nil {
+			return nil, err
+		}
+
+		if offsets[projectionName] == nil {
+			offsets[projectionName] = make(map[int64]int64)
+		}
+		offsets[projectionName][partition] = offset
+	}
+	return offsets, rows.Err()
+}
+
+// expectedStart returns the point a v4 projection resumes from on the v5
+// journal, given the v4 partitions holding events and the offsets it committed
+// per partition: its oldest offset on those partitions, or zero, from the
+// start, when it committed none on some of them. It also returns how many of
+// them it committed no offset on.
+func expectedStart(partitions []int64, offsets map[int64]int64) (start int64, uncommitted int) {
+	start = math.MaxInt64
+	for _, partition := range partitions {
+		offset, ok := offsets[partition]
+		if !ok {
+			uncommitted++
+			continue
+		}
+
+		start = min(start, offset)
+	}
+
+	if uncommitted > 0 {
+		return 0, uncommitted
+	}
+
+	return start, 0
 }

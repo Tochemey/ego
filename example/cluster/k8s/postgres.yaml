@@ -19,7 +19,7 @@ data:
         is_encrypted      BOOLEAN DEFAULT FALSE NOT NULL,
         PRIMARY KEY (persistence_id, sequence_number)
     );
-    CREATE INDEX IF NOT EXISTS idx_events_store_shard ON events_store(shard_number, timestamp, sequence_number, persistence_id);
+    CREATE INDEX IF NOT EXISTS idx_events_store_shard_timestamp ON events_store(shard_number, timestamp, sequence_number, persistence_id);
 
     -- offsets_store (from resources/offsetstore_postgres.sql)
     CREATE TABLE IF NOT EXISTS offsets_store

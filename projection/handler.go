@@ -74,10 +74,20 @@ type Handler interface {
 // (for example a store method taking the open transaction) inside the
 // transaction that applies the event, and commits both together. The offset
 // store must therefore live in the database the handler writes to. When the
-// transaction commits, the projection never delivers the event again: on a
-// restart it reads the offset back and skips the event. When Handle returns an
-// error, the transaction must be rolled back; the projection's recovery policy
-// then decides whether the event is retried, skipped or stops the projection.
+// transaction commits, the projection does not deliver the event again: on a
+// restart it reads the offset back and skips the event. That holds while the
+// projection keeps the entity's offsets. A reset deletes every offset of the
+// projection, and the events after the reset point are delivered again:
+// Options.ResetOffset, which is applied every time the projection starts,
+// Engine.RebuildProjection and migration.ResumeProjection all reset. The
+// projection also deletes an entity's offsets once they are a day behind its
+// position on the shard and were recorded more than nine days ago; such an
+// entity can have its earlier events delivered again when a later event
+// reaches the projection before an earlier one it has not processed.
+//
+// When Handle returns an error, the transaction must be rolled back; the
+// projection's recovery policy then decides whether the event is retried,
+// skipped or stops the projection.
 // A handler that commits without writing offset leaves the projection unable to
 // recognize the event as processed, and it delivers the event again.
 //

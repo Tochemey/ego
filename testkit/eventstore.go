@@ -88,16 +88,22 @@ func (x *EventStore) Disconnect(_ context.Context) error {
 }
 
 // WriteEvents stores the events atomically. It stores nothing and returns an error when any
-// of the events is already stored.
+// of the events is already stored, or appears twice in the write.
 func (x *EventStore) WriteEvents(_ context.Context, events []*egopb.Event) error {
 	x.writeMutex.Lock()
 	defer x.writeMutex.Unlock()
 
+	written := make(map[EventKey]struct{}, len(events))
 	for _, event := range events {
 		key := keyOf(event)
 		if _, exists := x.db.Load(key); exists {
 			return fmt.Errorf("event %d of %s is already stored", key.SequenceNumber, key.PersistenceID)
 		}
+
+		if _, repeated := written[key]; repeated {
+			return fmt.Errorf("event %d of %s appears twice in the write", key.SequenceNumber, key.PersistenceID)
+		}
+		written[key] = struct{}{}
 	}
 
 	x.shardsMutex.Lock()
@@ -270,7 +276,13 @@ func pageOf(sortedIDs []string, pageSize uint64, pageToken string) (persistenceI
 		startIndex = sort.Search(len(sortedIDs), func(i int) bool { return sortedIDs[i] > pageToken })
 	}
 
-	endIndex := min(startIndex+int(pageSize), len(sortedIDs))
+	// The size is compared as a uint64: converted to an int, a size above the
+	// largest int would turn negative.
+	endIndex := len(sortedIDs)
+	if pageSize < uint64(endIndex-startIndex) {
+		endIndex = startIndex + int(pageSize)
+	}
+
 	if endIndex > startIndex && endIndex < len(sortedIDs) {
 		nextPageToken = sortedIDs[endIndex-1]
 	}

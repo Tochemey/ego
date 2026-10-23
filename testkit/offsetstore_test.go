@@ -166,6 +166,8 @@ func TestOffsetStoreDeleteOffsetsBefore(t *testing.T) {
 		{ShardNumber: 1, PersistenceId: "old-and-consumed-long-ago", SequenceNumber: 1, Timestamp: 10, ConsumedAt: 10},
 		{ShardNumber: 1, PersistenceId: "old-but-consumed-recently", SequenceNumber: 1, Timestamp: 10, ConsumedAt: 90},
 		{ShardNumber: 1, PersistenceId: "recent", SequenceNumber: 1, Timestamp: 60, ConsumedAt: 10},
+		{ShardNumber: 1, PersistenceId: "at-the-timestamp-bound", SequenceNumber: 1, Timestamp: 50, ConsumedAt: 10},
+		{ShardNumber: 1, PersistenceId: "consumed-at-the-bound", SequenceNumber: 1, Timestamp: 10, ConsumedAt: 50},
 		{ShardNumber: 2, PersistenceId: "other-shard", SequenceNumber: 1, Timestamp: 10, ConsumedAt: 10},
 	}))
 
@@ -177,7 +179,8 @@ func TestOffsetStoreDeleteOffsetsBefore(t *testing.T) {
 	for _, offset := range remaining {
 		persistenceIDs = append(persistenceIDs, offset.GetPersistenceId())
 	}
-	assert.ElementsMatch(t, []string{"old-but-consumed-recently", "recent"}, persistenceIDs)
+	// both bounds are exclusive: an offset exactly on either one is kept
+	assert.ElementsMatch(t, []string{"old-but-consumed-recently", "recent", "at-the-timestamp-bound", "consumed-at-the-bound"}, persistenceIDs)
 
 	otherShard, err := store.ReadOffsets(ctx, balancesProjection, 2, 10)
 	require.NoError(t, err)

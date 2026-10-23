@@ -33,7 +33,7 @@
 //	if err := migration.NewJournalMigrator(legacyEventsStore, eventsStore).Run(ctx); err != nil {
 //	    log.Fatal(err)
 //	}
-//	if err := migration.NewSnapshotMigrator(legacyEventsStore, legacySnapshotStore, snapshotStore).Run(ctx); err != nil {
+//	if err := migration.NewSnapshotMigrator(legacySnapshotStore, snapshotStore).Run(ctx); err != nil {
 //	    log.Fatal(err)
 //	}
 //	if _, err := migration.ResumeProjections(ctx, offsetStore, legacyOffsetReader); err != nil {

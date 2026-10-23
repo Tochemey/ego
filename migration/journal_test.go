@@ -111,6 +111,24 @@ func TestJournalMigrator(t *testing.T) {
 		assert.Equal(t, legacyShard, journalOf(t, source, "account-1")[0].GetShard())
 	})
 
+	t.Run("stamps each event after the previous migrated one, across pages", func(t *testing.T) {
+		source := connectedEventsStore(t)
+		target := connectedEventsStore(t)
+		// both later events are stamped before the first by a clock that went back
+		require.NoError(t, source.WriteEvents(ctx, []*egopb.Event{
+			legacyEvent(t, "account-1", 1, 100),
+			legacyEvent(t, "account-1", 2, 90),
+			legacyEvent(t, "account-1", 3, 95),
+		}))
+
+		migrator := NewJournalMigrator(source, target, WithPageSize(1), WithLogger(log.DiscardLogger))
+		require.NoError(t, migrator.Run(ctx))
+
+		account1 := journalOf(t, target, "account-1")
+		require.Len(t, account1, 3)
+		assert.Equal(t, []int64{100, 101, 102}, []int64{account1[0].GetTimestamp(), account1[1].GetTimestamp(), account1[2].GetTimestamp()})
+	})
+
 	t.Run("resumes an entity after the last event the target holds", func(t *testing.T) {
 		source := connectedEventsStore(t)
 		target := connectedEventsStore(t)

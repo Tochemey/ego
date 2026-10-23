@@ -259,6 +259,13 @@ func TestEventStore_PersistenceIDs(t *testing.T) {
 		assert.Empty(t, nextToken)
 	})
 
+	t.Run("accepts any page size", func(t *testing.T) {
+		ids, nextToken, err := store.PersistenceIDs(ctx, math.MaxUint64, "pid-a")
+		require.NoError(t, err)
+		assert.Equal(t, []string{"pid-b", "pid-c"}, ids)
+		assert.Empty(t, nextToken)
+	})
+
 	require.NoError(t, store.Disconnect(ctx))
 }
 
@@ -319,6 +326,27 @@ func TestEventStore_EventsByShard(t *testing.T) {
 		assert.Equal(t, "limit-test-1", result[1].GetPersistenceId())
 	})
 
+	t.Run("orders events sharing a timestamp and sequence number by persistence ID", func(t *testing.T) {
+		anyEvent, _ := anypb.New(&testpb.AccountCreated{AccountId: "acc-4", AccountBalance: 100})
+		ts := time.Now().UnixNano()
+		// six persistence IDs: the store holds them in no particular order, and
+		// only one of their 720 orders is already sorted
+		persistenceIDs := []string{"tie-test-f", "tie-test-c", "tie-test-a", "tie-test-e", "tie-test-b", "tie-test-d"}
+		for _, persistenceID := range persistenceIDs {
+			require.NoError(t, store.WriteEvents(ctx, []*egopb.Event{
+				{PersistenceId: persistenceID, SequenceNumber: 1, Event: anyEvent, Timestamp: ts, Shard: 9},
+			}))
+		}
+
+		result, err := store.EventsByShard(ctx, 9, 0, 5)
+		require.NoError(t, err)
+		read := make([]string, 0, len(result))
+		for _, event := range result {
+			read = append(read, event.GetPersistenceId())
+		}
+		assert.Equal(t, []string{"tie-test-a", "tie-test-b", "tie-test-c", "tie-test-d", "tie-test-e"}, read)
+	})
+
 	require.NoError(t, store.Disconnect(ctx))
 }
 
@@ -345,6 +373,17 @@ func TestEventStore_WriteEventsRejectsStoredEvents(t *testing.T) {
 	latest, err := store.GetLatestEvent(ctx, "entity-1")
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, latest.GetSequenceNumber())
+
+	// one write holding the same event twice is rejected too, and stores nothing
+	err = store.WriteEvents(ctx, []*egopb.Event{
+		{PersistenceId: "entity-2", SequenceNumber: 1, Event: anyEvent},
+		{PersistenceId: "entity-2", SequenceNumber: 1, Event: anyEvent},
+	})
+	require.Error(t, err)
+
+	latest, err = store.GetLatestEvent(ctx, "entity-2")
+	require.NoError(t, err)
+	assert.Nil(t, latest)
 }
 
 func TestEventStore_ShardOffsets(t *testing.T) {

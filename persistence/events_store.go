@@ -69,8 +69,17 @@ type EventsStore interface {
 	// offset (timestamp) of its most recent event. Compared against the
 	// offsets a projection has committed, it tells which shards have pending
 	// events without scanning every shard. An empty journal yields an empty
-	// map. SQL-backed stores implement it with a single query:
+	// map. Projections call it on every pull, so its cost must not grow with
+	// the journal. SQL-backed stores implement it with a single query that
+	// reads the newest index entry of each of the NumberOfShards shards, rather
+	// than aggregating every event:
 	//
-	//	SELECT shard_number, MAX(timestamp) FROM events_store GROUP BY shard_number
+	//	SELECT s.shard_number, latest.timestamp
+	//	FROM generate_series(0, 1023) AS s(shard_number)
+	//	CROSS JOIN LATERAL (
+	//	  SELECT timestamp FROM events_store
+	//	  WHERE shard_number = s.shard_number
+	//	  ORDER BY timestamp DESC LIMIT 1
+	//	) AS latest
 	ShardOffsets(ctx context.Context) (map[uint64]int64, error)
 }

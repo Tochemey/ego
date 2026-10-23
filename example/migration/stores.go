@@ -42,6 +42,15 @@ import (
 const eventColumns = `persistence_id, sequence_number, is_deleted, event_payload, event_manifest,
 	timestamp, shard_number, encryption_key_id, is_encrypted`
 
+// legacyShardOffsets selects the offset of every v4 projection on every v4 shard
+// that holds events, zero where the projection committed none: the legacy
+// projection read such a shard from its start.
+const legacyShardOffsets = `SELECT p.projection_name, COALESCE(o.current_offset, 0) AS current_offset
+	FROM (SELECT DISTINCT projection_name FROM offsets_store) AS p
+	CROSS JOIN (SELECT DISTINCT shard_number FROM events_store) AS s
+	LEFT JOIN offsets_store AS o
+	  ON o.projection_name = p.projection_name AND o.shard_number = s.shard_number`
+
 // eventsStore is a persistence.EventsStore over the events_store table. The
 // table has the same columns in a v4 and a v5 database, so the same store reads
 // the legacy journal and writes the migrated one.
@@ -159,7 +168,13 @@ func (s *eventsStore) EventsByShard(ctx context.Context, shardNumber uint64, fro
 
 // ShardOffsets returns the newest event timestamp of every shard.
 func (s *eventsStore) ShardOffsets(ctx context.Context) (map[uint64]int64, error) {
-	rows, err := s.pool.Query(ctx, `SELECT shard_number, MAX(timestamp) FROM events_store GROUP BY shard_number`)
+	rows, err := s.pool.Query(ctx, `SELECT s.shard_number, latest.timestamp
+		FROM generate_series(0, $1::bigint) AS s(shard_number)
+		CROSS JOIN LATERAL (
+		  SELECT timestamp FROM events_store
+		  WHERE shard_number = s.shard_number
+		  ORDER BY timestamp DESC LIMIT 1
+		) AS latest`, int64(persistence.NumberOfShards-1))
 	if err != nil {
 		return nil, err
 	}
@@ -280,9 +295,10 @@ type legacyOffsets struct {
 
 var _ migration.LegacyOffsetReader = (*legacyOffsets)(nil)
 
-// LegacyOffsets returns the offsets every projection committed, one per legacy shard.
+// LegacyOffsets returns the offset of every projection on every legacy shard
+// that holds events, zero where the projection committed none.
 func (s *legacyOffsets) LegacyOffsets(ctx context.Context) (map[string][]int64, error) {
-	rows, err := s.pool.Query(ctx, `SELECT projection_name, current_offset FROM offsets_store`)
+	rows, err := s.pool.Query(ctx, legacyShardOffsets)
 	if err != nil {
 		return nil, err
 	}
