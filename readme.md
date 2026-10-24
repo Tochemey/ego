@@ -594,7 +594,7 @@ eGo includes several production-focused capabilities:
 - Faster recovery through [snapshots](#snapshots-and-retention)
 - Storage cleanup through [retention policies](#snapshots-and-retention)
 - At-rest [encryption](#encryption-and-schema-evolution) for events and snapshots
-- GDPR-style erasure with `Engine.EraseEntity(...)`: the live entity is stopped, then with `full=false` its encryption key is deleted through the store configured with `WithKeyStore` (crypto-shredding), and with `full=true` its events and snapshots are deleted as well, and the durable state from its store when one is configured with `WithStateStore`.
+- GDPR-style erasure with `Engine.EraseEntity(...)`: the live entity is stopped once the writes it has started have completed, then with `full=false` its encryption key is deleted through the store configured with `WithKeyStore` (crypto-shredding), and with `full=true` its events and snapshots are deleted as well, and the durable state from its store when one is configured with `WithStateStore`.
 - Store write failures are handed to the entity's supervisor: the default `RestartDirective` replays the journal on the same PID, `StopDirective` stops the entity
 - Pluggable structured logging via `ego.WithLogger(...)`
 

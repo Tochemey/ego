@@ -98,6 +98,11 @@ message SagaCompensationConfirmed {
 // current status and state
 message GetSagaStatus {}
 
+// StopEntity tells an entity to stop once every write it has started has
+// completed. The entity replies with a NoReply and stops, so the sender
+// knows no write of the entity can land after the reply
+message StopEntity {}
+
 // DeletedState is the state a durable-state command handler returns, with
 // the next version, to delete the entity's durable state. The durable state
 // store keeps a tombstone carrying that version and no state, the deletion

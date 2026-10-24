@@ -61,6 +61,10 @@ const (
 	// the record is removed instead of being kept as a tombstone: an erasure
 	// leaves nothing behind.
 	removeStateVersion uint64 = 0
+	// stopEntityTimeout bounds how long an erasure waits for the entity to
+	// finish the writes it has started and stop: a batch write and the pending
+	// snapshots, each bounded by the entity's own write timeout.
+	stopEntityTimeout = time.Minute
 	// publisherQueueCapacity caps the payloads waiting for a publisher. A
 	// publisher that falls further behind than this drops the excess, and the
 	// drops are counted, instead of the queue growing until the process dies.
@@ -1015,7 +1019,8 @@ func (engine *Engine) SagaStatus(ctx context.Context, sagaID string, timeout tim
 // EraseEntity performs GDPR erasure for the given persistence ID.
 //
 // The live entity, if any, is stopped first so it can neither serve nor append
-// to data that is being erased. The next Entity call recovers it from whatever
+// to data that is being erased. It stops once the writes it has started have
+// completed, so none of them lands after the erasure. The next Entity call recovers it from whatever
 // the stores hold afterwards.
 //
 // With full set to false the entity is crypto-shredded: its encryption key is
@@ -1099,16 +1104,27 @@ func (engine *Engine) EraseEntity(ctx context.Context, persistenceID string, ful
 }
 
 // stopEntity stops the live actor of the given entity, if there is one, so an
-// erasure cannot race with commands the entity is still serving. An entity that
-// is not running is not an error.
+// erasure cannot race with commands the entity is still serving. The entity
+// replies once every write it has started has completed, and stops from its
+// own message loop right after, so no write of the entity can land after
+// stopEntity returns. An entity that is not running is not an error.
 func (engine *Engine) stopEntity(ctx context.Context, persistenceID string) error {
 	ref := engine.actorSystem.Load()
 	if ref == nil {
 		return nil
 	}
 
-	if err := ref.sys.Kill(ctx, persistenceID); err != nil && !errors.Is(err, gerrors.ErrActorNotFound) {
+	reply, err := ref.noSender.SendSync(ctx, persistenceID, new(egopb.StopEntity), stopEntityTimeout)
+	if err != nil {
+		if errors.Is(err, gerrors.ErrActorNotFound) {
+			return nil
+		}
+
 		return fmt.Errorf("failed to stop entity %s for erasure: %w", persistenceID, err)
+	}
+
+	if errorReply, ok := reply.(*egopb.ErrorReply); ok {
+		return fmt.Errorf("failed to stop entity %s for erasure: %s", persistenceID, errorReply.GetMessage())
 	}
 
 	return nil

@@ -336,6 +336,11 @@ func (s *SagaActor) Receive(ctx *goakt.ReceiveContext) {
 		s.replyWithState(ctx)
 	case *egopb.GetSagaStatus:
 		s.replyWithStatus(ctx)
+	case *egopb.StopEntity:
+		// The saga journals within the turn that changes it, so no write of its
+		// journal is in flight between two messages.
+		ctx.Response(new(egopb.NoReply))
+		ctx.Shutdown()
 	default:
 		ctx.Unhandled()
 	}
@@ -344,8 +349,11 @@ func (s *SagaActor) Receive(ctx *goakt.ReceiveContext) {
 // PostStop cleans up the saga actor.
 func (s *SagaActor) PostStop(ctx *goakt.Context) error {
 	// Stop is idempotent: a saga that already settled stopped its runner then.
+	// The wait lets a worker still handling an event commit its offset before
+	// a restarted or relocated saga reads the offsets again.
 	if s.runner != nil {
 		_ = s.runner.Stop()
+		s.runner.waitForWorkers()
 	}
 
 	// Release the timeout schedule so a restarted saga can arm it again with

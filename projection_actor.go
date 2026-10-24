@@ -172,10 +172,18 @@ func (x *ProjectionActor) Receive(ctx *goakt.ReceiveContext) {
 	}
 }
 
-// PostStop prepares the actor to gracefully shutdown
+// PostStop prepares the actor to gracefully shutdown.
+//
+// It returns once the runner's workers have exited: a worker handling an event
+// when the projection stops finishes it and can still commit its offset, so
+// stopping the projection is complete only after that last commit. A rebuild,
+// which resets the offsets once the projection has stopped, relies on it.
 func (x *ProjectionActor) PostStop(ctx *goakt.Context) error {
 	if x.metrics != nil {
 		x.metrics.projectionsActive.Add(ctx.Context(), -1)
 	}
-	return x.runner.Stop()
+
+	err := x.runner.Stop()
+	x.runner.waitForWorkers()
+	return err
 }

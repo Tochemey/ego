@@ -50,16 +50,11 @@ const statesTopic = "topic.states"
 
 // DurableStateActor is a durable state based actor
 type DurableStateActor struct {
-	behavior       DurableStateBehavior
-	stateStore     persistence.StateStore
-	currentState   State
-	cachedStateAny *anypb.Any // cached marshal of currentState, invalidated on state change
-	currentVersion uint64
-
-	// stateDeleted reports that the entity's durable state was deleted and
-	// nothing was written since, so a stop must not write the initial state
-	// over the tombstone the deletion left.
-	stateDeleted    bool
+	behavior        DurableStateBehavior
+	stateStore      persistence.StateStore
+	currentState    State
+	cachedStateAny  *anypb.Any // cached marshal of currentState, invalidated on state change
+	currentVersion  uint64
 	lastCommandTime time.Time
 	eventsStream    eventstream.Stream
 	persistenceID   string
@@ -139,31 +134,29 @@ func (entity *DurableStateActor) Receive(ctx *goakt.ReceiveContext) {
 		// nothing to do: the entity recovered its state in PreStart
 	case *egopb.GetStateCommand:
 		entity.sendStateReply(ctx)
+	case *egopb.StopEntity:
+		// Every command stores its state within its own turn, so no write of
+		// the entity is in flight between two messages.
+		ctx.Response(new(egopb.NoReply))
+		ctx.Shutdown()
 	default:
 		msg := message.(Command)
 		entity.processCommand(ctx, msg)
 	}
 }
 
-// PostStop prepares the actor to gracefully shutdown
+// PostStop prepares the actor to gracefully shutdown.
+//
+// Every command stores its state before the entity takes it on, so there is
+// nothing left to write when the entity stops. PostStop writes nothing: the
+// actor may still be handling a command while PostStop runs, and a write from
+// here could put an older state over the one that command has just stored.
 func (entity *DurableStateActor) PostStop(ctx *goakt.Context) error {
 	if entity.metrics != nil {
 		entity.metrics.entitiesActive.Add(ctx.Context(), -1)
 	}
 
-	// A deleted state has nothing to write back: writing the initial state
-	// would replace the tombstone of the deletion with a state.
-	if entity.stateDeleted {
-		return nil
-	}
-
-	return runner.
-		New(runner.WithFailFast()).
-		AddRunner(func() error { return entity.stateStore.Ping(ctx.Context()) }).
-		AddRunner(func() error {
-			return entity.persistStateAndPublish(ctx.Context(), entity.currentStateAny(), entity.currentVersion, entity.lastCommandTime)
-		}).
-		Run()
+	return nil
 }
 
 // recoverFromStore reset the persistent actor to the latest state in case there is one
@@ -189,11 +182,6 @@ func (entity *DurableStateActor) recoverFromStore(ctx context.Context) error {
 
 	entity.currentState = currentState
 	entity.currentVersion = durableState.GetVersionNumber()
-
-	// A record without state is the tombstone of a deletion: the entity
-	// continues from its initial state at that version, with nothing to
-	// write back on a stop.
-	entity.stateDeleted = resultingState == nil
 	return nil
 }
 
@@ -253,7 +241,6 @@ func (entity *DurableStateActor) processCommand(receiveContext *goakt.ReceiveCon
 	entity.cachedStateAny = pendingStateAny
 	entity.lastCommandTime = pendingCommandTime
 	entity.currentVersion = newVersion
-	entity.stateDeleted = false
 
 	entity.sendStateReply(receiveContext)
 }
@@ -294,7 +281,6 @@ func (entity *DurableStateActor) deleteState(receiveContext *goakt.ReceiveContex
 	entity.cachedStateAny = nil
 	entity.lastCommandTime = deletedAt
 	entity.currentVersion = version
-	entity.stateDeleted = true
 
 	receiveContext.Response(&egopb.CommandReply{
 		Reply: &egopb.CommandReply_StateReply{

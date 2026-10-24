@@ -52,6 +52,11 @@ type persistSnapshotRequest struct {
 	janitor      *goakt.PID
 }
 
+// drainRequest asks the snapshotsWriterActor to reply once every snapshot sent
+// to it before the request has been written. The writer handles its messages
+// in order, so its NoReply comes after those writes.
+type drainRequest struct{}
+
 // snapshotsWriterActor persists snapshots to the snapshot store asynchronously.
 // Snapshot persistence is an optimization for faster recovery and is not required
 // for correctness. Failures are retried with exponential backoff; if all
@@ -96,6 +101,8 @@ func (a *snapshotsWriterActor) Receive(ctx *goakt.ReceiveContext) {
 	switch msg := ctx.Message().(type) {
 	case *goakt.PostStart:
 		// no-op
+	case *drainRequest:
+		ctx.Response(new(egopb.NoReply))
 	case *persistSnapshotRequest:
 		a.handlePersistSnapshot(ctx, msg)
 	default:

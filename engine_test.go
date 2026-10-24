@@ -1320,6 +1320,70 @@ func TestEngineRebuildProjectionSuccess(t *testing.T) {
 	require.True(t, running, "projection should be running again after rebuild")
 }
 
+// TestEngineRebuildProjectionWaitsForInFlightEvent asserts that a rebuild
+// resets the offsets of a projection only once the event its stopped runner
+// was handling has finished, so no offset of the old run lands after the reset.
+func TestEngineRebuildProjectionWaitsForInFlightEvent(t *testing.T) {
+	ctx := context.Background()
+	store := testkit.NewEventsStore()
+	require.NoError(t, store.Connect(ctx))
+	t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+	offsetStore := testkit.NewOffsetStore()
+	require.NoError(t, offsetStore.Connect(ctx))
+	t.Cleanup(func() { _ = offsetStore.Disconnect(ctx) })
+
+	const name = "rebuild-in-flight"
+	handler := &blockingHandler{entered: make(chan struct{}, 1), release: make(chan struct{})}
+	engine := newTestEngine(t, "Sample", store,
+		WithLogger(DiscardLogger),
+		WithOffsetStore(offsetStore),
+		WithProjection(name, &projection.Options{
+			Handler:      handler,
+			BufferSize:   100,
+			PullInterval: 100 * time.Millisecond,
+		}),
+	)
+	require.NoError(t, engine.Start(ctx))
+	require.NoError(t, engine.StartProjection(ctx, name))
+
+	event, err := anypb.New(&testpb.AccountCreated{AccountId: "account", AccountBalance: 100})
+	require.NoError(t, err)
+
+	persistenceID := uuid.NewString()
+	require.NoError(t, store.WriteEvents(ctx, []*egopb.Event{{
+		PersistenceId:  persistenceID,
+		SequenceNumber: 1,
+		Event:          event,
+		Timestamp:      time.Now().Add(-time.Second).UnixNano(),
+		Shard:          persistence.ShardFor(persistenceID),
+	}}))
+
+	select {
+	case <-handler.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the handler was never called")
+	}
+
+	rebuilt := make(chan error, 1)
+	go func() { rebuilt <- engine.RebuildProjection(ctx, name, ZeroTime) }()
+
+	select {
+	case err := <-rebuilt:
+		t.Fatalf("the rebuild returned while the stopped runner was still handling an event: %v", err)
+	case <-time.After(500 * time.Millisecond):
+	}
+
+	close(handler.release)
+
+	select {
+	case err := <-rebuilt:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the rebuild did not return once the event was handled")
+	}
+}
+
 // TestEngineSagaHappyPath registers a saga via Engine.Saga and then queries
 // its status via Engine.SagaStatus, covering the success branches of both.
 func TestEngineSagaHappyPath(t *testing.T) {
@@ -2777,4 +2841,275 @@ func TestEngineProjectionLagWithEvents(t *testing.T) {
 	for shard, lag := range lags {
 		assert.GreaterOrEqualf(t, int64(lag), int64(0), "lag for shard %d must not be negative", shard)
 	}
+}
+
+// TestEngineEraseEntityWaitsForWrites asserts that a full erasure leaves
+// nothing behind when the entity was still writing as the erasure began: the
+// erasure deletes only once the entity has finished its writes and stopped.
+func TestEngineEraseEntityWaitsForWrites(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("a durable state being stored", func(t *testing.T) {
+		store := testkit.NewEventsStore()
+		require.NoError(t, store.Connect(ctx))
+		t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+		durableStore := &heldStateStore{DurableStore: testkit.NewDurableStore(), hold: newWriteHold(2)}
+		require.NoError(t, durableStore.Connect(ctx))
+		t.Cleanup(func() { _ = durableStore.Disconnect(ctx) })
+
+		engine := newTestEngine(t, "Sample", store, WithLogger(DiscardLogger), WithStateStore(durableStore))
+		require.NoError(t, engine.Start(ctx))
+
+		entityID := uuid.NewString()
+		require.NoError(t, engine.DurableStateEntity(ctx, NewAccountDurableStateBehavior(entityID)))
+		_, _, err := engine.SendCommand(ctx, entityID, &testpb.CreateAccount{AccountBalance: 100}, time.Minute)
+		require.NoError(t, err)
+
+		eraseDuringHeldWrite(t, ctx, engine, entityID, durableStore.hold, &testpb.CreditAccount{AccountId: entityID, Balance: 50})
+
+		stored, err := durableStore.GetLatestState(ctx, entityID)
+		require.NoError(t, err)
+		assert.Nil(t, stored, "a state stored during the erasure survived it")
+	})
+
+	t.Run("a batch of events being written", func(t *testing.T) {
+		store := &heldEventsStore{EventStore: testkit.NewEventsStore(), hold: newWriteHold(2)}
+		require.NoError(t, store.Connect(ctx))
+		t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+		engine := newTestEngine(t, "Sample", store, WithLogger(DiscardLogger))
+		require.NoError(t, engine.Start(ctx))
+
+		entityID := uuid.NewString()
+		require.NoError(t, engine.Entity(ctx, NewAccountEventSourcedBehavior(entityID), WithBatchThreshold(1)))
+		_, _, err := engine.SendCommand(ctx, entityID, &testpb.CreateAccount{AccountBalance: 100}, time.Minute)
+		require.NoError(t, err)
+
+		eraseDuringHeldWrite(t, ctx, engine, entityID, store.hold, &testpb.CreditAccount{AccountId: entityID, Balance: 50})
+
+		latest, err := store.GetLatestEvent(ctx, entityID)
+		require.NoError(t, err)
+		assert.Nil(t, latest, "an event written during the erasure survived it")
+	})
+
+	t.Run("a snapshot being written", func(t *testing.T) {
+		store := testkit.NewEventsStore()
+		require.NoError(t, store.Connect(ctx))
+		t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+		snapshotStore := &heldSnapshotStore{SnapshotStore: testkit.NewSnapshotStore(), hold: newWriteHold(1)}
+		require.NoError(t, snapshotStore.Connect(ctx))
+		t.Cleanup(func() { _ = snapshotStore.Disconnect(ctx) })
+
+		engine := newTestEngine(t, "Sample", store, WithLogger(DiscardLogger), WithSnapshotStore(snapshotStore))
+		require.NoError(t, engine.Start(ctx))
+
+		entityID := uuid.NewString()
+		require.NoError(t, engine.Entity(ctx, NewAccountEventSourcedBehavior(entityID), WithSnapshotInterval(1)))
+
+		eraseDuringHeldWrite(t, ctx, engine, entityID, snapshotStore.hold, &testpb.CreateAccount{AccountBalance: 100})
+
+		latest, err := snapshotStore.GetLatestSnapshot(ctx, entityID)
+		require.NoError(t, err)
+		assert.Nil(t, latest, "a snapshot written during the erasure survived it")
+	})
+}
+
+// eraseDuringHeldWrite sends the command, waits until the write it causes is
+// held, starts a full erasure, then releases the write and waits until both the
+// write and the erasure are done.
+func eraseDuringHeldWrite(t *testing.T, ctx context.Context, engine *Engine, entityID string, hold *writeHold, command Command) {
+	t.Helper()
+
+	go func() {
+		_, _, _ = engine.SendCommand(ctx, entityID, command, 10*time.Second)
+	}()
+
+	select {
+	case <-hold.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the write was never held")
+	}
+
+	erased := make(chan error, 1)
+	go func() { erased <- engine.EraseEntity(ctx, entityID, true) }()
+
+	// give an erasure that does not wait for the write the time to finish first
+	pause.For(500 * time.Millisecond)
+	close(hold.release)
+
+	select {
+	case <-hold.written:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the released write never completed")
+	}
+
+	select {
+	case err := <-erased:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the erasure did not return once the write was released")
+	}
+}
+
+// writeHold holds the write of one sequence number, or version, until it is
+// released.
+type writeHold struct {
+	// sequence is the sequence number, or version, whose write is held.
+	sequence uint64
+	// entered is closed once the held write has begun.
+	entered chan struct{}
+	// release lets the held write through.
+	release chan struct{}
+	// written is closed once the released write has been stored.
+	written chan struct{}
+}
+
+// newWriteHold returns a hold on the write of the given sequence number.
+func newWriteHold(sequence uint64) *writeHold {
+	return &writeHold{
+		sequence: sequence,
+		entered:  make(chan struct{}),
+		release:  make(chan struct{}),
+		written:  make(chan struct{}),
+	}
+}
+
+// write runs store, holding it first until release is closed when it writes
+// the held sequence number.
+func (x *writeHold) write(sequence uint64, store func() error) error {
+	if sequence != x.sequence {
+		return store()
+	}
+
+	close(x.entered)
+	<-x.release
+	defer close(x.written)
+	return store()
+}
+
+// heldStateStore is a durable store that holds the write of one version.
+type heldStateStore struct {
+	*testkit.DurableStore
+	hold *writeHold
+}
+
+// WriteState stores the state once its version is released.
+func (x *heldStateStore) WriteState(ctx context.Context, state *egopb.DurableState) error {
+	return x.hold.write(state.GetVersionNumber(), func() error { return x.DurableStore.WriteState(ctx, state) })
+}
+
+// heldEventsStore is an events store that holds the write of one sequence number.
+type heldEventsStore struct {
+	*testkit.EventStore
+	hold *writeHold
+}
+
+// WriteEvents stores the events once the held sequence number is released.
+// It holds a write by its last event, so a write is held at most once.
+func (x *heldEventsStore) WriteEvents(ctx context.Context, events []*egopb.Event) error {
+	last := events[len(events)-1].GetSequenceNumber()
+	return x.hold.write(last, func() error { return x.EventStore.WriteEvents(ctx, events) })
+}
+
+// heldSnapshotStore is a snapshot store that holds the write of one sequence number.
+type heldSnapshotStore struct {
+	*testkit.SnapshotStore
+	hold *writeHold
+}
+
+// WriteSnapshot stores the snapshot once its sequence number is released.
+func (x *heldSnapshotStore) WriteSnapshot(ctx context.Context, snapshot *egopb.Snapshot) error {
+	return x.hold.write(snapshot.GetSequenceNumber(), func() error { return x.SnapshotStore.WriteSnapshot(ctx, snapshot) })
+}
+
+// TestEngineEraseEntityStopFailures asserts that an erasure deletes nothing
+// when the entity cannot confirm it has stopped with no write in flight.
+func TestEngineEraseEntityStopFailures(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("the pending snapshots are not written in time", func(t *testing.T) {
+		store := testkit.NewEventsStore()
+		require.NoError(t, store.Connect(ctx))
+		t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+		snapshotStore := &heldSnapshotStore{SnapshotStore: testkit.NewSnapshotStore(), hold: newWriteHold(1)}
+		require.NoError(t, snapshotStore.Connect(ctx))
+		t.Cleanup(func() { _ = snapshotStore.Disconnect(ctx) })
+
+		engine := newTestEngine(t, "Sample", store, WithLogger(DiscardLogger), WithSnapshotStore(snapshotStore))
+		require.NoError(t, engine.Start(ctx))
+
+		entityID := uuid.NewString()
+		require.NoError(t, engine.Entity(ctx, NewAccountEventSourcedBehavior(entityID), WithSnapshotInterval(1)))
+		_, _, err := engine.SendCommand(ctx, entityID, &testpb.CreateAccount{AccountBalance: 100}, time.Minute)
+		require.NoError(t, err)
+		<-snapshotStore.hold.entered
+
+		shortCtx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
+		defer cancel()
+		require.Error(t, engine.EraseEntity(shortCtx, entityID, true))
+
+		latest, err := store.GetLatestEvent(ctx, entityID)
+		require.NoError(t, err)
+		assert.NotNil(t, latest, "the erasure deleted the events of an entity that had not stopped")
+
+		close(snapshotStore.hold.release)
+		<-snapshotStore.hold.written
+
+		// the entity kept running, so a repeated erasure completes
+		require.NoError(t, engine.EraseEntity(ctx, entityID, true))
+
+		snapshot, err := snapshotStore.GetLatestSnapshot(ctx, entityID)
+		require.NoError(t, err)
+		assert.Nil(t, snapshot)
+	})
+
+	t.Run("the entity answers with an error", func(t *testing.T) {
+		store := testkit.NewEventsStore()
+		require.NoError(t, store.Connect(ctx))
+		t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+		engine := newTestEngine(t, "Sample", store, WithLogger(DiscardLogger))
+		require.NoError(t, engine.Start(ctx))
+
+		entityID := uuid.NewString()
+		_, err := engine.actorSystem.Load().sys.Spawn(ctx, entityID, &simpleReplyActor{reply: &egopb.ErrorReply{Message: "still writing"}})
+		require.NoError(t, err)
+
+		err = engine.EraseEntity(ctx, entityID, true)
+		require.ErrorContains(t, err, "still writing")
+	})
+}
+
+// TestEngineEraseSaga asserts that a saga, which journals under its saga ID,
+// is stopped by an erasure of that ID.
+func TestEngineEraseSaga(t *testing.T) {
+	ctx := context.Background()
+	store := testkit.NewEventsStore()
+	require.NoError(t, store.Connect(ctx))
+	t.Cleanup(func() { _ = store.Disconnect(ctx) })
+
+	engine := newTestEngine(t, "Sample", store,
+		WithLogger(DiscardLogger),
+		WithOffsetStore(testkit.NewOffsetStore()),
+	)
+	require.NoError(t, engine.Start(ctx))
+
+	sagaID := "saga-" + uuid.NewString()
+	require.NoError(t, engine.Saga(ctx, &testSagaBehavior{sagaID: sagaID}, 0))
+	pause.For(300 * time.Millisecond)
+
+	require.NoError(t, engine.EraseEntity(ctx, sagaID, true))
+
+	// the saga replies to the stop request, then stops
+	require.Eventually(t, func() bool {
+		_, err := engine.SagaStatus(ctx, sagaID, time.Second)
+		return err != nil
+	}, 5*time.Second, 50*time.Millisecond, "the saga was still running after its erasure")
+
+	latest, err := store.GetLatestEvent(ctx, sagaID)
+	require.NoError(t, err)
+	assert.Nil(t, latest, "the saga's journal survived the erasure")
 }

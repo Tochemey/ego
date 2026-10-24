@@ -4479,3 +4479,99 @@ func TestEventSourcedActorStampsAfterRecoveredEvent(t *testing.T) {
 		run(t, &extensions.EntityConfig{BatchThreshold: 100, BatchFlushWindow: 100 * time.Millisecond})
 	})
 }
+
+// TestEventSourcedActorBatchRepliesReachTheirCallers asserts that every caller
+// of a batched entity receives the reply to its own command, and that every
+// command is applied exactly once, when commands keep arriving while a batch
+// write completes. Each credit carries a distinct power of two, so a reply and
+// the final balance show exactly which credits were applied.
+func TestEventSourcedActorBatchRepliesReachTheirCallers(t *testing.T) {
+	const (
+		rounds  = 100
+		callers = 32
+	)
+
+	ctx := context.Background()
+	eventStore := testkit.NewEventsStore()
+	require.NoError(t, eventStore.Connect(ctx))
+	t.Cleanup(func() { _ = eventStore.Disconnect(ctx) })
+
+	eventStream := eventstream.New()
+	t.Cleanup(eventStream.Close)
+
+	actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+		goakt.WithLogger(log.DiscardLogger),
+		goakt.WithExtensions(
+			extensions.NewEventsStore(eventStore),
+			extensions.NewEventsStream(eventStream),
+		))
+	require.NoError(t, err)
+	require.NoError(t, actorSystem.Start(ctx))
+	t.Cleanup(func() { _ = actorSystem.Stop(ctx) })
+
+	entityCfg := &extensions.EntityConfig{BatchThreshold: 8, BatchFlushWindow: time.Millisecond}
+
+	for round := range rounds {
+		persistenceID := uuid.NewString()
+		pid, err := actorSystem.Spawn(ctx, persistenceID, newEventSourcedActor(),
+			goakt.WithDependencies(NewAccountEventSourcedBehavior(persistenceID), entityCfg),
+			goakt.WithLongLived(),
+			goakt.WithStashing())
+		require.NoError(t, err)
+
+		_, err = goakt.Ask(ctx, pid, &testpb.CreateAccount{AccountBalance: 0}, 5*time.Second)
+		require.NoError(t, err)
+
+		var wg sync.WaitGroup
+		balances := make([]float64, callers)
+		errs := make([]error, callers)
+
+		for caller := range callers {
+			wg.Go(func() {
+				reply, err := goakt.Ask(ctx, pid, &testpb.CreditAccount{AccountId: persistenceID, Balance: float64(uint64(1) << caller)}, 10*time.Second)
+				if err != nil {
+					errs[caller] = err
+					return
+				}
+
+				account := new(testpb.Account)
+				errs[caller] = reply.(*egopb.CommandReply).GetStateReply().GetState().UnmarshalTo(account)
+				balances[caller] = account.GetAccountBalance()
+			})
+		}
+
+		wg.Wait()
+
+		for caller := range callers {
+			require.NoError(t, errs[caller], "round %d, caller %d", round, caller)
+			assert.NotZero(t, uint64(balances[caller])&(uint64(1)<<caller), "round %d: caller %d got a reply without its own credit", round, caller)
+		}
+
+		state := accountBalanceOf(t, ctx, pid)
+		require.InDelta(t, float64(uint64(1)<<callers-1), state.balance, 0, "round %d: a credit was lost or applied twice", round)
+		require.EqualValues(t, callers+1, state.sequence, "round %d", round)
+
+		require.NoError(t, pid.Shutdown(ctx))
+	}
+}
+
+// accountState is the balance of an account entity and its sequence number.
+type accountState struct {
+	balance  float64
+	sequence uint64
+}
+
+// accountBalanceOf asks the entity for its state and returns its balance and
+// sequence number.
+func accountBalanceOf(t *testing.T, ctx context.Context, pid *goakt.PID) accountState {
+	t.Helper()
+
+	reply, err := goakt.Ask(ctx, pid, new(egopb.GetStateCommand), 5*time.Second)
+	require.NoError(t, err)
+
+	stateReply := reply.(*egopb.CommandReply).GetStateReply()
+	account := new(testpb.Account)
+	require.NoError(t, stateReply.GetState().UnmarshalTo(account))
+
+	return accountState{balance: account.GetAccountBalance(), sequence: stateReply.GetSequenceNumber()}
+}
