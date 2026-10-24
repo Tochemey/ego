@@ -11,6 +11,6 @@ RUN --mount=type=cache,target=/root/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build -mod=mod -o /out/ego-migration .
 
-FROM alpine:3.22
+FROM alpine:3.24
 COPY --from=build /out/ego-migration /usr/local/bin/ego-migration
 ENTRYPOINT ["ego-migration"]
