@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Builds the migration example's tool from the repository root, so the local
 # eGo module and migration command are compiled in.
-FROM golang:1.27.1-alpine AS build
+FROM golang:1.27.3-alpine AS build
 
 WORKDIR /src
 COPY . .
