@@ -7,6 +7,7 @@ A production-ready example that runs a 3-node eGo cluster on Kubernetes using [K
 - **Kubernetes-native peer discovery** — pods find each other via the Kubernetes API
 - **PostgreSQL-backed persistence** — events and projection offsets are stored in PostgreSQL
 - **CQRS with singleton projection** — commands produce events (write side), a projection singleton on the oldest node materializes account balances into a read table (read side); migrates automatically on node failure
+- **Exactly-once read model** — the projection is a `projection.TransactionalHandler`: it applies each event to the balance table and records the event's offset in one PostgreSQL transaction, so a credit or debit is never counted twice, even after a crash or a failover
 - **Fund-transfer saga** — a saga coordinates a debit and a credit across two account entities that may live on different pods, and refunds the source when the credit is rejected
 - **3-node cluster** — shows partition distribution and quorum
 - **NGINX Ingress load balancing** — requests to `http://localhost` are round-robin distributed across all 3 pods (no port-forward needed)
@@ -209,7 +210,7 @@ Runs `psql` inside the PostgreSQL pod and prints snapshots of all three tables �
 |--------------------|-----------------------------------------------------------|
 | `account_balances` | Projection read model — current balance per account       |
 | `events_store`     | Raw event log — last 20 events with sequence and manifest |
-| `offsets_store`    | Projection progress — current offset per shard            |
+| `offsets_store`    | Projection progress — last processed event per entity     |
 
 Row counts for all three tables are shown at the end. While a transfer saga runs, its progress shows up in `offsets_store` under the projection name `ego.saga.<transfer id>`; those rows are removed once the saga settles.
 
@@ -447,7 +448,7 @@ A separate headless service (`ego-cluster-headless`) is kept for gossip-based pe
 
 ## Dependency Isolation
 
-This example is a **separate Go module** (`github.com/tochemey/ego/v4/example/cluster`) with its own `go.mod`. Heavy dependencies like `k8s.io/client-go`, `github.com/jackc/pgx/v5`, and the OpenTelemetry SDK are confined to this module and do not affect the core eGo library.
+This example is a **separate Go module** (`github.com/tochemey/ego/v5/example/cluster`) with its own `go.mod`. Heavy dependencies like `k8s.io/client-go`, `github.com/jackc/pgx/v5`, and the OpenTelemetry SDK are confined to this module and do not affect the core eGo library.
 
 ## Cleanup
 

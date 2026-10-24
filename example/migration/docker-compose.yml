@@ -1,0 +1,50 @@
+# The databases of the v4 to v5 migration example, and the tool that migrates
+# them. run.sh drives the steps; see README.md.
+name: ego-migration
+
+services:
+  # the v4 deployment's database, created with the v4 reference schemas
+  legacy-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ego
+      POSTGRES_PASSWORD: ego
+      POSTGRES_DB: ego
+    volumes:
+      - ./schema/v4.sql:/docker-entrypoint-initdb.d/v4.sql:ro
+    healthcheck:
+      # over TCP: the image runs the init scripts on a socket-only server first
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ego -d ego"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+
+  # the v5 deployment's database, created with the v5 reference schemas
+  target-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ego
+      POSTGRES_PASSWORD: ego
+      POSTGRES_DB: ego
+    volumes:
+      - ../../resources/eventstore_postgres.sql:/docker-entrypoint-initdb.d/1-events.sql:ro
+      - ../../resources/snapshotstore_postgres.sql:/docker-entrypoint-initdb.d/2-snapshots.sql:ro
+      - ../../resources/offsetstore_postgres.sql:/docker-entrypoint-initdb.d/3-offsets.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ego -d ego"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+
+  # seeds, writes to, migrates and verifies the databases (run with `docker compose run`)
+  tool:
+    image: ego-migration:local
+    build:
+      context: ../..
+      dockerfile: example/migration/Dockerfile
+    profiles: ["tool"]
+    depends_on:
+      legacy-db:
+        condition: service_healthy
+      target-db:
+        condition: service_healthy

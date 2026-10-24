@@ -28,8 +28,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/tochemey/ego/v4"
-	samplepb "github.com/tochemey/ego/v4/example/examplepb"
+	"github.com/tochemey/ego/v5"
+	samplepb "github.com/tochemey/ego/v5/example/examplepb"
 )
 
 // AccountBehavior implements ego.EventSourcedBehavior for a bank account.

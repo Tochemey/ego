@@ -40,10 +40,11 @@ import (
 	goakt "github.com/tochemey/goakt/v4/actor"
 	"github.com/tochemey/goakt/v4/remote"
 
-	"github.com/tochemey/ego/v4/egopb"
-	"github.com/tochemey/ego/v4/internal/pause"
-	testpb "github.com/tochemey/ego/v4/test/data/testpb"
-	"github.com/tochemey/ego/v4/testkit"
+	"github.com/tochemey/ego/v5/egopb"
+	"github.com/tochemey/ego/v5/internal/pause"
+	"github.com/tochemey/ego/v5/persistence"
+	testpb "github.com/tochemey/ego/v5/test/data/testpb"
+	"github.com/tochemey/ego/v5/testkit"
 )
 
 // TestTopicConstantsAreFixed regression-guards the topic constants. They must
@@ -260,10 +261,8 @@ func TestEventPayloadCarriesShard(t *testing.T) {
 	})
 
 	event := pub.snapshot()[0]
-	// In single-node mode the actor system's Partition() returns 0 for every
-	// actor; we only care that the Shard field is wired up (not its specific
-	// value here). The cluster regression test below covers non-zero shards.
-	assert.EqualValues(t, 0, event.GetShard())
+	// the shard is the entity's journal shard, on a single node as in a cluster
+	assert.Equal(t, persistence.ShardFor(entityID), event.GetShard())
 	assert.NotNil(t, event.GetEvent(), "event payload should be set")
 	assert.Equal(t, entityID, event.GetPersistenceId())
 	assert.EqualValues(t, 1, event.GetSequenceNumber())
@@ -300,10 +299,8 @@ func TestStatePublisherReceivesDurableStateUpdates(t *testing.T) {
 	require.NotEmpty(t, states)
 	assert.Equal(t, entityID, states[0].GetPersistenceId())
 	assert.EqualValues(t, 1, states[0].GetVersionNumber())
-	// In single-node mode the actor system always returns partition 0, but
-	// the Shard field must still be populated so downstream consumers can
-	// branch on it once cluster mode kicks in.
-	assert.EqualValues(t, 0, states[0].GetShard())
+	// the shard is the entity's journal shard, on a single node as in a cluster
+	assert.Equal(t, persistence.ShardFor(entityID), states[0].GetShard())
 }
 
 // TestEngineSubscribeReceivesEventsAndStates verifies that the public
@@ -469,12 +466,11 @@ func TestEventPublisherClusterHighPartitionCount(t *testing.T) {
 		require.Truef(t, ok, "publisher did not receive event for entity %s", entityID)
 	}
 
-	// Every event must carry the partition the cluster assigns its entity: an
-	// entity that looked its shard up before the cluster knew it would land on
-	// shard 0 regardless of the partition count.
+	// Every event must carry the journal shard of its entity, whatever the
+	// cluster's partition count.
 	for _, evt := range got {
-		assert.Equalf(t, sys.Partition(evt.GetPersistenceId()), evt.GetShard(),
-			"event of entity %s carries a shard other than its cluster partition", evt.GetPersistenceId())
+		assert.Equalf(t, persistence.ShardFor(evt.GetPersistenceId()), evt.GetShard(),
+			"event of entity %s carries a shard other than its journal shard", evt.GetPersistenceId())
 	}
 
 	// Confirm at least one event was emitted from a shard outside the legacy

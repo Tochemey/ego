@@ -40,14 +40,14 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	"github.com/tochemey/ego/v4/egopb"
-	"github.com/tochemey/ego/v4/eventstream"
-	"github.com/tochemey/ego/v4/internal/extensions"
-	"github.com/tochemey/ego/v4/internal/pause"
-	mocks "github.com/tochemey/ego/v4/mocks/persistence"
-	"github.com/tochemey/ego/v4/persistence"
-	testpb "github.com/tochemey/ego/v4/test/data/testpb"
-	"github.com/tochemey/ego/v4/testkit"
+	"github.com/tochemey/ego/v5/egopb"
+	"github.com/tochemey/ego/v5/eventstream"
+	"github.com/tochemey/ego/v5/internal/extensions"
+	"github.com/tochemey/ego/v5/internal/pause"
+	mocks "github.com/tochemey/ego/v5/mocks/persistence"
+	"github.com/tochemey/ego/v5/persistence"
+	testpb "github.com/tochemey/ego/v5/test/data/testpb"
+	"github.com/tochemey/ego/v5/testkit"
 )
 
 const (
@@ -1029,4 +1029,77 @@ func drainStream(subscriber eventstream.Subscriber) []any {
 	}
 
 	return payloads
+}
+
+// TestDurableStateStopDuringCommand asserts that stopping a durable-state
+// entity while it handles a command never writes an older state over the one
+// the command has just stored.
+func TestDurableStateStopDuringCommand(t *testing.T) {
+	ctx := context.TODO()
+
+	durableStore := &pausingStateStore{
+		DurableStore:  testkit.NewDurableStore(),
+		pausedVersion: 2,
+		written:       make(chan struct{}),
+		release:       make(chan struct{}),
+	}
+	require.NoError(t, durableStore.Connect(ctx))
+	t.Cleanup(func() { _ = durableStore.Disconnect(ctx) })
+
+	eventStream := eventstream.New()
+	t.Cleanup(eventStream.Close)
+
+	persistenceID := uuid.NewString()
+	behavior := NewAccountDurableStateBehavior(persistenceID)
+	actorSystem := newDurableStateTestSystem(t, ctx, durableStore, eventStream)
+
+	pid, err := actorSystem.Spawn(ctx, persistenceID, newDurableStateActor(), goakt.WithDependencies(behavior), goakt.WithLongLived())
+	require.NoError(t, err)
+	pause.For(time.Second)
+
+	durableStateReply(t, ctx, pid, &testpb.CreateAccount{AccountBalance: 500})
+
+	// the credit stores version 2, then holds its turn before the entity
+	// records the new version
+	go func() {
+		_, _ = goakt.Ask(ctx, pid, &testpb.CreditAccount{AccountId: persistenceID, Balance: 250}, 5*time.Second)
+	}()
+
+	<-durableStore.written
+	require.NoError(t, pid.Shutdown(ctx))
+	close(durableStore.release)
+
+	stored, err := durableStore.GetLatestState(ctx, persistenceID)
+	require.NoError(t, err)
+	require.NotNil(t, stored)
+	assert.EqualValues(t, 2, stored.GetVersionNumber(), "stopping the entity wrote an older state over the stored one")
+
+	require.NoError(t, actorSystem.Stop(ctx))
+}
+
+// pausingStateStore is a durable store whose write of pausedVersion signals
+// written once the state is stored, then blocks until release is closed.
+type pausingStateStore struct {
+	*testkit.DurableStore
+
+	// pausedVersion is the version whose write pauses.
+	pausedVersion uint64
+	// written is closed once the paused version is stored.
+	written chan struct{}
+	// release unblocks the paused write.
+	release chan struct{}
+}
+
+// WriteState stores the state, then pauses when it carries pausedVersion.
+func (x *pausingStateStore) WriteState(ctx context.Context, state *egopb.DurableState) error {
+	if err := x.DurableStore.WriteState(ctx, state); err != nil {
+		return err
+	}
+
+	if state.GetVersionNumber() == x.pausedVersion {
+		close(x.written)
+		<-x.release
+	}
+
+	return nil
 }

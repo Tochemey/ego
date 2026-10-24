@@ -20,15 +20,34 @@
 --  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 --  SOFTWARE.
 
+
+-- The offsets of offsetstore.OffsetStore (eGo v5): one row per event a
+-- projection recorded, the last processed event of each persistence ID.
+-- WriteOffsets inserts with ON CONFLICT DO NOTHING; DeleteOffsetsBefore removes
+-- the old rows.
 CREATE TABLE IF NOT EXISTS offsets_store
 (
     projection_name VARCHAR(255) NOT NULL,
     shard_number    BIGINT       NOT NULL,
-    current_offset  BIGINT       NOT NULL,
     timestamp       BIGINT       NOT NULL,
-    PRIMARY KEY (projection_name, shard_number)
+    persistence_id  VARCHAR(255) NOT NULL,
+    sequence_number BIGINT       NOT NULL,
+    consumed_at     BIGINT       NOT NULL,
+
+    -- ReadOffsets (newest first), LatestOffsets and DeleteOffsetsBefore
+    PRIMARY KEY (projection_name, shard_number, timestamp, persistence_id, sequence_number)
 );
 
---- create an indexes
-CREATE INDEX IF NOT EXISTS idx_offsets_store_name ON offsets_store (projection_name);
-CREATE INDEX IF NOT EXISTS idx_offsets_store_shard ON offsets_store (shard_number);
+-- ReadEntityOffset:
+--   SELECT ... FROM offsets_store
+--   WHERE projection_name = $1 AND shard_number = $2 AND persistence_id = $3
+--   ORDER BY sequence_number DESC LIMIT 1
+CREATE INDEX IF NOT EXISTS idx_offsets_store_entity ON offsets_store (projection_name, shard_number, persistence_id, sequence_number);
+
+-- The point each projection starts from: ResetOffset records it, StartOffset
+-- reads it and DeleteOffset removes it.
+CREATE TABLE IF NOT EXISTS offsets_start
+(
+    projection_name VARCHAR(255) PRIMARY KEY,
+    start_offset    BIGINT       NOT NULL
+);

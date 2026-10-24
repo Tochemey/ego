@@ -30,8 +30,8 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/tochemey/ego/v4"
-	samplepb "github.com/tochemey/ego/v4/example/examplepb"
+	"github.com/tochemey/ego/v5"
+	samplepb "github.com/tochemey/ego/v5/example/examplepb"
 )
 
 // participantTimeout bounds each command the saga sends to an account.

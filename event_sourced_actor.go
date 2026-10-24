@@ -25,7 +25,6 @@ package ego
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	goakt "github.com/tochemey/goakt/v4/actor"
@@ -35,13 +34,13 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
-	"github.com/tochemey/ego/v4/egopb"
-	"github.com/tochemey/ego/v4/encryption"
-	"github.com/tochemey/ego/v4/eventadapter"
-	"github.com/tochemey/ego/v4/eventstream"
-	"github.com/tochemey/ego/v4/internal/extensions"
-	"github.com/tochemey/ego/v4/internal/runner"
-	"github.com/tochemey/ego/v4/persistence"
+	"github.com/tochemey/ego/v5/egopb"
+	"github.com/tochemey/ego/v5/encryption"
+	"github.com/tochemey/ego/v5/eventadapter"
+	"github.com/tochemey/ego/v5/eventstream"
+	"github.com/tochemey/ego/v5/internal/extensions"
+	"github.com/tochemey/ego/v5/internal/runner"
+	"github.com/tochemey/ego/v5/persistence"
 )
 
 const (
@@ -82,6 +81,8 @@ type batchFlushTick struct{}
 // a single command that has been optimistically processed and stashed
 // while awaiting batch persistence.
 type batchEntry struct {
+	// command is the stashed command the reply answers.
+	command   Command
 	reply     *egopb.CommandReply
 	startTime time.Time
 	span      trace.Span
@@ -122,12 +123,11 @@ type EventSourcedActor struct {
 	eventsJanitor   *goakt.PID
 	persistTimeout  time.Duration
 
-	// actorSystem is kept from the PostStart message so buildEnvelopes, which
-	// receives a plain context, can resolve the shard.
-	actorSystem goakt.ActorSystem
-	// shard is the journal shard of the entity's events, resolved when the
-	// first one is written.
-	shard shardLocator
+	// shard is the journal shard of the entity's events (see persistence.ShardFor).
+	shard uint64
+	// lastEventTimestamp is the timestamp of the entity's latest event written,
+	// or zero before its first one. The next events are stamped after it.
+	lastEventTimestamp int64
 
 	// Event batching fields. Active only when batchThreshold > 0.
 	batchThreshold   int
@@ -145,7 +145,6 @@ type EventSourcedActor struct {
 	// fails the turn with it so the configured supervisor decides its fate.
 	batchFailure error
 	flushTimer   *time.Timer
-	batchMu      sync.Mutex
 }
 
 var _ goakt.Actor = (*EventSourcedActor)(nil)
@@ -174,10 +173,12 @@ func (entity *EventSourcedActor) PreStart(ctx *goakt.Context) error {
 	entity.eventsStore = eventsStore
 	entity.eventsStream = eventsStream
 	entity.persistenceID = ctx.ActorName()
+	entity.shard = persistence.ShardFor(entity.persistenceID)
 	entity.persistTimeout = defaultPersistTimeout
 
 	entity.loadOptionalExtensions(ctx)
 	entity.setConfig(ctx)
+	entity.discardBatch()
 
 	if err := entity.validateAndRecover(ctx); err != nil {
 		return err
@@ -198,10 +199,11 @@ func (entity *EventSourcedActor) PreStart(ctx *goakt.Context) error {
 func (entity *EventSourcedActor) Receive(ctx *goakt.ReceiveContext) {
 	switch msg := ctx.Message().(type) {
 	case *goakt.PostStart:
-		entity.actorSystem = ctx.ActorSystem()
 		entity.spawnChildren(ctx)
 	case *egopb.GetStateCommand:
 		entity.getStateAndReply(ctx)
+	case *egopb.StopEntity:
+		entity.handleStopEntity(ctx)
 	case *batchFlushTick:
 		entity.handleBatchFlushTick(ctx)
 	case *persistEventsResponse:
@@ -221,13 +223,16 @@ func (entity *EventSourcedActor) Receive(ctx *goakt.ReceiveContext) {
 }
 
 // PostStop releases resources and resets counters when the actor shuts down.
+//
+// The actor may still be handling a message while PostStop runs, so PostStop
+// leaves the batch state alone: only the actor's own turns touch it, and
+// PreStart discards it when the entity restarts. A flush timer that fires
+// after the stop sends its tick to a stopped actor, which drops it.
 // nolint
 func (entity *EventSourcedActor) PostStop(ctx *goakt.Context) error {
 	if entity.metrics != nil {
 		entity.metrics.entitiesActive.Add(ctx.Context(), -1)
 	}
-	entity.stopFlushTimer()
-	entity.resetBatch()
 	return nil
 }
 
@@ -363,6 +368,7 @@ func (entity *EventSourcedActor) recover(ctx context.Context) error {
 		return nil
 	}
 
+	entity.lastEventTimestamp = latestEvent.GetTimestamp()
 	latestSeqNr := latestEvent.GetSequenceNumber()
 
 	if replayFrom <= latestSeqNr {
@@ -598,7 +604,7 @@ func (entity *EventSourcedActor) buildEnvelopes(goCtx context.Context, events []
 		pendingCounter++
 		pendingState = resultingState
 
-		envelope, err := entity.marshalEvent(goCtx, event, pendingCounter, commandTime, entity.shard.locate(entity.actorSystem, entity.persistenceID))
+		envelope, err := entity.marshalEvent(goCtx, event, pendingCounter, commandTime, entity.shard)
 		if err != nil {
 			return nil, nil, 0, time.Time{}, err
 		}
@@ -649,11 +655,13 @@ func (entity *EventSourcedActor) marshalEvent(ctx context.Context, event Event, 
 }
 
 // persistEvents sends the event envelopes to the [eventsWriterActor] via a
-// synchronous Ask and returns an error when persistence fails.
+// synchronous Ask and returns an error when persistence fails. On success it
+// records the timestamp of the last event written.
 func (entity *EventSourcedActor) persistEvents(ctx *goakt.ReceiveContext, envelopes []*egopb.Event, topic string) error {
 	reply := ctx.Ask(entity.eventsWriter, &persistEventsRequest{
-		envelopes: envelopes,
-		topic:     topic,
+		envelopes:         envelopes,
+		topic:             topic,
+		previousTimestamp: entity.lastEventTimestamp,
 	}, entity.persistTimeout)
 
 	if reply == nil {
@@ -665,7 +673,12 @@ func (entity *EventSourcedActor) persistEvents(ctx *goakt.ReceiveContext, envelo
 		return fmt.Errorf("unexpected response type %T from event writer", reply)
 	}
 
-	return persistReply.Err
+	if persistReply.Err != nil {
+		return persistReply.Err
+	}
+
+	entity.lastEventTimestamp = persistReply.LastTimestamp
+	return nil
 }
 
 // applyConfirmedState updates the actor state after the events store has
@@ -840,6 +853,7 @@ func (entity *EventSourcedActor) processAndBatch(ctx *goakt.ReceiveContext, comm
 
 	stateAny, _ := anypb.New(pendingState)
 	entity.batchEntries = append(entity.batchEntries, batchEntry{
+		command: command,
 		reply: &egopb.CommandReply{
 			Reply: &egopb.CommandReply_StateReply{
 				StateReply: &egopb.StateReply{
@@ -875,11 +889,13 @@ func (entity *EventSourcedActor) flushBatch(ctx *goakt.ReceiveContext) {
 	envelopes := entity.batchBuffer
 	writer := entity.eventsWriter
 	timeout := entity.persistTimeout
+	previousTimestamp := entity.lastEventTimestamp
 
 	ctx.PipeTo(ctx.Self(), func() (any, error) {
 		reply, err := goakt.Ask(context.Background(), writer, &persistEventsRequest{
-			envelopes: envelopes,
-			topic:     topic,
+			envelopes:         envelopes,
+			topic:             topic,
+			previousTimestamp: previousTimestamp,
 		}, timeout)
 
 		if err != nil {
@@ -904,9 +920,7 @@ func (entity *EventSourcedActor) flushBatch(ctx *goakt.ReceiveContext) {
 // If the actor is still in phaseProcessing with a non-empty batch, the
 // batch is flushed immediately.
 func (entity *EventSourcedActor) handleBatchFlushTick(ctx *goakt.ReceiveContext) {
-	entity.batchMu.Lock()
 	entity.flushTimer = nil
-	entity.batchMu.Unlock()
 	if entity.phase != phaseProcessing || len(entity.batchEntries) == 0 {
 		return
 	}
@@ -952,6 +966,7 @@ func (entity *EventSourcedActor) handleBatchPersistResponse(ctx *goakt.ReceiveCo
 	}
 
 	previousCounter := entity.eventsCounter
+	entity.lastEventTimestamp = resp.LastTimestamp
 	entity.applyConfirmedState(ctx.Context(), entity.batchState, entity.batchCounter, entity.batchTime, entity.batchNumEvents)
 
 	if entity.crossedSnapshotBoundary(previousCounter) {
@@ -967,6 +982,11 @@ func (entity *EventSourcedActor) handleBatchPersistResponse(ctx *goakt.ReceiveCo
 // caller. When all stashed commands have been answered, the actor resets its
 // batch state and returns to phaseProcessing, or fails the turn with the
 // store error if the preceding batch write failed.
+//
+// The batch's commands come back from the stash in order, behind any message
+// that was already in the mailbox when the write completed. Such a message is
+// not the next command of the batch: it is stashed in turn, and unstashed once
+// the last reply is out, so every caller receives the reply to its own command.
 //
 // If more messages were unstashed than there are pending replies (e.g. commands
 // that arrived during phaseFlushing), the surplus messages are processed as new
@@ -986,6 +1006,11 @@ func (entity *EventSourcedActor) replyFromBatch(ctx *goakt.ReceiveContext) {
 	idx := len(entity.batchEntries) - entity.remainingReplies
 	entry := &entity.batchEntries[idx]
 
+	if ctx.Message() != entry.command {
+		ctx.Stash()
+		return
+	}
+
 	if entry.span != nil {
 		entry.span.End()
 		entry.span = nil
@@ -1003,6 +1028,7 @@ func (entity *EventSourcedActor) replyFromBatch(ctx *goakt.ReceiveContext) {
 		failure := entity.batchFailure
 		entity.resetBatch()
 		entity.phase = phaseProcessing
+		ctx.UnstashAll()
 
 		if failure != nil {
 			ctx.Err(failure)
@@ -1023,8 +1049,6 @@ func (entity *EventSourcedActor) crossedSnapshotBoundary(previousCounter uint64)
 // startFlushTimer arms the batch flush timer if it is not already running.
 // When the timer fires, a batchFlushTick is delivered to the actor mailbox.
 func (entity *EventSourcedActor) startFlushTimer(ctx *goakt.ReceiveContext) {
-	entity.batchMu.Lock()
-	defer entity.batchMu.Unlock()
 	if entity.flushTimer != nil {
 		return
 	}
@@ -1035,11 +1059,7 @@ func (entity *EventSourcedActor) startFlushTimer(ctx *goakt.ReceiveContext) {
 }
 
 // stopFlushTimer cancels a running flush timer, if any.
-// It is safe to call from both the actor's message-processing goroutine
-// and the shutdown goroutine (PostStop).
 func (entity *EventSourcedActor) stopFlushTimer() {
-	entity.batchMu.Lock()
-	defer entity.batchMu.Unlock()
 	if entity.flushTimer != nil {
 		entity.flushTimer.Stop()
 		entity.flushTimer = nil
@@ -1047,12 +1067,8 @@ func (entity *EventSourcedActor) stopFlushTimer() {
 }
 
 // resetBatch clears all batch accumulation state, preparing the actor for
-// a new batch cycle. The mutex prevents a data race between the
-// message-processing goroutine (replyFromBatch) and the shutdown
-// goroutine (PostStop).
+// a new batch cycle.
 func (entity *EventSourcedActor) resetBatch() {
-	entity.batchMu.Lock()
-	defer entity.batchMu.Unlock()
 	entity.batchBuffer = nil
 	entity.batchEntries = nil
 	entity.batchState = nil
@@ -1061,4 +1077,39 @@ func (entity *EventSourcedActor) resetBatch() {
 	entity.batchNumEvents = 0
 	entity.remainingReplies = 0
 	entity.batchFailure = nil
+}
+
+// discardBatch drops the batch of a previous incarnation of the entity when it
+// restarts: it cancels the flush timer, clears the batch and returns the entity
+// to phaseProcessing. The commands of a batch that was never written are not
+// replayed: the entity recovers from the journal, which never received them.
+func (entity *EventSourcedActor) discardBatch() {
+	entity.stopFlushTimer()
+	entity.resetBatch()
+	entity.phase = phaseProcessing
+}
+
+// handleStopEntity replies with a NoReply once every write the entity has
+// started has completed, then stops the entity.
+//
+// A batch write in flight completes first: the request is stashed with the
+// batch's commands and comes back once the write is done. A snapshot handed to
+// the snapshots writer is written before the entity stops, since stopping the
+// entity stops the writer at once. When the snapshots writer does not finish
+// in time, the entity keeps running and replies with an ErrorReply.
+func (entity *EventSourcedActor) handleStopEntity(ctx *goakt.ReceiveContext) {
+	if entity.phase == phaseFlushing {
+		ctx.Stash()
+		return
+	}
+
+	if entity.snapshotsWriter != nil {
+		if _, err := goakt.Ask(ctx.Context(), entity.snapshotsWriter, new(drainRequest), entity.persistTimeout); err != nil {
+			ctx.Response(&egopb.ErrorReply{Message: fmt.Sprintf("failed to write the pending snapshots: %v", err)})
+			return
+		}
+	}
+
+	ctx.Response(new(egopb.NoReply))
+	ctx.Shutdown()
 }

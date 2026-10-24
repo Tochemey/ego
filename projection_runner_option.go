@@ -27,10 +27,10 @@ import (
 
 	"github.com/tochemey/goakt/v4/log"
 
-	"github.com/tochemey/ego/v4/encryption"
-	"github.com/tochemey/ego/v4/eventadapter"
-	"github.com/tochemey/ego/v4/eventstream"
-	"github.com/tochemey/ego/v4/projection"
+	"github.com/tochemey/ego/v5/encryption"
+	"github.com/tochemey/ego/v5/eventadapter"
+	"github.com/tochemey/ego/v5/eventstream"
+	"github.com/tochemey/ego/v5/projection"
 )
 
 // Option is the interface that applies a configuration option.
@@ -49,19 +49,37 @@ func (f runnerOptionFunc) Apply(runner *projectionRunner) {
 	f(runner)
 }
 
-// WithPullInterval sets the events pull interval
-// This defines how often the projection will fetch events
+// withPullInterval sets how often the runner reads the journal. A value of
+// zero or less keeps the default: the pull ticker needs a positive interval.
 func withPullInterval(interval time.Duration) runnerOption {
 	return runnerOptionFunc(func(runner *projectionRunner) {
+		if interval <= 0 {
+			return
+		}
+
 		runner.pullInterval = interval
 	})
 }
 
-// withMaxBufferSize sets the max buffer size.
-// This defines how many events are fetched on a single run of the projection
+// withMaxBufferSize sets how many events the runner reads from a shard, and
+// replays of one entity, at once. A value below one keeps the default: a buffer
+// of zero events could never make progress.
 func withMaxBufferSize(bufferSize int) runnerOption {
 	return runnerOptionFunc(func(runner *projectionRunner) {
+		if bufferSize < 1 {
+			return
+		}
+
 		runner.maxBufferSize = bufferSize
+	})
+}
+
+// withTransactionalHandler makes the runner hand each event to the given
+// transactional handler, which records the event's offset in its own
+// transaction, instead of to its handler.
+func withTransactionalHandler(handler projection.TransactionalHandler) runnerOption {
+	return runnerOptionFunc(func(runner *projectionRunner) {
+		runner.transactionalHandler = handler
 	})
 }
 

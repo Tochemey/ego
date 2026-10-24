@@ -23,35 +23,40 @@
 package ego
 
 import (
-	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	goakt "github.com/tochemey/goakt/v4/actor"
-	"github.com/tochemey/goakt/v4/log"
+
+	"github.com/tochemey/ego/v5/egopb"
 )
 
-func TestShardLocator(t *testing.T) {
-	t.Run("looks the shard up once and keeps it", func(t *testing.T) {
-		ctx := context.Background()
-		actorSystem, err := goakt.NewActorSystem("TestSystem", goakt.WithLogger(log.DiscardLogger))
-		require.NoError(t, err)
-		require.NoError(t, actorSystem.Start(ctx))
-		t.Cleanup(func() { _ = actorSystem.Stop(ctx) })
+func TestStampEvents(t *testing.T) {
+	t.Run("stamps the events a nanosecond apart from the current time", func(t *testing.T) {
+		before := time.Now().UnixNano()
+		envelopes := []*egopb.Event{{}, {}, {}}
 
-		locator := shardLocator{}
-		// outside a cluster every actor is on partition 0
-		assert.EqualValues(t, 0, locator.locate(actorSystem, "entity-1"))
-		assert.True(t, locator.resolved)
+		last := stampEvents(envelopes, 0)
 
-		// a resolved locator never consults the actor system again: a lookup
-		// through a nil system would panic
-		assert.EqualValues(t, 0, locator.locate(nil, "entity-1"))
+		assert.GreaterOrEqual(t, envelopes[0].GetTimestamp(), before)
+		assert.Equal(t, envelopes[0].GetTimestamp()+1, envelopes[1].GetTimestamp())
+		assert.Equal(t, envelopes[1].GetTimestamp()+1, envelopes[2].GetTimestamp())
+		assert.Equal(t, envelopes[2].GetTimestamp(), last)
 	})
 
-	t.Run("returns a shard set in advance without a lookup", func(t *testing.T) {
-		locator := shardLocator{resolved: true, shard: 7}
-		assert.EqualValues(t, 7, locator.locate(nil, "entity-1"))
+	t.Run("never stamps at or before the previous event when the clock is behind it", func(t *testing.T) {
+		// the previous event was stamped by a clock an hour ahead of this one
+		previous := time.Now().Add(time.Hour).UnixNano()
+		envelopes := []*egopb.Event{{}, {}}
+
+		last := stampEvents(envelopes, previous)
+
+		assert.Equal(t, previous+1, envelopes[0].GetTimestamp())
+		assert.Equal(t, previous+2, envelopes[1].GetTimestamp())
+		assert.Equal(t, previous+2, last)
 	})
+}
+
+func TestStampEventsWithoutEvents(t *testing.T) {
+	assert.EqualValues(t, 42, stampEvents(nil, 42), "nothing written leaves the last timestamp unchanged")
 }

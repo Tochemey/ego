@@ -1,0 +1,11 @@
+# The image only needs the eGo module, the migration command and this example.
+.git
+.local
+**/vendor
+**/coverage.out
+benchmark
+publisher
+example/cluster
+example/durablestate
+example/eventssourced
+example/saga

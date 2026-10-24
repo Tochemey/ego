@@ -52,9 +52,9 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 
-	"github.com/tochemey/ego/v4"
-	samplepb "github.com/tochemey/ego/v4/example/examplepb"
-	"github.com/tochemey/ego/v4/projection"
+	"github.com/tochemey/ego/v5"
+	samplepb "github.com/tochemey/ego/v5/example/examplepb"
+	"github.com/tochemey/ego/v5/projection"
 )
 
 const (
@@ -122,7 +122,7 @@ func main() {
 		"discovery",
 	)
 
-	projectionHandler := NewAccountBalanceHandler(pool)
+	projectionHandler := NewAccountBalanceHandler(pool, offsetStore, projectionName)
 
 	// Build the eGo Config once; the same instance is passed to both the
 	// actor system (for extension wiring) and the engine.
@@ -134,11 +134,11 @@ func main() {
 		// peer's type registry.
 		ego.WithEntityKinds(new(AccountBehavior), new(TransferBehavior), new(FundTransferSaga)),
 		ego.WithProjection(projectionName, &projection.Options{
-			Handler:      projectionHandler,
-			BufferSize:   500,
-			StartOffset:  time.Time{},
-			ResetOffset:  time.Time{},
-			PullInterval: time.Second,
+			TransactionalHandler: projectionHandler,
+			BufferSize:           500,
+			StartOffset:          time.Time{},
+			ResetOffset:          time.Time{},
+			PullInterval:         time.Second,
 			Recovery: projection.NewRecovery(
 				projection.WithRetries(5),
 				projection.WithRetryDelay(time.Second),

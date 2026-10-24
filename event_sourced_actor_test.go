@@ -46,17 +46,17 @@ import (
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	"github.com/tochemey/ego/v4/egopb"
-	"github.com/tochemey/ego/v4/encryption"
-	"github.com/tochemey/ego/v4/eventadapter"
-	"github.com/tochemey/ego/v4/eventstream"
-	"github.com/tochemey/ego/v4/internal/extensions"
-	"github.com/tochemey/ego/v4/internal/pause"
-	mockencryption "github.com/tochemey/ego/v4/mocks/encryption"
-	mockadapter "github.com/tochemey/ego/v4/mocks/eventadapter"
-	mocks "github.com/tochemey/ego/v4/mocks/persistence"
-	testpb "github.com/tochemey/ego/v4/test/data/testpb"
-	"github.com/tochemey/ego/v4/testkit"
+	"github.com/tochemey/ego/v5/egopb"
+	"github.com/tochemey/ego/v5/encryption"
+	"github.com/tochemey/ego/v5/eventadapter"
+	"github.com/tochemey/ego/v5/eventstream"
+	"github.com/tochemey/ego/v5/internal/extensions"
+	"github.com/tochemey/ego/v5/internal/pause"
+	mockencryption "github.com/tochemey/ego/v5/mocks/encryption"
+	mockadapter "github.com/tochemey/ego/v5/mocks/eventadapter"
+	mocks "github.com/tochemey/ego/v5/mocks/persistence"
+	testpb "github.com/tochemey/ego/v5/test/data/testpb"
+	"github.com/tochemey/ego/v5/testkit"
 )
 
 func TestEventSourcedActor(t *testing.T) {
@@ -4406,4 +4406,172 @@ func TestEventSourcedActorStampsEventsAfterHandling(t *testing.T) {
 	// Stamped after the handler ran: the event is younger than the handler's
 	// delay at the time the command was answered.
 	assert.Less(t, repliedAt-latest.GetTimestamp(), int64(handlerDelay))
+}
+
+// TestEventSourcedActorStampsAfterRecoveredEvent asserts that an entity stamps
+// its new events after the latest event it recovered, and after each event it
+// writes, even when its clock is behind the one that stamped them.
+func TestEventSourcedActorStampsAfterRecoveredEvent(t *testing.T) {
+	run := func(t *testing.T, entityCfg *extensions.EntityConfig) {
+		ctx := context.TODO()
+
+		eventStore := testkit.NewEventsStore()
+		require.NoError(t, eventStore.Connect(ctx))
+		persistenceID := uuid.NewString()
+		behavior := NewAccountEventSourcedBehavior(persistenceID)
+
+		// the entity's first event was stamped by a clock an hour ahead of this one
+		recovered := time.Now().Add(time.Hour).UnixNano()
+		eventAny, err := anypb.New(&testpb.AccountCreated{AccountId: persistenceID, AccountBalance: 500})
+		require.NoError(t, err)
+		require.NoError(t, eventStore.WriteEvents(ctx, []*egopb.Event{{
+			PersistenceId:  persistenceID,
+			SequenceNumber: 1,
+			Event:          eventAny,
+			Timestamp:      recovered,
+		}}))
+
+		eventStream := eventstream.New()
+		actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+			goakt.WithLogger(log.DiscardLogger),
+			goakt.WithExtensions(
+				extensions.NewEventsStore(eventStore),
+				extensions.NewEventsStream(eventStream),
+			),
+			goakt.WithActorInitMaxRetries(3))
+		require.NoError(t, err)
+		require.NoError(t, actorSystem.Start(ctx))
+		pause.For(time.Second)
+
+		spawnOptions := []goakt.SpawnOption{goakt.WithLongLived(), goakt.WithStashing(), goakt.WithDependencies(behavior)}
+		if entityCfg != nil {
+			spawnOptions = append(spawnOptions, goakt.WithDependencies(behavior, entityCfg))
+		}
+
+		pid, err := actorSystem.Spawn(ctx, behavior.ID(), newEventSourcedActor(), spawnOptions...)
+		require.NoError(t, err)
+		pause.For(time.Second)
+
+		for range 2 {
+			reply, err := goakt.Ask(ctx, pid, &testpb.CreditAccount{AccountId: persistenceID, Balance: 250}, 5*time.Second)
+			require.NoError(t, err)
+			require.IsType(t, new(egopb.CommandReply_StateReply), reply.(*egopb.CommandReply).GetReply())
+		}
+
+		events, err := eventStore.ReplayEvents(ctx, persistenceID, 1, 3, 3)
+		require.NoError(t, err)
+		require.Len(t, events, 3)
+
+		assert.Greater(t, events[1].GetTimestamp(), recovered, "the first new event is stamped after the recovered one")
+		assert.Greater(t, events[2].GetTimestamp(), events[1].GetTimestamp(), "the next event is stamped after the one just written")
+
+		require.NoError(t, eventStore.Disconnect(ctx))
+		eventStream.Close()
+		pause.For(time.Second)
+		require.NoError(t, actorSystem.Stop(ctx))
+	}
+
+	t.Run("writing each command's events directly", func(t *testing.T) {
+		run(t, nil)
+	})
+
+	t.Run("writing the events in batches", func(t *testing.T) {
+		run(t, &extensions.EntityConfig{BatchThreshold: 100, BatchFlushWindow: 100 * time.Millisecond})
+	})
+}
+
+// TestEventSourcedActorBatchRepliesReachTheirCallers asserts that every caller
+// of a batched entity receives the reply to its own command, and that every
+// command is applied exactly once, when commands keep arriving while a batch
+// write completes. Each credit carries a distinct power of two, so a reply and
+// the final balance show exactly which credits were applied.
+func TestEventSourcedActorBatchRepliesReachTheirCallers(t *testing.T) {
+	const (
+		rounds  = 100
+		callers = 32
+	)
+
+	ctx := context.Background()
+	eventStore := testkit.NewEventsStore()
+	require.NoError(t, eventStore.Connect(ctx))
+	t.Cleanup(func() { _ = eventStore.Disconnect(ctx) })
+
+	eventStream := eventstream.New()
+	t.Cleanup(eventStream.Close)
+
+	actorSystem, err := goakt.NewActorSystem("TestActorSystem",
+		goakt.WithLogger(log.DiscardLogger),
+		goakt.WithExtensions(
+			extensions.NewEventsStore(eventStore),
+			extensions.NewEventsStream(eventStream),
+		))
+	require.NoError(t, err)
+	require.NoError(t, actorSystem.Start(ctx))
+	t.Cleanup(func() { _ = actorSystem.Stop(ctx) })
+
+	entityCfg := &extensions.EntityConfig{BatchThreshold: 8, BatchFlushWindow: time.Millisecond}
+
+	for round := range rounds {
+		persistenceID := uuid.NewString()
+		pid, err := actorSystem.Spawn(ctx, persistenceID, newEventSourcedActor(),
+			goakt.WithDependencies(NewAccountEventSourcedBehavior(persistenceID), entityCfg),
+			goakt.WithLongLived(),
+			goakt.WithStashing())
+		require.NoError(t, err)
+
+		_, err = goakt.Ask(ctx, pid, &testpb.CreateAccount{AccountBalance: 0}, 5*time.Second)
+		require.NoError(t, err)
+
+		var wg sync.WaitGroup
+		balances := make([]float64, callers)
+		errs := make([]error, callers)
+
+		for caller := range callers {
+			wg.Go(func() {
+				reply, err := goakt.Ask(ctx, pid, &testpb.CreditAccount{AccountId: persistenceID, Balance: float64(uint64(1) << caller)}, 10*time.Second)
+				if err != nil {
+					errs[caller] = err
+					return
+				}
+
+				account := new(testpb.Account)
+				errs[caller] = reply.(*egopb.CommandReply).GetStateReply().GetState().UnmarshalTo(account)
+				balances[caller] = account.GetAccountBalance()
+			})
+		}
+
+		wg.Wait()
+
+		for caller := range callers {
+			require.NoError(t, errs[caller], "round %d, caller %d", round, caller)
+			assert.NotZero(t, uint64(balances[caller])&(uint64(1)<<caller), "round %d: caller %d got a reply without its own credit", round, caller)
+		}
+
+		state := accountBalanceOf(t, ctx, pid)
+		require.InDelta(t, float64(uint64(1)<<callers-1), state.balance, 0, "round %d: a credit was lost or applied twice", round)
+		require.EqualValues(t, callers+1, state.sequence, "round %d", round)
+
+		require.NoError(t, pid.Shutdown(ctx))
+	}
+}
+
+// accountState is the balance of an account entity and its sequence number.
+type accountState struct {
+	balance  float64
+	sequence uint64
+}
+
+// accountBalanceOf asks the entity for its state and returns its balance and
+// sequence number.
+func accountBalanceOf(t *testing.T, ctx context.Context, pid *goakt.PID) accountState {
+	t.Helper()
+
+	reply, err := goakt.Ask(ctx, pid, new(egopb.GetStateCommand), 5*time.Second)
+	require.NoError(t, err)
+
+	stateReply := reply.(*egopb.CommandReply).GetStateReply()
+	account := new(testpb.Account)
+	require.NoError(t, stateReply.GetState().UnmarshalTo(account))
+
+	return accountState{balance: account.GetAccountBalance(), sequence: stateReply.GetSequenceNumber()}
 }

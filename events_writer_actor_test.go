@@ -34,12 +34,12 @@ import (
 	"github.com/tochemey/goakt/v4/log"
 	"google.golang.org/protobuf/types/known/anypb"
 
-	"github.com/tochemey/ego/v4/egopb"
-	"github.com/tochemey/ego/v4/eventstream"
-	"github.com/tochemey/ego/v4/internal/extensions"
-	"github.com/tochemey/ego/v4/internal/pause"
-	mocks "github.com/tochemey/ego/v4/mocks/persistence"
-	"github.com/tochemey/ego/v4/testkit"
+	"github.com/tochemey/ego/v5/egopb"
+	"github.com/tochemey/ego/v5/eventstream"
+	"github.com/tochemey/ego/v5/internal/extensions"
+	"github.com/tochemey/ego/v5/internal/pause"
+	mocks "github.com/tochemey/ego/v5/mocks/persistence"
+	"github.com/tochemey/ego/v5/testkit"
 )
 
 // TestEventsWriterActorStampsEventsAtWriteTime asserts that the writer stamps
@@ -314,4 +314,49 @@ func TestEventsWriterActor(t *testing.T) {
 		eventStream.Close()
 		require.NoError(t, actorSystem.Stop(ctx))
 	})
+}
+
+func TestEventsWriterActorStampsAfterThePreviousEvent(t *testing.T) {
+	ctx := context.TODO()
+
+	eventStore := testkit.NewEventsStore()
+	require.NoError(t, eventStore.Connect(ctx))
+
+	actorSystem, err := goakt.NewActorSystem("TestWriterSystem",
+		goakt.WithLogger(log.DiscardLogger),
+		goakt.WithExtensions(
+			extensions.NewEventsStore(eventStore),
+			extensions.NewEventsStream(eventstream.New()),
+		),
+		goakt.WithActorInitMaxRetries(1))
+	require.NoError(t, err)
+	require.NoError(t, actorSystem.Start(ctx))
+	pause.For(time.Second)
+
+	pid, err := actorSystem.Spawn(ctx, "event-writer-previous-test", newEventsWriterActor())
+	require.NoError(t, err)
+	pause.For(time.Second)
+
+	// the entity's previous event was stamped by a clock an hour ahead of this one
+	previous := time.Now().Add(time.Hour).UnixNano()
+	eventAny, _ := anypb.New(&egopb.NoReply{})
+	envelopes := []*egopb.Event{
+		{PersistenceId: "entity-1", SequenceNumber: 2, Event: eventAny},
+		{PersistenceId: "entity-1", SequenceNumber: 3, Event: eventAny},
+	}
+
+	reply, err := goakt.Ask(ctx, pid, &persistEventsRequest{envelopes: envelopes, topic: "topic.events.0", previousTimestamp: previous}, 5*time.Second)
+	require.NoError(t, err)
+	response := reply.(*persistEventsResponse)
+	require.Nil(t, response.Err)
+
+	events, err := eventStore.ReplayEvents(ctx, "entity-1", 2, 3, 2)
+	require.NoError(t, err)
+	require.Len(t, events, 2)
+
+	assert.Greater(t, events[0].GetTimestamp(), previous, "the first event must be stamped after the previous one")
+	assert.Greater(t, events[1].GetTimestamp(), events[0].GetTimestamp())
+	assert.Equal(t, events[1].GetTimestamp(), response.LastTimestamp, "the reply carries the timestamp of the last event written")
+
+	require.NoError(t, actorSystem.Stop(ctx))
 }

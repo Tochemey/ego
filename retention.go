@@ -28,6 +28,12 @@ package ego
 type RetentionPolicy struct {
 	// DeleteEventsOnSnapshot when true, deletes events up to the snapshot
 	// sequence number after a successful snapshot write.
+	//
+	// Delete events only once every projection has processed them: a
+	// projection that has processed an entity up to some event and then finds
+	// a later one replays the events in between, and retries the shard for as
+	// long as any of them is missing. Use EventsRetentionCount to keep a margin
+	// that covers how far the projections can fall behind.
 	DeleteEventsOnSnapshot bool
 	// DeleteSnapshotsOnSnapshot when true, deletes older snapshots after
 	// a new snapshot is written, keeping only the latest.

@@ -24,6 +24,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -31,9 +32,9 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
-	"github.com/tochemey/ego/v4/egopb"
-	"github.com/tochemey/ego/v4/offsetstore"
-	"github.com/tochemey/ego/v4/persistence"
+	"github.com/tochemey/ego/v5/egopb"
+	"github.com/tochemey/ego/v5/offsetstore"
+	"github.com/tochemey/ego/v5/persistence"
 )
 
 // PostgresEventStore implements persistence.EventsStore using PostgreSQL.
@@ -88,12 +89,13 @@ func (s *PostgresEventStore) WriteEvents(ctx context.Context, events []*egopb.Ev
 		}
 		manifest := string(event.GetEvent().GetTypeUrl())
 
+		// a plain insert: the primary key rejects an event that is already
+		// stored, which fails the whole write
 		_, err = tx.Exec(ctx, `
 			INSERT INTO events_store
 				(persistence_id, sequence_number, is_deleted, event_payload, event_manifest,
 				 timestamp, shard_number, encryption_key_id, is_encrypted)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-			ON CONFLICT (persistence_id, sequence_number) DO NOTHING`,
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
 			event.GetPersistenceId(),
 			event.GetSequenceNumber(),
 			event.GetIsDeleted(),
@@ -190,33 +192,31 @@ func (s *PostgresEventStore) PersistenceIDs(ctx context.Context, pageSize uint64
 	return ids, next, rows.Err()
 }
 
-func (s *PostgresEventStore) GetShardEvents(ctx context.Context, shardNumber uint64, offset int64, limit uint64) ([]*egopb.Event, int64, error) {
+func (s *PostgresEventStore) EventsByShard(ctx context.Context, shardNumber uint64, fromTimestamp int64, limit uint64) ([]*egopb.Event, error) {
 	rows, err := s.pool.Query(ctx, `
 		SELECT persistence_id, sequence_number, is_deleted, event_payload, event_manifest,
 		       timestamp, shard_number, encryption_key_id, is_encrypted
 		FROM events_store
-		WHERE shard_number=$1 AND timestamp > $2
-		ORDER BY timestamp ASC
+		WHERE shard_number=$1 AND timestamp >= $2
+		ORDER BY timestamp ASC, sequence_number ASC, persistence_id ASC
 		LIMIT $3`,
-		shardNumber, offset, limit)
+		shardNumber, fromTimestamp, limit)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	defer rows.Close()
 
-	events, err := scanEvents(rows)
-	if err != nil {
-		return nil, 0, err
-	}
-	if len(events) == 0 {
-		return nil, 0, nil
-	}
-	nextOffset := events[len(events)-1].GetTimestamp()
-	return events, nextOffset, nil
+	return scanEvents(rows)
 }
 
 func (s *PostgresEventStore) ShardOffsets(ctx context.Context) (map[uint64]int64, error) {
-	rows, err := s.pool.Query(ctx, `SELECT shard_number, MAX(timestamp) FROM events_store GROUP BY shard_number`)
+	rows, err := s.pool.Query(ctx, `SELECT s.shard_number, latest.timestamp
+		FROM generate_series(0, $1::bigint) AS s(shard_number)
+		CROSS JOIN LATERAL (
+		  SELECT timestamp FROM events_store
+		  WHERE shard_number = s.shard_number
+		  ORDER BY timestamp DESC LIMIT 1
+		) AS latest`, int64(persistence.NumberOfShards-1))
 	if err != nil {
 		return nil, err
 	}
@@ -313,57 +313,176 @@ func (s *PostgresOffsetStore) Ping(ctx context.Context) error {
 	return s.pool.Ping(ctx)
 }
 
-func (s *PostgresOffsetStore) WriteOffset(ctx context.Context, offset *egopb.Offset) error {
-	_, err := s.pool.Exec(ctx, `
-		INSERT INTO offsets_store (projection_name, shard_number, current_offset, timestamp)
-		VALUES ($1, $2, $3, $4)
-		ON CONFLICT (projection_name, shard_number)
-		DO UPDATE SET current_offset = EXCLUDED.current_offset, timestamp = EXCLUDED.timestamp`,
-		offset.GetProjectionName(),
-		offset.GetShardNumber(),
-		offset.GetValue(),
-		offset.GetTimestamp(),
-	)
-	return err
+// WriteOffsets inserts one row per offset in a single transaction, sent as one
+// batch so a buffer of offsets costs one round trip. Writing the same offset
+// twice is harmless: the row is identical.
+func (s *PostgresOffsetStore) WriteOffsets(ctx context.Context, projectionName string, offsets []*egopb.EntityOffset) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if err := s.WriteOffsetsTx(ctx, tx, projectionName, offsets); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
-func (s *PostgresOffsetStore) GetCurrentOffset(ctx context.Context, projectionID *egopb.ProjectionId) (*egopb.Offset, error) {
-	row := s.pool.QueryRow(ctx, `
-		SELECT projection_name, shard_number, current_offset, timestamp
-		FROM offsets_store
-		WHERE projection_name=$1 AND shard_number=$2`,
-		projectionID.GetProjectionName(),
-		projectionID.GetShardNumber(),
-	)
+// WriteOffsetsTx inserts the offsets within the caller's transaction, so a
+// projection.TransactionalHandler commits them together with the event's
+// effect. The caller commits or rolls back.
+func (s *PostgresOffsetStore) WriteOffsetsTx(ctx context.Context, tx pgx.Tx, projectionName string, offsets []*egopb.EntityOffset) error {
+	batch := &pgx.Batch{}
+	for _, offset := range offsets {
+		batch.Queue(`
+			INSERT INTO offsets_store
+				(projection_name, shard_number, timestamp, persistence_id, sequence_number, consumed_at)
+			VALUES ($1, $2, $3, $4, $5, $6)
+			ON CONFLICT DO NOTHING`,
+			projectionName,
+			offset.GetShardNumber(),
+			offset.GetTimestamp(),
+			offset.GetPersistenceId(),
+			offset.GetSequenceNumber(),
+			offset.GetConsumedAt(),
+		)
+	}
 
-	var offset egopb.Offset
-	err := row.Scan(
-		&offset.ProjectionName,
-		&offset.ShardNumber,
-		&offset.Value,
-		&offset.Timestamp,
-	)
+	if err := tx.SendBatch(ctx, batch).Close(); err != nil {
+		return fmt.Errorf("insert offsets: %w", err)
+	}
+	return nil
+}
+
+func (s *PostgresOffsetStore) ReadOffsets(ctx context.Context, projectionName string, shardNumber uint64, limit uint64) ([]*egopb.EntityOffset, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT shard_number, persistence_id, sequence_number, timestamp, consumed_at
+		FROM offsets_store
+		WHERE projection_name=$1 AND shard_number=$2
+		ORDER BY timestamp DESC
+		LIMIT $3`,
+		projectionName, shardNumber, limit)
 	if err != nil {
-		if err.Error() == "no rows in result set" {
-			return nil, nil
-		}
 		return nil, err
 	}
-	return &offset, nil
+	defer rows.Close()
+
+	return scanOffsets(rows)
 }
 
-func (s *PostgresOffsetStore) ResetOffset(ctx context.Context, projectionName string, value int64) error {
-	_, err := s.pool.Exec(ctx, `
-		UPDATE offsets_store SET current_offset=$1 WHERE projection_name=$2`,
-		value, projectionName)
-	return err
+func (s *PostgresOffsetStore) ReadEntityOffset(ctx context.Context, projectionName string, shardNumber uint64, persistenceID string) (*egopb.EntityOffset, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT shard_number, persistence_id, sequence_number, timestamp, consumed_at
+		FROM offsets_store
+		WHERE projection_name=$1 AND shard_number=$2 AND persistence_id=$3
+		ORDER BY sequence_number DESC
+		LIMIT 1`,
+		projectionName, shardNumber, persistenceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	offsets, err := scanOffsets(rows)
+	if err != nil || len(offsets) == 0 {
+		return nil, err
+	}
+	return offsets[0], nil
 }
 
-// DeleteOffset removes the offsets of the given projection across all shards.
-// Deleting the offsets of a projection that has none is not an error.
-func (s *PostgresOffsetStore) DeleteOffset(ctx context.Context, projectionName string) error {
-	_, err := s.pool.Exec(ctx,
-		`DELETE FROM offsets_store WHERE projection_name=$1`,
+func (s *PostgresOffsetStore) LatestOffsets(ctx context.Context, projectionName string) (map[uint64]int64, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT shard_number, MAX(timestamp) FROM offsets_store
+		WHERE projection_name=$1 GROUP BY shard_number`,
 		projectionName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	latest := make(map[uint64]int64)
+	for rows.Next() {
+		var (
+			shard     uint64
+			timestamp int64
+		)
+		if err := rows.Scan(&shard, &timestamp); err != nil {
+			return nil, err
+		}
+		latest[shard] = timestamp
+	}
+	return latest, rows.Err()
+}
+
+func (s *PostgresOffsetStore) DeleteOffsetsBefore(ctx context.Context, projectionName string, shardNumber uint64, before, consumedBefore int64) error {
+	_, err := s.pool.Exec(ctx, `
+		DELETE FROM offsets_store
+		WHERE projection_name=$1 AND shard_number=$2 AND timestamp < $3 AND consumed_at < $4`,
+		projectionName, shardNumber, before, consumedBefore)
 	return err
+}
+
+// ResetOffset deletes the offsets of the projection and records its start
+// offset, in a single transaction.
+func (s *PostgresOffsetStore) ResetOffset(ctx context.Context, projectionName string, value int64) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `DELETE FROM offsets_store WHERE projection_name=$1`, projectionName); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO offsets_start (projection_name, start_offset) VALUES ($1, $2)
+		ON CONFLICT (projection_name) DO UPDATE SET start_offset = EXCLUDED.start_offset`,
+		projectionName, value); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *PostgresOffsetStore) StartOffset(ctx context.Context, projectionName string) (int64, error) {
+	var start int64
+	err := s.pool.QueryRow(ctx, `SELECT start_offset FROM offsets_start WHERE projection_name=$1`, projectionName).Scan(&start)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, nil
+	}
+	return start, err
+}
+
+// DeleteOffset removes the offsets and the start offset of the given
+// projection. Deleting the offsets of a projection that has none is not an
+// error.
+func (s *PostgresOffsetStore) DeleteOffset(ctx context.Context, projectionName string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	if _, err := tx.Exec(ctx, `DELETE FROM offsets_store WHERE projection_name=$1`, projectionName); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(ctx, `DELETE FROM offsets_start WHERE projection_name=$1`, projectionName); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// scanOffsets reads rows into egopb.EntityOffset slices.
+func scanOffsets(rows pgx.Rows) ([]*egopb.EntityOffset, error) {
+	var offsets []*egopb.EntityOffset
+	for rows.Next() {
+		offset := new(egopb.EntityOffset)
+		if err := rows.Scan(&offset.ShardNumber, &offset.PersistenceId, &offset.SequenceNumber, &offset.Timestamp, &offset.ConsumedAt); err != nil {
+			return nil, err
+		}
+		offsets = append(offsets, offset)
+	}
+	return offsets, rows.Err()
 }

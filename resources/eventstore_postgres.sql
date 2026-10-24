@@ -20,23 +20,36 @@
 --  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 --  SOFTWARE.
 
+
+-- The journal of persistence.EventsStore (eGo v5).
+--
+-- Every event of a persistence ID is stored on the shard persistence.ShardFor
+-- gives it, and an entity's timestamps strictly increase. WriteEvents must
+-- insert without ON CONFLICT: the primary key then rejects an event already
+-- stored, which fails the whole write.
 CREATE TABLE IF NOT EXISTS events_store
 (
-    persistence_id    VARCHAR(255)          NOT NULL,
-    sequence_number   BIGINT                NOT NULL,
-    is_deleted        BOOLEAN DEFAULT FALSE NOT NULL,
-    event_payload     BYTEA                 NOT NULL,
-    event_manifest    VARCHAR(255)          NOT NULL,
-    timestamp         BIGINT                NOT NULL,
-    shard_number      BIGINT                NOT NULL,
+    persistence_id    VARCHAR(255)            NOT NULL,
+    sequence_number   BIGINT                  NOT NULL,
+    is_deleted        BOOLEAN DEFAULT FALSE   NOT NULL,
+    event_payload     BYTEA                   NOT NULL,
+    event_manifest    VARCHAR(255)            NOT NULL,
+    timestamp         BIGINT                  NOT NULL,
+    shard_number      BIGINT                  NOT NULL,
     encryption_key_id VARCHAR(255) DEFAULT '' NOT NULL,
-    is_encrypted      BOOLEAN DEFAULT FALSE NOT NULL,
+    is_encrypted      BOOLEAN DEFAULT FALSE   NOT NULL,
 
+    -- WriteEvents, ReplayEvents, GetLatestEvent, DeleteEvents and PersistenceIDs
     PRIMARY KEY (persistence_id, sequence_number)
 );
 
---- create an indexes
-CREATE INDEX IF NOT EXISTS idx_events_store_persistence_id ON events_store(persistence_id);
-CREATE INDEX IF NOT EXISTS idx_events_store_seqnumber ON events_store(sequence_number);
-CREATE INDEX IF NOT EXISTS idx_events_store_timestamp ON events_store (timestamp);
-CREATE INDEX IF NOT EXISTS idx_events_store_shard ON events_store (shard_number);
+-- EventsByShard:
+--   SELECT ... FROM events_store WHERE shard_number = $1 AND timestamp >= $2
+--   ORDER BY timestamp, sequence_number, persistence_id LIMIT $3
+-- and ShardOffsets, one backward index probe per shard instead of a scan of
+-- the whole journal:
+--   SELECT s.shard_number, latest.timestamp
+--   FROM generate_series(0, 1023) AS s(shard_number)
+--   CROSS JOIN LATERAL (SELECT timestamp FROM events_store
+--     WHERE shard_number = s.shard_number ORDER BY timestamp DESC LIMIT 1) AS latest
+CREATE INDEX IF NOT EXISTS idx_events_store_shard_timestamp ON events_store (shard_number, timestamp, sequence_number, persistence_id);

@@ -23,54 +23,71 @@
 package testkit
 
 import (
+	"cmp"
 	"context"
+	"slices"
 	"sync"
-	"time"
 
 	"go.uber.org/atomic"
+	"google.golang.org/protobuf/proto"
 
-	"github.com/tochemey/ego/v4/egopb"
-	"github.com/tochemey/ego/v4/offsetstore"
+	"github.com/tochemey/ego/v5/egopb"
+	"github.com/tochemey/ego/v5/offsetstore"
 )
 
-type OffsetKey struct {
-	ProjectionName string
-	ShardNumber    uint64
-}
+// OffsetStore is an in-memory offsetstore.OffsetStore for tests. It keeps every
+// offset written, as a SQL-backed store does, until DeleteOffsetsBefore,
+// ResetOffset or DeleteOffset removes it.
 type OffsetStore struct {
-	db        *sync.Map
+	// mutex guards offsets, keys and startOffsets.
+	mutex sync.RWMutex
+	// offsets holds the offsets of every projection, keyed by projection name.
+	offsets map[string][]*egopb.EntityOffset
+	// keys holds the key of every stored offset of every projection, keyed by
+	// projection name, so a write recognizes a stored offset without a scan.
+	keys map[string]map[offsetKey]struct{}
+	// startOffsets holds the start offset ResetOffset recorded, keyed by projection name.
+	startOffsets map[string]int64
+	// connected reports whether Connect was called.
 	connected *atomic.Bool
 }
 
+// enforces compilation error
 var _ offsetstore.OffsetStore = (*OffsetStore)(nil)
 
+// NewOffsetStore creates an empty, disconnected OffsetStore.
 func NewOffsetStore() *OffsetStore {
 	return &OffsetStore{
-		db:        &sync.Map{},
-		connected: atomic.NewBool(false),
+		offsets:      make(map[string][]*egopb.EntityOffset),
+		keys:         make(map[string]map[offsetKey]struct{}),
+		startOffsets: make(map[string]int64),
+		connected:    atomic.NewBool(false),
 	}
 }
 
+// Connect connects the store. Connecting a connected store does nothing.
 func (x *OffsetStore) Connect(context.Context) error {
-	if x.connected.Load() {
-		return nil
-	}
 	x.connected.Store(true)
 	return nil
 }
 
+// Disconnect drops every offset and disconnects the store.
 func (x *OffsetStore) Disconnect(context.Context) error {
 	if !x.connected.Load() {
 		return nil
 	}
-	x.db.Range(func(key interface{}, _ interface{}) bool {
-		x.db.Delete(key)
-		return true
-	})
+
+	x.mutex.Lock()
+	x.offsets = make(map[string][]*egopb.EntityOffset)
+	x.keys = make(map[string]map[offsetKey]struct{})
+	x.startOffsets = make(map[string]int64)
+	x.mutex.Unlock()
+
 	x.connected.Store(false)
 	return nil
 }
 
+// Ping connects the store when it is not connected.
 func (x *OffsetStore) Ping(ctx context.Context) error {
 	if !x.connected.Load() {
 		return x.Connect(ctx)
@@ -78,56 +95,154 @@ func (x *OffsetStore) Ping(ctx context.Context) error {
 	return nil
 }
 
-func (x *OffsetStore) WriteOffset(_ context.Context, offset *egopb.Offset) error {
-	key := OffsetKey{
-		ProjectionName: offset.GetProjectionName(),
-		ShardNumber:    offset.GetShardNumber(),
+// WriteOffsets stores a copy of every given offset of the projection. An offset with the same
+// shard, timestamp, persistence ID and sequence number as a stored one is kept once, as a SQL store
+// keyed on those columns does.
+func (x *OffsetStore) WriteOffsets(_ context.Context, projectionName string, offsets []*egopb.EntityOffset) error {
+	x.mutex.Lock()
+	defer x.mutex.Unlock()
+
+	stored, ok := x.keys[projectionName]
+	if !ok {
+		stored = make(map[offsetKey]struct{})
+		x.keys[projectionName] = stored
 	}
-	x.db.Store(key, offset)
+
+	for _, offset := range offsets {
+		key := keyOfOffset(offset)
+		if _, exists := stored[key]; exists {
+			continue
+		}
+
+		stored[key] = struct{}{}
+		x.offsets[projectionName] = append(x.offsets[projectionName], proto.CloneOf(offset))
+	}
 	return nil
 }
 
-func (x *OffsetStore) GetCurrentOffset(_ context.Context, projectionID *egopb.ProjectionId) (currentOffset *egopb.Offset, err error) {
-	key := OffsetKey{
-		ProjectionName: projectionID.GetProjectionName(),
-		ShardNumber:    projectionID.GetShardNumber(),
+// ReadOffsets returns at most limit offsets of the projection on the shard, the newest timestamp first.
+func (x *OffsetStore) ReadOffsets(_ context.Context, projectionName string, shardNumber uint64, limit uint64) ([]*egopb.EntityOffset, error) {
+	x.mutex.RLock()
+	defer x.mutex.RUnlock()
+
+	var offsets []*egopb.EntityOffset
+	for _, offset := range x.offsets[projectionName] {
+		if offset.GetShardNumber() == shardNumber {
+			offsets = append(offsets, proto.CloneOf(offset))
+		}
 	}
-	value, ok := x.db.Load(key)
-	if !ok {
+
+	slices.SortStableFunc(offsets, func(left, right *egopb.EntityOffset) int {
+		return cmp.Compare(right.GetTimestamp(), left.GetTimestamp())
+	})
+
+	if uint64(len(offsets)) > limit {
+		offsets = offsets[:limit]
+	}
+	return offsets, nil
+}
+
+// ReadEntityOffset returns the offset of the persistence ID with the highest sequence number, or nil.
+func (x *OffsetStore) ReadEntityOffset(_ context.Context, projectionName string, shardNumber uint64, persistenceID string) (*egopb.EntityOffset, error) {
+	x.mutex.RLock()
+	defer x.mutex.RUnlock()
+
+	var latest *egopb.EntityOffset
+	for _, offset := range x.offsets[projectionName] {
+		if offset.GetShardNumber() != shardNumber || offset.GetPersistenceId() != persistenceID {
+			continue
+		}
+
+		if latest == nil || offset.GetSequenceNumber() > latest.GetSequenceNumber() {
+			latest = offset
+		}
+	}
+
+	if latest == nil {
 		return nil, nil
 	}
-	return value.(*egopb.Offset), nil
+	return proto.CloneOf(latest), nil
 }
 
-// DeleteOffset removes every offset row recorded under the given projection
-// name. A projection that has no offset is not an error.
-func (x *OffsetStore) DeleteOffset(_ context.Context, projectionName string) error {
-	x.db.Range(func(k interface{}, _ interface{}) bool {
-		key := k.(OffsetKey)
-		if key.ProjectionName == projectionName {
-			x.db.Delete(key)
-		}
+// LatestOffsets returns the newest offset timestamp of the projection on every shard it has an offset on.
+func (x *OffsetStore) LatestOffsets(_ context.Context, projectionName string) (map[uint64]int64, error) {
+	x.mutex.RLock()
+	defer x.mutex.RUnlock()
 
-		return true
+	latest := make(map[uint64]int64)
+	for _, offset := range x.offsets[projectionName] {
+		if current, ok := latest[offset.GetShardNumber()]; !ok || offset.GetTimestamp() > current {
+			latest[offset.GetShardNumber()] = offset.GetTimestamp()
+		}
+	}
+	return latest, nil
+}
+
+// DeleteOffsetsBefore deletes the offsets of the projection on the shard that are older than both bounds.
+func (x *OffsetStore) DeleteOffsetsBefore(_ context.Context, projectionName string, shardNumber uint64, before, consumedBefore int64) error {
+	x.mutex.Lock()
+	defer x.mutex.Unlock()
+
+	x.offsets[projectionName] = slices.DeleteFunc(x.offsets[projectionName], func(offset *egopb.EntityOffset) bool {
+		deleted := offset.GetShardNumber() == shardNumber &&
+			offset.GetTimestamp() < before &&
+			offset.GetConsumedAt() < consumedBefore
+		if deleted {
+			delete(x.keys[projectionName], keyOfOffset(offset))
+		}
+		return deleted
 	})
 	return nil
 }
 
+// ResetOffset deletes every offset of the projection and records value as its start offset.
 func (x *OffsetStore) ResetOffset(_ context.Context, projectionName string, value int64) error {
-	ts := time.Now().UnixMilli()
-	x.db.Range(func(k interface{}, _ interface{}) bool {
-		key := k.(OffsetKey)
-		if key.ProjectionName != projectionName {
-			return true
-		}
+	x.mutex.Lock()
+	defer x.mutex.Unlock()
 
-		x.db.Store(key, &egopb.Offset{
-			ShardNumber:    key.ShardNumber,
-			ProjectionName: projectionName,
-			Value:          value,
-			Timestamp:      ts,
-		})
-		return true
-	})
+	delete(x.offsets, projectionName)
+	delete(x.keys, projectionName)
+	x.startOffsets[projectionName] = value
 	return nil
+}
+
+// StartOffset returns the start offset ResetOffset recorded for the projection, or zero.
+func (x *OffsetStore) StartOffset(_ context.Context, projectionName string) (int64, error) {
+	x.mutex.RLock()
+	defer x.mutex.RUnlock()
+
+	return x.startOffsets[projectionName], nil
+}
+
+// DeleteOffset deletes every offset and the start offset of the projection.
+func (x *OffsetStore) DeleteOffset(_ context.Context, projectionName string) error {
+	x.mutex.Lock()
+	defer x.mutex.Unlock()
+
+	delete(x.offsets, projectionName)
+	delete(x.keys, projectionName)
+	delete(x.startOffsets, projectionName)
+	return nil
+}
+
+// offsetKey identifies an offset row of a projection.
+type offsetKey struct {
+	// shardNumber is the shard of the offset.
+	shardNumber uint64
+	// timestamp is the timestamp of the processed event.
+	timestamp int64
+	// persistenceID is the persistence ID of the processed event.
+	persistenceID string
+	// sequenceNumber is the sequence number of the processed event.
+	sequenceNumber uint64
+}
+
+// keyOfOffset returns the key that identifies the offset's row.
+func keyOfOffset(offset *egopb.EntityOffset) offsetKey {
+	return offsetKey{
+		shardNumber:    offset.GetShardNumber(),
+		timestamp:      offset.GetTimestamp(),
+		persistenceID:  offset.GetPersistenceId(),
+		sequenceNumber: offset.GetSequenceNumber(),
+	}
 }

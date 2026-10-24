@@ -588,6 +588,45 @@ func (*GetSagaStatus) Descriptor() ([]byte, []int) {
 	return file_ego_ego_proto_rawDescGZIP(), []int{8}
 }
 
+// StopEntity tells an entity to stop once every write it has started has
+// completed. The entity replies with a NoReply and stops, so the sender
+// knows no write of the entity can land after the reply
+type StopEntity struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StopEntity) Reset() {
+	*x = StopEntity{}
+	mi := &file_ego_ego_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StopEntity) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StopEntity) ProtoMessage() {}
+
+func (x *StopEntity) ProtoReflect() protoreflect.Message {
+	mi := &file_ego_ego_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StopEntity.ProtoReflect.Descriptor instead.
+func (*StopEntity) Descriptor() ([]byte, []int) {
+	return file_ego_ego_proto_rawDescGZIP(), []int{9}
+}
+
 // DeletedState is the state a durable-state command handler returns, with
 // the next version, to delete the entity's durable state. The durable state
 // store keeps a tombstone carrying that version and no state, the deletion
@@ -602,7 +641,7 @@ type DeletedState struct {
 
 func (x *DeletedState) Reset() {
 	*x = DeletedState{}
-	mi := &file_ego_ego_proto_msgTypes[9]
+	mi := &file_ego_ego_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -614,7 +653,7 @@ func (x *DeletedState) String() string {
 func (*DeletedState) ProtoMessage() {}
 
 func (x *DeletedState) ProtoReflect() protoreflect.Message {
-	mi := &file_ego_ego_proto_msgTypes[9]
+	mi := &file_ego_ego_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -627,7 +666,7 @@ func (x *DeletedState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeletedState.ProtoReflect.Descriptor instead.
 func (*DeletedState) Descriptor() ([]byte, []int) {
-	return file_ego_ego_proto_rawDescGZIP(), []int{9}
+	return file_ego_ego_proto_rawDescGZIP(), []int{10}
 }
 
 // SagaStatusReply is the reply to a GetSagaStatus query
@@ -647,7 +686,7 @@ type SagaStatusReply struct {
 
 func (x *SagaStatusReply) Reset() {
 	*x = SagaStatusReply{}
-	mi := &file_ego_ego_proto_msgTypes[10]
+	mi := &file_ego_ego_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -659,7 +698,7 @@ func (x *SagaStatusReply) String() string {
 func (*SagaStatusReply) ProtoMessage() {}
 
 func (x *SagaStatusReply) ProtoReflect() protoreflect.Message {
-	mi := &file_ego_ego_proto_msgTypes[10]
+	mi := &file_ego_ego_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -672,7 +711,7 @@ func (x *SagaStatusReply) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SagaStatusReply.ProtoReflect.Descriptor instead.
 func (*SagaStatusReply) Descriptor() ([]byte, []int) {
-	return file_ego_ego_proto_rawDescGZIP(), []int{10}
+	return file_ego_ego_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *SagaStatusReply) GetSagaId() string {
@@ -703,36 +742,41 @@ func (x *SagaStatusReply) GetSequenceNumber() uint64 {
 	return 0
 }
 
-// Offset defines the projection offset
-type Offset struct {
+// EntityOffset records how far a projection has processed the events of one
+// persistence ID: the last sequence number it processed, and that event's
+// timestamp. A projection's position on a shard is the newest timestamp among
+// the entity offsets of that shard.
+type EntityOffset struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Specifies the shard number
+	// Specifies the shard of the persistence ID
 	ShardNumber uint64 `protobuf:"varint,1,opt,name=shard_number,json=shardNumber,proto3" json:"shard_number,omitempty"`
-	// Specifies the projection name.
-	ProjectionName string `protobuf:"bytes,2,opt,name=projection_name,json=projectionName,proto3" json:"projection_name,omitempty"`
-	// Specifies the value
-	Value int64 `protobuf:"varint,3,opt,name=value,proto3" json:"value,omitempty"`
-	// Specifies the timestamp
-	Timestamp     int64 `protobuf:"varint,5,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	// Specifies the persistence unique identifier
+	PersistenceId string `protobuf:"bytes,2,opt,name=persistence_id,json=persistenceId,proto3" json:"persistence_id,omitempty"`
+	// Specifies the sequence number of the last event processed
+	SequenceNumber uint64 `protobuf:"varint,3,opt,name=sequence_number,json=sequenceNumber,proto3" json:"sequence_number,omitempty"`
+	// Specifies the timestamp of the last event processed, in Unix nanoseconds
+	Timestamp int64 `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	// Specifies when the projection processed the event, in Unix nanoseconds
+	ConsumedAt    int64 `protobuf:"varint,5,opt,name=consumed_at,json=consumedAt,proto3" json:"consumed_at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *Offset) Reset() {
-	*x = Offset{}
-	mi := &file_ego_ego_proto_msgTypes[11]
+func (x *EntityOffset) Reset() {
+	*x = EntityOffset{}
+	mi := &file_ego_ego_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *Offset) String() string {
+func (x *EntityOffset) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*Offset) ProtoMessage() {}
+func (*EntityOffset) ProtoMessage() {}
 
-func (x *Offset) ProtoReflect() protoreflect.Message {
-	mi := &file_ego_ego_proto_msgTypes[11]
+func (x *EntityOffset) ProtoReflect() protoreflect.Message {
+	mi := &file_ego_ego_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -743,90 +787,42 @@ func (x *Offset) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use Offset.ProtoReflect.Descriptor instead.
-func (*Offset) Descriptor() ([]byte, []int) {
-	return file_ego_ego_proto_rawDescGZIP(), []int{11}
+// Deprecated: Use EntityOffset.ProtoReflect.Descriptor instead.
+func (*EntityOffset) Descriptor() ([]byte, []int) {
+	return file_ego_ego_proto_rawDescGZIP(), []int{12}
 }
 
-func (x *Offset) GetShardNumber() uint64 {
+func (x *EntityOffset) GetShardNumber() uint64 {
 	if x != nil {
 		return x.ShardNumber
 	}
 	return 0
 }
 
-func (x *Offset) GetProjectionName() string {
+func (x *EntityOffset) GetPersistenceId() string {
 	if x != nil {
-		return x.ProjectionName
+		return x.PersistenceId
 	}
 	return ""
 }
 
-func (x *Offset) GetValue() int64 {
+func (x *EntityOffset) GetSequenceNumber() uint64 {
 	if x != nil {
-		return x.Value
+		return x.SequenceNumber
 	}
 	return 0
 }
 
-func (x *Offset) GetTimestamp() int64 {
+func (x *EntityOffset) GetTimestamp() int64 {
 	if x != nil {
 		return x.Timestamp
 	}
 	return 0
 }
 
-// ProjectionId defines the projection id
-type ProjectionId struct {
-	state protoimpl.MessageState `protogen:"open.v1"`
-	// Specifies the projection name
-	ProjectionName string `protobuf:"bytes,1,opt,name=projection_name,json=projectionName,proto3" json:"projection_name,omitempty"`
-	// Specifies the shard number
-	ShardNumber   uint64 `protobuf:"varint,2,opt,name=shard_number,json=shardNumber,proto3" json:"shard_number,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ProjectionId) Reset() {
-	*x = ProjectionId{}
-	mi := &file_ego_ego_proto_msgTypes[12]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ProjectionId) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ProjectionId) ProtoMessage() {}
-
-func (x *ProjectionId) ProtoReflect() protoreflect.Message {
-	mi := &file_ego_ego_proto_msgTypes[12]
+func (x *EntityOffset) GetConsumedAt() int64 {
 	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ProjectionId.ProtoReflect.Descriptor instead.
-func (*ProjectionId) Descriptor() ([]byte, []int) {
-	return file_ego_ego_proto_rawDescGZIP(), []int{12}
-}
-
-func (x *ProjectionId) GetProjectionName() string {
-	if x != nil {
-		return x.ProjectionName
-	}
-	return ""
-}
-
-func (x *ProjectionId) GetShardNumber() uint64 {
-	if x != nil {
-		return x.ShardNumber
+		return x.ConsumedAt
 	}
 	return 0
 }
@@ -1049,21 +1045,22 @@ const file_ego_ego_proto_rawDesc = "" +
 	"\x19SagaCompensationConfirmed\x12\x1b\n" +
 	"\tentity_id\x18\x01 \x01(\tR\bentityId\x12\x1c\n" +
 	"\ttimestamp\x18\x02 \x01(\x03R\ttimestamp\"\x0f\n" +
-	"\rGetSagaStatus\"\x0e\n" +
+	"\rGetSagaStatus\"\f\n" +
+	"\n" +
+	"StopEntity\"\x0e\n" +
 	"\fDeletedState\"\x97\x01\n" +
 	"\x0fSagaStatusReply\x12\x17\n" +
 	"\asaga_id\x18\x01 \x01(\tR\x06sagaId\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\rR\x06status\x12*\n" +
 	"\x05state\x18\x03 \x01(\v2\x14.google.protobuf.AnyR\x05state\x12'\n" +
-	"\x0fsequence_number\x18\x04 \x01(\x04R\x0esequenceNumber\"\x88\x01\n" +
-	"\x06Offset\x12!\n" +
-	"\fshard_number\x18\x01 \x01(\x04R\vshardNumber\x12'\n" +
-	"\x0fprojection_name\x18\x02 \x01(\tR\x0eprojectionName\x12\x14\n" +
-	"\x05value\x18\x03 \x01(\x03R\x05value\x12\x1c\n" +
-	"\ttimestamp\x18\x05 \x01(\x03R\ttimestamp\"Z\n" +
-	"\fProjectionId\x12'\n" +
-	"\x0fprojection_name\x18\x01 \x01(\tR\x0eprojectionName\x12!\n" +
-	"\fshard_number\x18\x02 \x01(\x04R\vshardNumber\"\xf3\x01\n" +
+	"\x0fsequence_number\x18\x04 \x01(\x04R\x0esequenceNumber\"\xc0\x01\n" +
+	"\fEntityOffset\x12!\n" +
+	"\fshard_number\x18\x01 \x01(\x04R\vshardNumber\x12%\n" +
+	"\x0epersistence_id\x18\x02 \x01(\tR\rpersistenceId\x12'\n" +
+	"\x0fsequence_number\x18\x03 \x01(\x04R\x0esequenceNumber\x12\x1c\n" +
+	"\ttimestamp\x18\x04 \x01(\x03R\ttimestamp\x12\x1f\n" +
+	"\vconsumed_at\x18\x05 \x01(\x03R\n" +
+	"consumedAt\"\xf3\x01\n" +
 	"\bSnapshot\x12%\n" +
 	"\x0epersistence_id\x18\x01 \x01(\tR\rpersistenceId\x12'\n" +
 	"\x0fsequence_number\x18\x02 \x01(\x04R\x0esequenceNumber\x12*\n" +
@@ -1077,7 +1074,7 @@ const file_ego_ego_proto_rawDesc = "" +
 	"\x0fresulting_state\x18\x03 \x01(\v2\x14.google.protobuf.AnyR\x0eresultingState\x12\x1c\n" +
 	"\ttimestamp\x18\x05 \x01(\x03R\ttimestamp\x12\x14\n" +
 	"\x05shard\x18\x06 \x01(\x04R\x05shardBs\n" +
-	"\tcom.egopbB\bEgoProtoH\x02P\x01Z&github.com/tochemey/ego/v4/egopb;egopb\xa2\x02\x03EXX\xaa\x02\x05Egopb\xca\x02\x05Egopb\xe2\x02\x11Egopb\\GPBMetadata\xea\x02\x05Egopbb\x06proto3"
+	"\tcom.egopbB\bEgoProtoH\x02P\x01Z&github.com/tochemey/ego/v5/egopb;egopb\xa2\x02\x03EXX\xaa\x02\x05Egopb\xca\x02\x05Egopb\xe2\x02\x11Egopb\\GPBMetadata\xea\x02\x05Egopbb\x06proto3"
 
 var (
 	file_ego_ego_proto_rawDescOnce sync.Once
@@ -1102,10 +1099,10 @@ var file_ego_ego_proto_goTypes = []any{
 	(*SagaStatusChanged)(nil),         // 6: egopb.SagaStatusChanged
 	(*SagaCompensationConfirmed)(nil), // 7: egopb.SagaCompensationConfirmed
 	(*GetSagaStatus)(nil),             // 8: egopb.GetSagaStatus
-	(*DeletedState)(nil),              // 9: egopb.DeletedState
-	(*SagaStatusReply)(nil),           // 10: egopb.SagaStatusReply
-	(*Offset)(nil),                    // 11: egopb.Offset
-	(*ProjectionId)(nil),              // 12: egopb.ProjectionId
+	(*StopEntity)(nil),                // 9: egopb.StopEntity
+	(*DeletedState)(nil),              // 10: egopb.DeletedState
+	(*SagaStatusReply)(nil),           // 11: egopb.SagaStatusReply
+	(*EntityOffset)(nil),              // 12: egopb.EntityOffset
 	(*Snapshot)(nil),                  // 13: egopb.Snapshot
 	(*DurableState)(nil),              // 14: egopb.DurableState
 	(*anypb.Any)(nil),                 // 15: google.protobuf.Any

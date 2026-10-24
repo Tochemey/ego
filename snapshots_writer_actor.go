@@ -30,10 +30,10 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
-	"github.com/tochemey/ego/v4/egopb"
-	"github.com/tochemey/ego/v4/encryption"
-	"github.com/tochemey/ego/v4/internal/extensions"
-	"github.com/tochemey/ego/v4/persistence"
+	"github.com/tochemey/ego/v5/egopb"
+	"github.com/tochemey/ego/v5/encryption"
+	"github.com/tochemey/ego/v5/internal/extensions"
+	"github.com/tochemey/ego/v5/persistence"
 )
 
 // persistSnapshotRequest is sent from the EventSourcedActor to the
@@ -51,6 +51,11 @@ type persistSnapshotRequest struct {
 	retentionReq *applyRetentionRequest
 	janitor      *goakt.PID
 }
+
+// drainRequest asks the snapshotsWriterActor to reply once every snapshot sent
+// to it before the request has been written. The writer handles its messages
+// in order, so its NoReply comes after those writes.
+type drainRequest struct{}
 
 // snapshotsWriterActor persists snapshots to the snapshot store asynchronously.
 // Snapshot persistence is an optimization for faster recovery and is not required
@@ -96,6 +101,8 @@ func (a *snapshotsWriterActor) Receive(ctx *goakt.ReceiveContext) {
 	switch msg := ctx.Message().(type) {
 	case *goakt.PostStart:
 		// no-op
+	case *drainRequest:
+		ctx.Response(new(egopb.NoReply))
 	case *persistSnapshotRequest:
 		a.handlePersistSnapshot(ctx, msg)
 	default:

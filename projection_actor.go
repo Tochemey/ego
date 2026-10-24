@@ -31,7 +31,7 @@ import (
 	gerrors "github.com/tochemey/goakt/v4/errors"
 	"github.com/tochemey/goakt/v4/supervisor"
 
-	"github.com/tochemey/ego/v4/internal/extensions"
+	"github.com/tochemey/ego/v5/internal/extensions"
 )
 
 // runnerFailed is the internal message the projection runner sends to its
@@ -95,6 +95,10 @@ func (x *ProjectionActor) PreStart(ctx *goakt.Context) error {
 		return fmt.Errorf("projection %q is not registered: register it with ego.WithProjection on every node", ctx.ActorName())
 	}
 
+	if err := options.Validate(); err != nil {
+		return fmt.Errorf("projection %q: %w", ctx.ActorName(), err)
+	}
+
 	opts := []runnerOption{
 		withLogger(ctx.ActorSystem().Logger()),
 		withRecoveryStrategy(options.Recovery),
@@ -106,6 +110,10 @@ func (x *ProjectionActor) PreStart(ctx *goakt.Context) error {
 
 	if options.DeadLetterHandler != nil {
 		opts = append(opts, withDeadLetterHandler(options.DeadLetterHandler))
+	}
+
+	if options.TransactionalHandler != nil {
+		opts = append(opts, withTransactionalHandler(options.TransactionalHandler))
 	}
 
 	if ext := ctx.Extension(extensions.EventAdaptersExtensionID); ext != nil {
@@ -164,10 +172,18 @@ func (x *ProjectionActor) Receive(ctx *goakt.ReceiveContext) {
 	}
 }
 
-// PostStop prepares the actor to gracefully shutdown
+// PostStop prepares the actor to gracefully shutdown.
+//
+// It returns once the runner's workers have exited: a worker handling an event
+// when the projection stops finishes it and can still commit its offset, so
+// stopping the projection is complete only after that last commit. A rebuild,
+// which resets the offsets once the projection has stopped, relies on it.
 func (x *ProjectionActor) PostStop(ctx *goakt.Context) error {
 	if x.metrics != nil {
 		x.metrics.projectionsActive.Add(ctx.Context(), -1)
 	}
-	return x.runner.Stop()
+
+	err := x.runner.Stop()
+	x.runner.waitForWorkers()
+	return err
 }

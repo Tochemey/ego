@@ -47,6 +47,12 @@ jobs:
         shell: bash
         run: |
           go-acc ./... -o coverage.out --ignore egopb,test,example,mocks,benchmark -- -mod=vendor -p 1 -timeout 0 -race -v
+      - name: Test the migration command
+        working-directory: cmd/migrate
+        shell: bash
+        run: |
+          go mod tidy && go mod vendor
+          go test -mod=vendor -timeout 0 -race -v ./...
       - uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

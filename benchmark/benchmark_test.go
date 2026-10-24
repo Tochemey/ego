@@ -37,11 +37,11 @@ import (
 	"github.com/google/uuid"
 	goakt "github.com/tochemey/goakt/v4/actor"
 
-	"github.com/tochemey/ego/v4"
-	"github.com/tochemey/ego/v4/egopb"
-	samplepb "github.com/tochemey/ego/v4/example/examplepb"
-	"github.com/tochemey/ego/v4/persistence"
-	"github.com/tochemey/ego/v4/testkit"
+	"github.com/tochemey/ego/v5"
+	"github.com/tochemey/ego/v5/egopb"
+	samplepb "github.com/tochemey/ego/v5/example/examplepb"
+	"github.com/tochemey/ego/v5/persistence"
+	"github.com/tochemey/ego/v5/testkit"
 )
 
 // ---------------------------------------------------------------------------
@@ -158,12 +158,13 @@ type benchEnv struct {
 	engine *ego.Engine
 }
 
-// setupEngine creates an ego Engine backed by the given event store.
-func setupEngine(b *testing.B, store persistence.EventsStore) *benchEnv {
+// setupEngine creates an ego Engine backed by the given event store and
+// configured with the given options.
+func setupEngine(b *testing.B, store persistence.EventsStore, opts ...ego.Option) *benchEnv {
 	b.Helper()
 	ctx := context.Background()
 
-	cfg := ego.NewConfig(store, ego.WithLogger(ego.DiscardLogger))
+	cfg := ego.NewConfig(store, append([]ego.Option{ego.WithLogger(ego.DiscardLogger)}, opts...)...)
 	sys, err := goakt.NewActorSystem("BenchEngine", cfg.GoaktOptions()...)
 	if err != nil {
 		b.Fatalf("build actor system: %v", err)

@@ -35,9 +35,9 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/emptypb"
 
-	samplepb "github.com/tochemey/ego/v4/example/examplepb"
-	"github.com/tochemey/ego/v4/persistence"
-	testpb "github.com/tochemey/ego/v4/test/data/testpb"
+	samplepb "github.com/tochemey/ego/v5/example/examplepb"
+	"github.com/tochemey/ego/v5/persistence"
+	testpb "github.com/tochemey/ego/v5/test/data/testpb"
 )
 
 // newTestEngine bootstraps a goakt.ActorSystem and a plugged-in eGo Engine

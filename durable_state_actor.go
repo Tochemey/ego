@@ -34,11 +34,11 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 
-	"github.com/tochemey/ego/v4/egopb"
-	"github.com/tochemey/ego/v4/eventstream"
-	"github.com/tochemey/ego/v4/internal/extensions"
-	"github.com/tochemey/ego/v4/internal/runner"
-	"github.com/tochemey/ego/v4/persistence"
+	"github.com/tochemey/ego/v5/egopb"
+	"github.com/tochemey/ego/v5/eventstream"
+	"github.com/tochemey/ego/v5/internal/extensions"
+	"github.com/tochemey/ego/v5/internal/runner"
+	"github.com/tochemey/ego/v5/persistence"
 )
 
 // statesTopic is the single in-process pub/sub topic eGo's durable-state
@@ -50,26 +50,19 @@ const statesTopic = "topic.states"
 
 // DurableStateActor is a durable state based actor
 type DurableStateActor struct {
-	behavior       DurableStateBehavior
-	stateStore     persistence.StateStore
-	currentState   State
-	cachedStateAny *anypb.Any // cached marshal of currentState, invalidated on state change
-	currentVersion uint64
-
-	// stateDeleted reports that the entity's durable state was deleted and
-	// nothing was written since, so a stop must not write the initial state
-	// over the tombstone the deletion left.
-	stateDeleted    bool
+	behavior        DurableStateBehavior
+	stateStore      persistence.StateStore
+	currentState    State
+	cachedStateAny  *anypb.Any // cached marshal of currentState, invalidated on state change
+	currentVersion  uint64
 	lastCommandTime time.Time
 	eventsStream    eventstream.Stream
-	actorSystem     goakt.ActorSystem
 	persistenceID   string
 	tracer          trace.Tracer
 	metrics         *metrics
 
-	// shard is the journal shard of the entity's state records, resolved when
-	// the first one is written.
-	shard shardLocator
+	// shard is the shard of the entity's state records (see persistence.ShardFor).
+	shard uint64
 }
 
 // implements the goakt.Actor interface
@@ -95,6 +88,7 @@ func (entity *DurableStateActor) PreStart(ctx *goakt.Context) error {
 	entity.stateStore = stateStore
 	entity.eventsStream = eventsStream
 	entity.persistenceID = ctx.ActorName()
+	entity.shard = persistence.ShardFor(entity.persistenceID)
 
 	for _, dependency := range ctx.Dependencies() {
 		if dependency != nil {
@@ -137,34 +131,32 @@ func (entity *DurableStateActor) PreStart(ctx *goakt.Context) error {
 func (entity *DurableStateActor) Receive(ctx *goakt.ReceiveContext) {
 	switch message := ctx.Message().(type) {
 	case *goakt.PostStart:
-		entity.actorSystem = ctx.ActorSystem()
+		// nothing to do: the entity recovered its state in PreStart
 	case *egopb.GetStateCommand:
 		entity.sendStateReply(ctx)
+	case *egopb.StopEntity:
+		// Every command stores its state within its own turn, so no write of
+		// the entity is in flight between two messages.
+		ctx.Response(new(egopb.NoReply))
+		ctx.Shutdown()
 	default:
 		msg := message.(Command)
 		entity.processCommand(ctx, msg)
 	}
 }
 
-// PostStop prepares the actor to gracefully shutdown
+// PostStop prepares the actor to gracefully shutdown.
+//
+// Every command stores its state before the entity takes it on, so there is
+// nothing left to write when the entity stops. PostStop writes nothing: the
+// actor may still be handling a command while PostStop runs, and a write from
+// here could put an older state over the one that command has just stored.
 func (entity *DurableStateActor) PostStop(ctx *goakt.Context) error {
 	if entity.metrics != nil {
 		entity.metrics.entitiesActive.Add(ctx.Context(), -1)
 	}
 
-	// A deleted state has nothing to write back: writing the initial state
-	// would replace the tombstone of the deletion with a state.
-	if entity.stateDeleted {
-		return nil
-	}
-
-	return runner.
-		New(runner.WithFailFast()).
-		AddRunner(func() error { return entity.stateStore.Ping(ctx.Context()) }).
-		AddRunner(func() error {
-			return entity.persistStateAndPublish(ctx.Context(), entity.currentStateAny(), entity.currentVersion, entity.lastCommandTime)
-		}).
-		Run()
+	return nil
 }
 
 // recoverFromStore reset the persistent actor to the latest state in case there is one
@@ -190,11 +182,6 @@ func (entity *DurableStateActor) recoverFromStore(ctx context.Context) error {
 
 	entity.currentState = currentState
 	entity.currentVersion = durableState.GetVersionNumber()
-
-	// A record without state is the tombstone of a deletion: the entity
-	// continues from its initial state at that version, with nothing to
-	// write back on a stop.
-	entity.stateDeleted = resultingState == nil
 	return nil
 }
 
@@ -254,7 +241,6 @@ func (entity *DurableStateActor) processCommand(receiveContext *goakt.ReceiveCon
 	entity.cachedStateAny = pendingStateAny
 	entity.lastCommandTime = pendingCommandTime
 	entity.currentVersion = newVersion
-	entity.stateDeleted = false
 
 	entity.sendStateReply(receiveContext)
 }
@@ -288,14 +274,13 @@ func (entity *DurableStateActor) deleteState(receiveContext *goakt.ReceiveContex
 		VersionNumber:  version,
 		ResultingState: deletedAny,
 		Timestamp:      deletedAt.UnixNano(),
-		Shard:          entity.shard.locate(entity.actorSystem, entity.persistenceID),
+		Shard:          entity.shard,
 	})
 
 	entity.currentState = entity.behavior.InitialState()
 	entity.cachedStateAny = nil
 	entity.lastCommandTime = deletedAt
 	entity.currentVersion = version
-	entity.stateDeleted = true
 
 	receiveContext.Response(&egopb.CommandReply{
 		Reply: &egopb.CommandReply_StateReply{
@@ -385,7 +370,7 @@ func (entity *DurableStateActor) persistStateAndPublish(ctx context.Context, sta
 		VersionNumber:  version,
 		ResultingState: stateAny,
 		Timestamp:      commandTime.UnixNano(),
-		Shard:          entity.shard.locate(entity.actorSystem, entity.persistenceID),
+		Shard:          entity.shard,
 	}
 
 	if err := entity.stateStore.WriteState(ctx, durableState); err != nil {
