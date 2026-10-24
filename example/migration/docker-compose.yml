@@ -5,7 +5,7 @@ name: ego-migration
 services:
   # the v4 deployment's database, created with the v4 reference schemas
   legacy-db:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: ego
       POSTGRES_PASSWORD: ego
@@ -21,7 +21,7 @@ services:
 
   # the v5 deployment's database, created with the v5 reference schemas
   target-db:
-    image: postgres:17-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_USER: ego
       POSTGRES_PASSWORD: ego
