@@ -252,7 +252,7 @@ func WithOffsetStore(offsetStore offsetstore.OffsetStore) Option {
 //   - Handler is required; it processes each event this projection observes.
 //   - BufferSize bounds the in-flight event window.
 //   - StartOffset is the timestamp from which a new projection begins reading.
-//   - ResetOffset is the fallback offset used when recovery rewinds the projection.
+//   - ResetOffset, when set, deletes the projection's offsets and replays from it on every start.
 //   - PullInterval is how often the runner polls for new events.
 //   - Recovery controls retry behavior; nil falls back to projection.NewRecovery().
 //   - DeadLetterHandler receives events the projection cannot process after retries.

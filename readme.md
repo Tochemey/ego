@@ -40,7 +40,6 @@ eGo deliberately does not hide the actor runtime. Your application creates and o
 - [Testing](#testing)
 - [Examples](#examples)
 - [Upgrading](#upgrading)
-    - [Running the migration tool](#running-the-migration-tool)
 - [Contributing](#contributing)
 
 ## Features
@@ -381,6 +380,7 @@ cfg := ego.NewConfig(eventsStore,
 if err := engine.StartProjection(ctx, "account-balances"); err != nil {
     return err
 }
+
 if err := engine.StartProjection(ctx, "account-audit"); err != nil {
     return err
 }
@@ -390,7 +390,7 @@ The two projections consume the same event journal independently. Each uses its 
 
 Projection handlers receive events with at-least-once delivery. They must be idempotent and safe for concurrent calls across different shards; events within one shard are delivered sequentially. To apply a redelivered event only once, write the read model with an upsert keyed by `(persistenceID, revision)`, or keep the last applied revision of each persistence ID in the read model, updated in the same transaction, and skip any event at or below it.
 
-For exactly-once effects in a database, set `TransactionalHandler` instead of `Handler`. The projection hands it each event together with the offset row it would record; the handler applies the event and writes that row in one transaction of the database that holds the offset store, through a transactional write the store provides. Once the transaction commits, the projection does not deliver the event again, across crashes, restarts and failover, while it keeps the entity's offsets. A reset deletes every offset of the projection, and the events after the reset point are delivered again: `ResetOffset` in the projection's options, which is applied every time the projection starts, `Engine.RebuildProjection` and `migration.ResumeProjection` all reset. The projection also deletes an entity's offsets once they are a day behind its position on the shard and were recorded more than nine days ago; such an entity can have its earlier events delivered again when a later event reaches the projection before an earlier one it has not processed. Events the handler never commits, such as those a skip policy drops, are recorded by the projection itself. Effects outside that database, such as calls to other services, remain at-least-once.
+For exactly-once effects in a database, set `TransactionalHandler` instead of `Handler`. The projection hands it each event together with the offset row it would record; the handler applies the event and writes that row, under the projection's name, in one transaction of the database that holds the offset store, through a transactional write the store provides. Once the transaction commits, the projection does not deliver the event again, across crashes, restarts and failover, while it keeps the entity's offsets. Events the handler never commits, such as those a skip policy drops, are recorded by the projection itself. Effects outside that database, such as calls to other services, remain at-least-once.
 
 ```go
 func (h *BalanceHandler) Handle(ctx context.Context, persistenceID string, event *anypb.Any, revision uint64, offset *egopb.EntityOffset) error {
@@ -404,7 +404,7 @@ func (h *BalanceHandler) Handle(ctx context.Context, persistenceID string, event
         return err
     }
 
-    if err := h.offsetStore.WriteOffsetsTx(ctx, tx, "balances", []*egopb.EntityOffset{offset}); err != nil {
+    if err := h.offsetStore.WriteOffsetsTx(ctx, tx, h.projectionName, []*egopb.EntityOffset{offset}); err != nil {
         return err
     }
 
@@ -413,6 +413,11 @@ func (h *BalanceHandler) Handle(ctx context.Context, persistenceID string, event
 ```
 
 The [cluster example](./example/cluster) keeps its balance read model this way.
+
+`StartOffset` sets the timestamp a projection starts from on a shard it holds no offset on. Two things deliver events again, to a `TransactionalHandler` as well, because they delete the offsets that record them:
+
+- A reset deletes every offset of the projection and delivers the events after the reset point again. `Engine.RebuildProjection` resets once. The `ResetOffset` option resets every time the projection starts, including each time a cluster singleton moves to another node, so leave it unset unless every start should replay.
+- The projection deletes an entity's offsets once they are a day behind its position on the shard and were recorded more than nine days ago. Such an entity can have its earlier events delivered again when a later event reaches the projection before an earlier one it has not processed.
 
 Every event belongs to one of 1024 journal shards, fixed by its persistence ID (`persistence.ShardFor`) and independent of the cluster's partitioning, so all events of one entity are on one shard and are delivered in sequence-number order; events of different entities carry no ordering guarantee. A projection records, per entity, the last event it processed. It reads each shard by timestamp, 100 ms behind the current time, and checks every event against its entity's record: an event it processed already is skipped, and an event that follows a gap makes it replay the entity's missing events first. A missing event that cannot be found is never skipped: the shard is retried until it appears. A projection also reads its shards again behind its position, trailing the current time by ten seconds, so an event that became visible up to ten seconds late, because its write was slow or its node's clock lagged, is still delivered. An event that becomes visible later is caught only when its entity writes again. This holds with a `PullInterval` of up to twenty seconds (the default is one second): a shard without new events is read again after five passes, and only while its position is at most two minutes and ten seconds old. Events are stamped with the clock of the node that writes them, so keep node clocks synchronized, with NTP or similar, to well within ten seconds. A projection's buffer must hold more events than ever share one timestamp on a shard; the default of 500 leaves ample room.
 
@@ -645,99 +650,7 @@ make run-saga
 
 ## Upgrading
 
-See the [changelog](./CHANGELOG.md) for breaking changes and version-specific migration instructions. The [`migration`](./migration) package copies a journal written by an earlier release into the current layout (`migration.NewJournalMigrator`), copies the latest snapshot of every entity (`migration.NewSnapshotMigrator`) and resumes the projections on the migrated journal (`migration.ResumeProjections`). The [`cmd/migrate`](./cmd/migrate) module runs them as a command line tool: give `migrate.NewCommand` a function that opens your stores, run `migrate journal --source ... --target ...` while the old deployment still writes, then stop its writers and run `migrate all` once to copy the remainder and resume the projections. Turn the old deployment's events retention off until that last run: events it deletes in between, beyond what was copied, leave a gap in the new journal that projections cannot get past. Every migration pages through the stores and migrates several entities at once (`--parallelism`, default 10), so it handles journals of any size; the journal and snapshot copies can be stopped and run again, and continue where the target stops. Resume the projections before the new deployment starts them: resuming replaces every offset a projection holds, so it refuses a projection that recorded offsets on the new journal already (`migration.ErrProjectionStarted`). Keep each projection's `StartOffset` option unchanged.
-
-### Running the migration tool
-
-The tool is not a prebuilt binary: it is the Go package `github.com/tochemey/ego/cmd/migrate`, a module of its own so that eGo itself does not depend on cobra. You build it once for your database, in the project that holds your store implementations or in a small module of its own:
-
-```shell
-go get github.com/tochemey/ego/v5@latest
-go get github.com/tochemey/ego/cmd/migrate@latest
-```
-
-Then write a `main`, for instance in `cmd/migrate/main.go` of your project, that gives `migrate.NewCommand` an opener: a function that turns the `--source` and `--target` flags into the stores to read and write. For SQL stores the two flags are connection strings.
-
-```go
-package main
-
-import (
-    "context"
-    "os"
-    "os/signal"
-
-    "github.com/jackc/pgx/v5/pgxpool"
-
-    "github.com/tochemey/ego/cmd/migrate"
-)
-
-func main() {
-    ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-    defer stop()
-
-    if err := migrate.NewCommand(openStores).ExecuteContext(ctx); err != nil {
-        os.Exit(1)
-    }
-}
-
-// openStores opens the v4 stores at config.Source and the v5 stores at config.Target.
-func openStores(ctx context.Context, config migrate.Config) (*migrate.Stores, migrate.Release, error) {
-    source, err := pgxpool.New(ctx, config.Source)
-    if err != nil {
-        return nil, nil, err
-    }
-
-    target, err := pgxpool.New(ctx, config.Target)
-    if err != nil {
-        source.Close()
-        return nil, nil, err
-    }
-
-    stores := &migrate.Stores{
-        SourceJournal:   newLegacyEventsStore(source),   // reads the v4 events_store table
-        TargetJournal:   newEventsStore(target),         // the v5 events store
-        SourceSnapshots: newLegacySnapshotStore(source), // reads the v4 snapshots_store table
-        TargetSnapshots: newSnapshotStore(target),       // the v5 snapshot store
-        LegacyOffsets:   newLegacyOffsetReader(source),  // reads the v4 offsets_store table
-        TargetOffsets:   newOffsetStore(target),         // the v5 offset store
-    }
-
-    release := func(context.Context) error {
-        source.Close()
-        target.Close()
-        return nil
-    }
-
-    return stores, release, nil
-}
-```
-
-What each source store must provide, all read-only against the v4 tables:
-
-- `SourceJournal` is a `migration.JournalReader`: `Ping`, `PersistenceIDs`, `GetLatestEvent` and `ReplayEvents`. A v4 events store already has them.
-- `SourceSnapshots` is a `migration.SnapshotReader`: `Ping`, `GetLatestSnapshot` and `PersistenceIDs`. A v4 snapshot store lacks the listing; wrap it with one query, `SELECT DISTINCT persistence_id FROM snapshots_store WHERE persistence_id > $1 ORDER BY persistence_id LIMIT $2`, returning the last ID of the page as the next token.
-- `LegacyOffsets` is a `migration.LegacyOffsetReader`: the offset of every projection on every v4 shard that holds events, zero on a shard the projection committed no offset on, returned as a map from projection name to its offsets. When the v4 journal and offsets share a database, that is one query, given in the `LegacyOffsetReader` godoc.
-
-The target stores are your v5 implementations. Create the v5 tables first; the [cluster example](./example/cluster/k8s/postgres.yaml) has the schema. Then build the tool from your project and run it in this order:
-
-```shell
-go build -o migrate ./cmd/migrate
-
-# 1. While the v4 deployment still runs: copy the journal and snapshots.
-#    Run it as often as you like; every run continues where the previous one stopped.
-./migrate journal --source "$V4_DSN" --target "$V5_DSN"
-
-# 2. Stop every v4 writer.
-
-# 3. Copy the remainder and resume the projections, once.
-./migrate all --source "$V4_DSN" --target "$V5_DSN"
-
-# 4. Start the v5 deployment.
-```
-
-`--parallelism` (default 10) sets how many entities are migrated at once and `--page-size` (default 500) how many persistence IDs, or events of one entity, are read at once. Interrupting a run with Ctrl-C is safe: the stores are released and the next run resumes. `migrate legacy-snapshots` is only for journals written by releases that stored the resulting state in every event; it writes a snapshot of each entity's latest state from those events.
-
-The [migration example](./example/migration) runs all of this with Docker Compose against two PostgreSQL databases: it seeds a v4 deployment of a million events, copies it while it keeps writing, finishes the migration and checks the result.
+See the [changelog](./CHANGELOG.md) for breaking changes and version-specific migration instructions. A v4 deployment needs its stores and data migrated before it runs on v5; follow [Migrating from v4 to v5](./MIGRATING_V4_TO_V5.md).
 
 ## Contributing
 

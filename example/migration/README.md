@@ -52,4 +52,4 @@ PASS  projections      audit from the start (v4 partitions holding events withou
 | [`seed.go`](seed.go), [`write.go`](write.go), [`verify.go`](verify.go) | Seeding the v4 database, writing to it during the copy, and checking the result. |
 | [`run.sh`](run.sh) | The steps, in order. |
 
-To migrate your own deployment, write the same kind of opener over your stores, as the [README](../../readme.md#running-the-migration-tool) explains, and run the same two steps: `migrate journal` as often as you like while v4 still runs, then `migrate all` once after its writers stopped.
+To migrate your own deployment, write the same kind of opener over your stores, as the [migration guide](../../MIGRATING_V4_TO_V5.md) explains, and run the same two steps: `migrate journal` as often as you like while v4 still runs, then `migrate all` once after its writers stopped.

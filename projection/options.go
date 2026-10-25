@@ -50,7 +50,9 @@ type Options struct {
 	BufferSize int
 	// StartOffset is the point in time from which to begin processing events.
 	StartOffset time.Time
-	// ResetOffset is the fallback offset used when the projection needs to recover or replay events.
+	// ResetOffset, when set, deletes every offset of the projection and restarts it from this point
+	// in time each time the projection starts, so the events after it are delivered again.
+	// Leave it zero unless every start should replay; use Engine.RebuildProjection for a one-off replay.
 	ResetOffset time.Time
 	// PullInterval defines how frequently the projection polls the event store for new events.
 	// Zero or less uses the default of one second.
