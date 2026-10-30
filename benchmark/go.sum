@@ -229,6 +229,8 @@ github.com/tochemey/goakt/v4 v4.6.3 h1:6M3XDyDVHvNXIZrIfzAzsDDrTttRM+xQCQrenz0eQ
 github.com/tochemey/goakt/v4 v4.6.3/go.mod h1:HZ4+Hrq8x08NZSeb7M8WEZXDq+ThpxbocY3y30OGbBg=
 github.com/tochemey/goakt/v4 v4.6.4 h1:FhgLTEza6NYh5YrjsZmsg4y5v5YpdvdOuq5dg7vjDDw=
 github.com/tochemey/goakt/v4 v4.6.4/go.mod h1:4vsdFBf80yKFirGX1kxWKmHPPcSFTjJ07u+2BjhpvSk=
+github.com/tochemey/goakt/v4 v4.6.5 h1:/b/lkCuBAtwJxuYYS6J1LjUmsjOuVHjRZSqWkLc4+tM=
+github.com/tochemey/goakt/v4 v4.6.5/go.mod h1:4vsdFBf80yKFirGX1kxWKmHPPcSFTjJ07u+2BjhpvSk=
 github.com/tochemey/olric v0.3.23 h1:hpiNQBjpUTjNzbfkos8l9qBW7LPsr2f/q6cJbce+Ivk=
 github.com/tochemey/olric v0.3.23/go.mod h1:XOlNhnbkK3hyT6Siakw/7q7QKwAnAXMfpVxPSQ+o2hI=
 github.com/travisjeffery/go-dynaport v1.0.0 h1:m/qqf5AHgB96CMMSworIPyo1i7NZueRsnwdzdCJ8Ajw=
