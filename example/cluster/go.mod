@@ -6,7 +6,7 @@ go 1.27.0
 replace github.com/tochemey/ego/v5 => ../../
 
 require (
-	github.com/jackc/pgx/v5 v5.11.0
+	github.com/jackc/pgx/v5 v5.12.0
 	github.com/tochemey/ego/v5 v5.0.0
 	github.com/tochemey/goakt/v4 v4.6.4
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.72.0
