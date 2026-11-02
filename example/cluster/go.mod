@@ -4,7 +4,7 @@ go 1.27.0
 
 require (
 	github.com/jackc/pgx/v5 v5.12.0
-	github.com/tochemey/ego/v5 v5.0.0-20261102183338-2d7c9cef281f
+	github.com/tochemey/ego/v5 v5.0.0-20261102185006-eb48ab82c18d
 	github.com/tochemey/goakt/v4 v4.6.7
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.72.0
 	go.opentelemetry.io/otel v1.47.0

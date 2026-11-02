@@ -4,7 +4,7 @@ go 1.27.0
 
 require (
 	github.com/gorilla/websocket v1.5.3
-	github.com/tochemey/ego/v5 v5.0.0-20261102183338-2d7c9cef281f
+	github.com/tochemey/ego/v5 v5.0.0-20261102185006-eb48ab82c18d
 	github.com/tochemey/gopack v0.2.1
 	go.uber.org/atomic v1.12.0
 	google.golang.org/protobuf v1.36.12
