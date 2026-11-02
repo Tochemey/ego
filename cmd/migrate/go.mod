@@ -6,7 +6,7 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.1
 	github.com/tochemey/ego/v5 v5.0.0-20261030083114-2c804c6cd83e
-	github.com/tochemey/goakt/v4 v4.6.6
+	github.com/tochemey/goakt/v4 v4.6.7
 	google.golang.org/protobuf v1.36.12
 )
 
