@@ -27,9 +27,9 @@ services:
       POSTGRES_PASSWORD: ego
       POSTGRES_DB: ego
     volumes:
-      - ../../resources/eventstore_postgres.sql:/docker-entrypoint-initdb.d/1-events.sql:ro
-      - ../../resources/snapshotstore_postgres.sql:/docker-entrypoint-initdb.d/2-snapshots.sql:ro
-      - ../../resources/offsetstore_postgres.sql:/docker-entrypoint-initdb.d/3-offsets.sql:ro
+      - ../../contrib/postgres/resources/eventstore_postgres.sql:/docker-entrypoint-initdb.d/1-events.sql:ro
+      - ../../contrib/postgres/resources/snapshotstore_postgres.sql:/docker-entrypoint-initdb.d/2-snapshots.sql:ro
+      - ../../contrib/postgres/resources/offsetstore_postgres.sql:/docker-entrypoint-initdb.d/3-offsets.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ego -d ego"]
       interval: 2s

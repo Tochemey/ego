@@ -24,7 +24,6 @@ package kafka
 
 import (
 	"context"
-	"time"
 
 	"github.com/IBM/sarama"
 	"go.uber.org/atomic"
@@ -70,12 +69,7 @@ func NewEventsPublisher(config *Config) (*EventsPublisher, error) {
 }
 
 // Close implements ego.EventPublisher.
-func (x *EventsPublisher) Close(ctx context.Context) error {
-	// we give the publisher 3 seconds to close. This is an abitrary value.
-	// It helps to ensure that the publisher has enough time to close.
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-
+func (x *EventsPublisher) Close(context.Context) error {
 	x.started.Store(false)
 	return x.producer.Close()
 }
@@ -94,7 +88,7 @@ func (x *EventsPublisher) ID() string {
 //
 // Returns:
 //   - error: If an error occurs during event publication, it is returned.
-func (x *EventsPublisher) Publish(ctx context.Context, event *egopb.Event) error {
+func (x *EventsPublisher) Publish(_ context.Context, event *egopb.Event) error {
 	if !x.started.Load() {
 		return ego.ErrPublisherNotStarted
 	}
@@ -150,12 +144,7 @@ func NewDurableStatePublisher(config *Config) (*DurableStatePublisher, error) {
 }
 
 // Close implements ego.StatePublisher.
-func (x *DurableStatePublisher) Close(ctx context.Context) error {
-	// we give the publisher 3 seconds to close. This is an abitrary value.
-	// It helps to ensure that the publisher has enough time to close.
-	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-
+func (x *DurableStatePublisher) Close(context.Context) error {
 	x.started.Store(false)
 	return x.producer.Close()
 }
@@ -174,7 +163,7 @@ func (x *DurableStatePublisher) ID() string {
 //
 // Returns:
 //   - error: If an error occurs during event publication, it is returned.
-func (x *DurableStatePublisher) Publish(ctx context.Context, state *egopb.DurableState) error {
+func (x *DurableStatePublisher) Publish(_ context.Context, state *egopb.DurableState) error {
 	if !x.started.Load() {
 		return ego.ErrPublisherNotStarted
 	}

@@ -552,20 +552,30 @@ eGo defines small interfaces for:
 - [`persistence.StateStore`](./persistence/state_store.go)
 - [`offsetstore.OffsetStore`](./offsetstore/offset_store.go)
 
-Applications may implement these interfaces directly. An events store must write the events of one call atomically and reject an event whose persistence ID and sequence number it already holds; `EventsByShard` returns a shard's events from a timestamp on, inclusive, ordered by timestamp and then sequence number. An offset store keeps one row per entity a projection processed, keyed by projection, shard, timestamp, persistence ID and sequence number. The godoc of each interface spells out its contract, including the SQL each method maps to. The [ego-contrib](https://github.com/Tochemey/ego-contrib) project provides ready-to-use implementations:
+Applications may implement these interfaces directly. An events store must write the events of one call atomically and reject an event whose persistence ID and sequence number it already holds; `EventsByShard` returns a shard's events from a timestamp on, inclusive, ordered by timestamp and then sequence number. An offset store keeps one row per entity a projection processed, keyed by projection, shard, timestamp, persistence ID and sequence number. The godoc of each interface spells out its contract, including the SQL each method maps to. The [`persistencetest`](./persistence/persistencetest) and [`offsetstoretest`](./offsetstore/offsetstoretest) packages run those contracts against an implementation: call `persistencetest.TestEventsStore`, `TestSnapshotStore`, `TestStateStore` or `offsetstoretest.TestOffsetStore` from its tests with a function that returns a new store on empty storage. The [`contrib`](./contrib) modules provide ready-to-use implementations, one module per database:
 
-- **Event stores**: memory, Postgres, SQLite
-- **Offset stores**: memory, Postgres, SQLite
-- **Snapshot stores**: Postgres, SQLite
-- **Durable state stores**: memory, Postgres, SQLite, Cassandra, DynamoDB
+| Module | Stores |
+|---|---|
+| [`github.com/tochemey/ego/contrib/postgres`](./contrib/postgres) | events, snapshots, durable state, offsets |
+| [`github.com/tochemey/ego/contrib/sqlite`](./contrib/sqlite) | events, snapshots, durable state, offsets |
+| [`github.com/tochemey/ego/contrib/cassandra`](./contrib/cassandra) | durable state |
+| [`github.com/tochemey/ego/contrib/dynamodb`](./contrib/dynamodb) | durable state |
 
-To use a contrib store, import the relevant module alongside eGo:
+The [`testkit`](./testkit) package provides in-memory stores for tests. Each module's README gives its schema. The stores of one database share the connection the application creates and owns, which can also serve the application's own queries:
 
 ```go
-import (
-    "github.com/tochemey/ego-contrib/eventstore/postgres"
-    "github.com/tochemey/ego-contrib/snapshotstore/postgres"
-    "github.com/tochemey/ego-contrib/offsetstore/postgres"
+import "github.com/tochemey/ego/contrib/postgres"
+
+pool, err := pgxpool.New(ctx, "postgres://ego:secret@localhost:5432/ego")
+if err != nil {
+    return err
+}
+defer pool.Close() // after the engine has stopped
+
+cfg := ego.NewConfig(postgres.NewEventsStore(pool),
+    ego.WithSnapshotStore(postgres.NewSnapshotStore(pool)),
+    ego.WithStateStore(postgres.NewDurableStore(pool)),
+    ego.WithOffsetStore(postgres.NewOffsetStore(pool)),
 )
 ```
 

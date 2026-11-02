@@ -89,7 +89,7 @@ func (x *EventsPublisher) Close(context.Context) error {
 //   - event: The event to publish.
 //
 // Returns: An error if the event cannot be published.
-func (x *EventsPublisher) Publish(ctx context.Context, event *egopb.Event) error {
+func (x *EventsPublisher) Publish(_ context.Context, event *egopb.Event) error {
 	if !x.started.Load() {
 		return ego.ErrPublisherNotStarted
 	}
