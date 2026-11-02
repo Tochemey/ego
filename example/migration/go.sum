@@ -30,6 +30,8 @@ github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWD
 github.com/stretchr/testify v1.12.1/go.mod h1:MDEgiDPPsNp5cuIrHPPCyornHKgEVbtFUmoNlxoYthg=
 github.com/tochemey/ego/cmd/migrate v0.0.0-20261102183338-2d7c9cef281f h1:XdWQU94lZy2AmnYxoOL60EJiC2Babc2dV3pWQEGKgPk=
 github.com/tochemey/ego/cmd/migrate v0.0.0-20261102183338-2d7c9cef281f/go.mod h1:03eZh9B10UD0fHy2vBHkBHa2XeJFFBpxdaVzIwMZyzU=
+github.com/tochemey/ego/cmd/migrate v0.0.0-20261102185006-eb48ab82c18d h1:PRQObnwur5UgdM6bXpYdVwTCDJUZ0PH3C1sovsIQWIo=
+github.com/tochemey/ego/cmd/migrate v0.0.0-20261102185006-eb48ab82c18d/go.mod h1:COoKX2Ka6bP+rqrsaflLNV0Q8EUpXq2yYQg8v7XUF8Y=
 github.com/tochemey/ego/v5 v5.0.0-20261102183338-2d7c9cef281f h1:OOpeehIVkYa0q4LB2N8bdQ81UvQzQJW+Mpi7UPv0ERk=
 github.com/tochemey/ego/v5 v5.0.0-20261102183338-2d7c9cef281f/go.mod h1:9Ye4P1j96XikYtmhwCoGerfcOmvUWwCM8eyGDzO3en0=
 github.com/tochemey/goakt/v4 v4.6.7 h1:AQqNqtWslQBNC5oZXZfTCw6gGNmKvmj60t2Lw8UZPQ0=
