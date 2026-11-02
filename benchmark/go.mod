@@ -4,19 +4,19 @@ go 1.27.0
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/tochemey/ego/v5 v5.0.0
-	github.com/tochemey/goakt/v4 v4.6.4
+	github.com/tochemey/ego/v5 v5.0.0-20261030083114-2c804c6cd83e
+	github.com/tochemey/goakt/v4 v4.6.6
 )
 
 require (
 	github.com/RoaringBitmap/roaring/v2 v2.30.0 // indirect
 	github.com/Workiva/go-datastructures v1.1.8 // indirect
 	github.com/andybalholm/brotli v1.2.7 // indirect
-	github.com/bits-and-blooms/bitset v1.27.0 // indirect
+	github.com/bits-and-blooms/bitset v1.29.0 // indirect
 	github.com/bytedance/gopkg v0.1.4 // indirect
 	github.com/bytedance/sonic v1.15.5 // indirect
 	github.com/bytedance/sonic/loader v0.5.3 // indirect
-	github.com/cenkalti/backoff/v7 v7.0.1 // indirect
+	github.com/cenkalti/backoff/v7 v7.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.7 // indirect
 	github.com/flowchartsman/retry v1.2.0 // indirect
@@ -60,15 +60,13 @@ require (
 	go.uber.org/atomic v1.12.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.28.0 // indirect
-	go.yaml.in/yaml/v3 v3.0.5 // indirect
+	go.yaml.in/yaml/v3 v3.0.6 // indirect
 	golang.org/x/arch v0.32.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 )
-
-replace github.com/tochemey/ego/v5 => ../
 
 // HashiCorp renamed github.com/armon/go-metrics to github.com/hashicorp/go-metrics
 // in v0.4.2 and every release since declares the new module path, so they fail

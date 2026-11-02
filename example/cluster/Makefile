@@ -69,8 +69,7 @@ kind-create:
 
 docker-build:
 	@echo "==> Building Docker image '$(IMAGE)'..."
-	@# Build from the repo root so the replace directive (../../) in go.mod resolves.
-	docker build -t $(IMAGE) -f Dockerfile ../..
+	docker build -t $(IMAGE) -f Dockerfile .
 	@echo "==> Loading image into Kind..."
 	kind load docker-image $(IMAGE) --name $(CLUSTER)
 
