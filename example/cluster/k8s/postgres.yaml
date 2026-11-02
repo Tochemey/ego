@@ -5,7 +5,7 @@ metadata:
   namespace: ego-example
 data:
   init.sql: |
-    -- events_store (from resources/eventstore_postgres.sql)
+    -- events_store (from contrib/postgres/resources/eventstore_postgres.sql)
     CREATE TABLE IF NOT EXISTS events_store
     (
         persistence_id    VARCHAR(255)          NOT NULL,
@@ -21,7 +21,7 @@ data:
     );
     CREATE INDEX IF NOT EXISTS idx_events_store_shard_timestamp ON events_store(shard_number, timestamp, sequence_number, persistence_id);
 
-    -- offsets_store (from resources/offsetstore_postgres.sql)
+    -- offsets_store (from contrib/postgres/resources/offsetstore_postgres.sql)
     CREATE TABLE IF NOT EXISTS offsets_store
     (
         projection_name VARCHAR(255) NOT NULL,

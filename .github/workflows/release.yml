@@ -24,6 +24,10 @@ jobs:
   release-publishers:
     runs-on: ubuntu-latest
     needs: release-ego
+    env:
+      # The modules released with eGo: each one is updated to the new eGo
+      # version, tagged and given a GitHub release.
+      MODULES: "publisher/kafka publisher/nats publisher/pulsar publisher/websocket cmd/migrate contrib/postgres contrib/sqlite contrib/cassandra contrib/dynamodb"
     steps:
       - uses: actions/checkout@v7
         with:
@@ -85,11 +89,10 @@ jobs:
           echo "::error::Timed out waiting for module on Go proxy"
           exit 1
 
-      - name: Update the publishers and the migration command, and create their tags
+      - name: Update the released modules and create their tags
         run: |
           EGO_VERSION="${{ steps.ego-version.outputs.version }}"
           BUMP_TYPE="${{ steps.bump-type.outputs.type }}"
-          MODULES="publisher/kafka publisher/nats publisher/pulsar publisher/websocket cmd/migrate"
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -191,13 +194,11 @@ jobs:
           git push origin --tags
           echo "Pushed all module tags."
 
-      - name: Create the GitHub releases of the publishers and the migration command
+      - name: Create the GitHub releases of the released modules
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PAT }}
         run: |
           EGO_VERSION="${{ steps.ego-version.outputs.version }}"
-          BUMP_TYPE="${{ steps.bump-type.outputs.type }}"
-          MODULES="publisher/kafka publisher/nats publisher/pulsar publisher/websocket cmd/migrate"
 
           for MOD in $MODULES; do
             PREFIX="${MOD}/v"
@@ -215,7 +216,7 @@ jobs:
       - name: Update the benchmark and the examples
         run: |
           EGO_VERSION="${{ steps.ego-version.outputs.version }}"
-          MODULES="benchmark example/cluster example/migration"
+          DEPENDENT_MODULES="benchmark example/cluster example/migration"
 
           # The migration example also requires the migration command tagged above.
           MIGRATE_TAG=$(git tag -l "cmd/migrate/v*" --sort=-version:refname | head -1)
@@ -236,7 +237,7 @@ jobs:
             sleep 30
           done
 
-          for MOD in $MODULES; do
+          for MOD in $DEPENDENT_MODULES; do
             echo "::group::Processing module: ${MOD}"
 
             (

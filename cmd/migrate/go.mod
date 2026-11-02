@@ -5,7 +5,7 @@ go 1.27.0
 require (
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.12.1
-	github.com/tochemey/ego/v5 v5.0.0-20261102183338-2d7c9cef281f
+	github.com/tochemey/ego/v5 v5.0.0-20261102185006-eb48ab82c18d
 	github.com/tochemey/goakt/v4 v4.6.7
 	google.golang.org/protobuf v1.36.12
 )
