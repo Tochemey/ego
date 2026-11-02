@@ -211,3 +211,52 @@ jobs:
 
             echo "Created release for ${MOD} v${VERSION}"
           done
+
+      - name: Update the benchmark and the examples
+        run: |
+          EGO_VERSION="${{ steps.ego-version.outputs.version }}"
+          MODULES="benchmark example/cluster example/migration"
+
+          # The migration example also requires the migration command tagged above.
+          MIGRATE_TAG=$(git tag -l "cmd/migrate/v*" --sort=-version:refname | head -1)
+          MIGRATE_MODULE="github.com/tochemey/ego/cmd/migrate@${MIGRATE_TAG#cmd/migrate/}"
+          echo "Waiting for ${MIGRATE_MODULE} on Go proxy..."
+          for i in $(seq 1 30); do
+            if go list -m "${MIGRATE_MODULE}" 2>/dev/null; then
+              echo "Module available on proxy."
+              break
+            fi
+
+            if [ "$i" -eq 30 ]; then
+              echo "::error::Timed out waiting for module on Go proxy"
+              exit 1
+            fi
+
+            echo "Attempt $i/30: not yet available, waiting 30s..."
+            sleep 30
+          done
+
+          for MOD in $MODULES; do
+            echo "::group::Processing module: ${MOD}"
+
+            (
+              cd "${MOD}"
+              go get "github.com/tochemey/ego/v5@${EGO_VERSION}"
+              if [ "${MOD}" = "example/migration" ]; then
+                go get "${MIGRATE_MODULE}"
+              fi
+              go mod tidy
+            )
+
+            git add "${MOD}/go.mod" "${MOD}/go.sum"
+
+            echo "::endgroup::"
+          done
+
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(modules): update the benchmark and the examples to ego ${EGO_VERSION}"
+            git push origin HEAD:main
+            echo "Pushed dependency updates to main."
+          else
+            echo "No dependency changes to commit."
+          fi

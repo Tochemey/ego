@@ -5,7 +5,7 @@ go 1.27.0
 require (
 	github.com/flowchartsman/retry v1.2.0
 	github.com/nats-io/nats.go v1.55.0
-	github.com/tochemey/ego/v5 v5.0.0-20261030083114-2c804c6cd83e
+	github.com/tochemey/ego/v5 v5.0.0-20261102183338-2d7c9cef281f
 	github.com/tochemey/gopack v0.2.1
 	go.uber.org/atomic v1.12.0
 	google.golang.org/protobuf v1.36.12
@@ -49,7 +49,7 @@ require (
 	github.com/tidwall/btree v1.8.2 // indirect
 	github.com/tidwall/match v1.2.0 // indirect
 	github.com/tidwall/redcon v1.6.4 // indirect
-	github.com/tochemey/goakt/v4 v4.6.6 // indirect
+	github.com/tochemey/goakt/v4 v4.6.7 // indirect
 	github.com/tochemey/olric v0.3.23 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect

@@ -4,8 +4,8 @@ go 1.27.0
 
 require (
 	github.com/jackc/pgx/v5 v5.12.0
-	github.com/tochemey/ego/v5 v5.0.0-20261030083114-2c804c6cd83e
-	github.com/tochemey/goakt/v4 v4.6.6
+	github.com/tochemey/ego/v5 v5.0.0-20261102183338-2d7c9cef281f
+	github.com/tochemey/goakt/v4 v4.6.7
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.72.0
 	go.opentelemetry.io/otel v1.47.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.47.0
@@ -95,7 +95,7 @@ require (
 	go.uber.org/atomic v1.12.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.28.0 // indirect
-	go.yaml.in/yaml/v2 v2.4.4 // indirect
+	go.yaml.in/yaml/v2 v2.4.5 // indirect
 	go.yaml.in/yaml/v3 v3.0.6 // indirect
 	golang.org/x/arch v0.32.0 // indirect
 	golang.org/x/net v0.62.0 // indirect

@@ -221,8 +221,8 @@ github.com/tklauser/go-sysconf v0.4.0 h1:7H0uAN+7RkwWRaxhYXDLqa5V3LPrJeV8wmD9dRU
 github.com/tklauser/go-sysconf v0.4.0/go.mod h1:8mTNWyog7H+MpKijp4VmKJAd2bbYQ2zuUwkYRbUArPI=
 github.com/tklauser/numcpus v0.12.0 h1:NR85qdvHA9pFse3x3weVZ0r0ST8R6l5RHbZrlRaqob4=
 github.com/tklauser/numcpus v0.12.0/go.mod h1:ABHeXzJnr/qqwguhClkZKT1/8VABcYrsyUiUGobwWJg=
-github.com/tochemey/ego/v5 v5.0.0-20261030083114-2c804c6cd83e h1:4DwlulFGsY8zhCGMrqIR29TuyVFvWdAAc3JZSkvNgA4=
-github.com/tochemey/ego/v5 v5.0.0-20261030083114-2c804c6cd83e/go.mod h1:XNDIc8TGzN2BvVFItpP+iVtLhYFo3xagUmSdXzkhEXs=
+github.com/tochemey/ego/v5 v5.0.0-20261102183338-2d7c9cef281f h1:OOpeehIVkYa0q4LB2N8bdQ81UvQzQJW+Mpi7UPv0ERk=
+github.com/tochemey/ego/v5 v5.0.0-20261102183338-2d7c9cef281f/go.mod h1:9Ye4P1j96XikYtmhwCoGerfcOmvUWwCM8eyGDzO3en0=
 github.com/tochemey/goakt/v4 v4.6.7 h1:AQqNqtWslQBNC5oZXZfTCw6gGNmKvmj60t2Lw8UZPQ0=
 github.com/tochemey/goakt/v4 v4.6.7/go.mod h1:MlwhrQg4WmOcWUe8hiBPrpxIb3jel2qlqf3R4GE7v6g=
 github.com/tochemey/gopack v0.2.1 h1:WWXVwAE53Wt4yzY51fk0t+BrLn5ihnKCriG3zhmgYQ8=
