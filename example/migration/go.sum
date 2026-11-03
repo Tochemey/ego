@@ -32,6 +32,8 @@ github.com/tochemey/ego/cmd/migrate v0.0.0-20261102185006-eb48ab82c18d h1:PRQObn
 github.com/tochemey/ego/cmd/migrate v0.0.0-20261102185006-eb48ab82c18d/go.mod h1:COoKX2Ka6bP+rqrsaflLNV0Q8EUpXq2yYQg8v7XUF8Y=
 github.com/tochemey/ego/cmd/migrate v0.0.0-20261103074525-ef0ae344542a h1:jtNGO8KiZdXYFQVI/MEaJy8oLiuSjt5V/KMp+pzFIFQ=
 github.com/tochemey/ego/cmd/migrate v0.0.0-20261103074525-ef0ae344542a/go.mod h1:SKF5jSknKs1sj0b9QZwmm/dTy8E6m/SziwQlEcjZljQ=
+github.com/tochemey/ego/cmd/migrate v0.0.0-20261103110426-f0d9c1e9e10f h1:EGt6x4SZnes5+bLKeIVZ4HLIiPkH2RB3XltKhKkDmYY=
+github.com/tochemey/ego/cmd/migrate v0.0.0-20261103110426-f0d9c1e9e10f/go.mod h1:SKF5jSknKs1sj0b9QZwmm/dTy8E6m/SziwQlEcjZljQ=
 github.com/tochemey/ego/v5 v5.0.0-20261102185006-eb48ab82c18d h1:xF7YqRuvN6fY4VF2RZO9OHUR/0PI5EDDPWMHabfJe8M=
 github.com/tochemey/ego/v5 v5.0.0-20261102185006-eb48ab82c18d/go.mod h1:9Ye4P1j96XikYtmhwCoGerfcOmvUWwCM8eyGDzO3en0=
 github.com/tochemey/goakt/v4 v4.6.7 h1:AQqNqtWslQBNC5oZXZfTCw6gGNmKvmj60t2Lw8UZPQ0=
