@@ -17,8 +17,8 @@ github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec h1:W09IVJc94
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec/go.mod h1:qqbHyh8v60DhA7CoWK5oRCqLrMHRGoxYCSS9EjAz6Eo=
 github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWDWE=
 github.com/stretchr/testify v1.12.1/go.mod h1:MDEgiDPPsNp5cuIrHPPCyornHKgEVbtFUmoNlxoYthg=
-github.com/tochemey/ego/v5 v5.0.0-20261102185006-eb48ab82c18d h1:xF7YqRuvN6fY4VF2RZO9OHUR/0PI5EDDPWMHabfJe8M=
-github.com/tochemey/ego/v5 v5.0.0-20261102185006-eb48ab82c18d/go.mod h1:9Ye4P1j96XikYtmhwCoGerfcOmvUWwCM8eyGDzO3en0=
+github.com/tochemey/ego/v5 v5.0.0 h1:DYhScm61kPSJUnG6uZuRv00PrapKNGQ3PYEH9c+EfLQ=
+github.com/tochemey/ego/v5 v5.0.0/go.mod h1:9Ye4P1j96XikYtmhwCoGerfcOmvUWwCM8eyGDzO3en0=
 go.yaml.in/yaml/v3 v3.0.6 h1:zcDfvjXEqTQmpjniUBLc91xYJMB2c4QOFxEF/LCEckM=
 go.yaml.in/yaml/v3 v3.0.6/go.mod h1:HVTZu1O7/Vkt2N+BFy8Zza+lnLsABggaTM2ZpNIGuKg=
 golang.org/x/mod v0.42.0 h1:ICeL3t2L30ljSPHHxDnR4fqVcBt/zR2zJAb9juavmQg=

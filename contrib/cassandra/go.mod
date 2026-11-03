@@ -6,7 +6,7 @@ require (
 	github.com/apache/cassandra-gocql-driver/v2 v2.1.2
 	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go/modules/cassandra v0.44.0
-	github.com/tochemey/ego/v5 v5.0.0-20261102195941-b67d7858df6f
+	github.com/tochemey/ego/v5 v5.0.0
 	golang.org/x/sync v0.24.0
 	google.golang.org/protobuf v1.36.12
 )
@@ -30,10 +30,13 @@ require (
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
+	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/klauspost/compress v1.20.3 // indirect
 	github.com/lufia/plan9stats v0.0.0-20261101121723-be84dd9509a0 // indirect
 	github.com/magiconair/properties v1.18.12 // indirect
+	github.com/mattn/go-colorable v0.1.16 // indirect
+	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/mdelapenya/tlscert v0.2.0 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
 	github.com/moby/go-archive v0.3.3 // indirect

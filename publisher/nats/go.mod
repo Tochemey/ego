@@ -5,7 +5,7 @@ go 1.27.0
 require (
 	github.com/flowchartsman/retry v1.2.0
 	github.com/nats-io/nats.go v1.55.0
-	github.com/tochemey/ego/v5 v5.0.0-20261102185006-eb48ab82c18d
+	github.com/tochemey/ego/v5 v5.0.0
 	github.com/tochemey/gopack v0.2.1
 	go.uber.org/atomic v1.12.0
 	google.golang.org/protobuf v1.36.12
