@@ -20,13 +20,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// Package cassandra persists the durable states of eGo entities in Apache
-// Cassandra.
-//
-// DurableStore implements persistence.StateStore on a *gocql.Session the
-// application creates and owns. Create the states_store table of
-// resources/durablestore_cassandra.cql in the session's keyspace before
-// starting the engine.
 package cassandra
 
 import (
@@ -50,8 +43,6 @@ const (
 	latestStateStatement = `SELECT version_number, state_payload, state_manifest, timestamp, shard_number FROM states_store WHERE persistence_id = ?`
 	// deleteStateStatement removes the row of a persistence ID.
 	deleteStateStatement = `DELETE FROM states_store WHERE persistence_id = ?`
-	// pingStatement reads one row of a table every Cassandra node holds locally.
-	pingStatement = `SELECT release_version FROM system.local`
 )
 
 // DurableStore persists the latest durable state of every persistence ID in
@@ -95,11 +86,7 @@ func (s *DurableStore) Disconnect(context.Context) error {
 
 // Ping verifies the cluster answers a query on the session.
 func (s *DurableStore) Ping(ctx context.Context) error {
-	if err := s.session.Query(pingStatement).ExecContext(ctx); err != nil {
-		return fmt.Errorf("cassandra: failed to reach the cluster: %w", err)
-	}
-
-	return nil
+	return ping(ctx, s.session)
 }
 
 // WriteState persists the durable state of a persistence ID, replacing the

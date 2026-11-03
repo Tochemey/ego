@@ -27,7 +27,7 @@ jobs:
     env:
       # The modules released with eGo: each one is updated to the new eGo
       # version, tagged and given a GitHub release.
-      MODULES: "publisher/kafka publisher/nats publisher/pulsar publisher/websocket cmd/migrate contrib/postgres contrib/sqlite contrib/cassandra contrib/dynamodb"
+      MODULES: "publisher/kafka publisher/nats publisher/pulsar publisher/websocket cmd/migrate contrib/postgres contrib/sqlite contrib/mysql contrib/cassandra contrib/dynamodb"
     steps:
       - uses: actions/checkout@v7
         with:

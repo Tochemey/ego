@@ -20,12 +20,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// Package dynamodb persists the durable states of eGo entities in Amazon
-// DynamoDB.
-//
-// DurableStore implements persistence.StateStore on a *dynamodb.Client the
-// application creates and owns. The table must exist before the engine starts,
-// with the string attribute PersistenceID as its partition key and no sort key.
 package dynamodb
 
 import (
@@ -47,7 +41,8 @@ import (
 const partitionKey = "PersistenceID"
 
 // DurableStore persists the latest durable state of every persistence ID as
-// one item of a DynamoDB table, replaced on every write.
+// one item of a DynamoDB table, replaced on every write. The table has the
+// string attribute PersistenceID as its partition key and no sort key.
 //
 // Reads are strongly consistent, so an entity that recovers reads the latest
 // state it wrote. A write or a deletion is a single request.
@@ -86,11 +81,7 @@ func (s *DurableStore) Disconnect(context.Context) error {
 
 // Ping verifies the table exists and DynamoDB answers.
 func (s *DurableStore) Ping(ctx context.Context) error {
-	if _, err := s.client.DescribeTable(ctx, &dynamodb.DescribeTableInput{TableName: s.tableName}); err != nil {
-		return fmt.Errorf("dynamodb: failed to reach the table: %w", err)
-	}
-
-	return nil
+	return ping(ctx, s.client, s.tableName)
 }
 
 // WriteState persists the durable state of a persistence ID, replacing the

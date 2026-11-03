@@ -54,7 +54,7 @@ jobs:
         shell: bash
         run: |
           # The root linter skips nested modules, so each one is linted with the root configuration.
-          for MOD in cmd/migrate publisher/kafka publisher/nats publisher/pulsar publisher/websocket contrib/postgres contrib/sqlite contrib/cassandra contrib/dynamodb; do
+          for MOD in cmd/migrate publisher/kafka publisher/nats publisher/pulsar publisher/websocket contrib/postgres contrib/sqlite contrib/mysql contrib/cassandra contrib/dynamodb; do
             echo "::group::Linting ${MOD}"
             (cd "${MOD}" && go mod tidy && go mod vendor && golangci-lint run --timeout 10m --config "${GITHUB_WORKSPACE}/.golangci.yml" ./...)
             echo "::endgroup::"
@@ -75,7 +75,7 @@ jobs:
       - name: Test the contrib stores
         shell: bash
         run: |
-          for MOD in contrib/postgres contrib/sqlite contrib/cassandra contrib/dynamodb; do
+          for MOD in contrib/postgres contrib/sqlite contrib/mysql contrib/cassandra contrib/dynamodb; do
             echo "::group::Testing ${MOD}"
             (cd "${MOD}" && go mod tidy && go mod vendor && go test -mod=vendor -timeout 0 -race -v ./...)
             echo "::endgroup::"
