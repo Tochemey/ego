@@ -314,33 +314,27 @@ The threshold or flush window, whichever is reached first, triggers the write. I
 
 ## Performance tuning
 
-eGo can sustain hundreds of thousands of commands per second on a single node with an in-memory store, and tens of thousands with durable backends like Postgres. This section outlines the recommended approach to maximize throughput and minimize memory cost.
+eGo can sustain hundreds of thousands of commands per second on a single node with an in-memory store. This section outlines the recommended approach to maximize throughput and minimize memory cost.
 
 ### Enable event batching under concurrent load
 
 Batching amortizes the cost of a single store write across multiple commands. It is most effective when:
 
 - The entity receives commands concurrently (multiple goroutines or upstream services)
-- The persistence store has non-trivial write latency (e.g. database round-trip > 100us)
+- The persistence store has non-trivial write latency, such as a database round-trip
 
-Sequential command streams do not benefit from batching because each command waits for the flush window before the batch is written. For purely sequential workloads, leave batching disabled (the default).
+Sequential command streams do not benefit from batching because each command waits for the flush window before the batch is written. For purely sequential workloads, and for in-memory stores, leave batching disabled (the default).
 
 ### Choose the right batch threshold
 
-| Write latency       | Recommended threshold | Rationale                                        |
-|---------------------|-----------------------|--------------------------------------------------|
-| < 100us (in-memory) | Disabled (0)          | Batching adds overhead with no I/O to amortize   |
-| 100us - 1ms         | 5 - 10                | Small batches reduce flush window wait           |
-| 1ms - 10ms          | 10 - 50               | Larger batches amortize the I/O cost well        |
-| > 10ms              | 50 - 100              | Maximize events per write to offset high latency |
+The right threshold depends on your store's write latency and your command concurrency. Measure it with the [benchmarks](./benchmark): `BenchmarkWriteLatency_NoBatch_vs_Batch` compares batching on and off at simulated write latencies, and `BenchmarkBatchThresholds` compares thresholds at a simulated 1 ms write.
 
 ### Minimize allocations for high throughput
 
-eGo's hot path is optimized for low allocation overhead (~22 heap allocations per command round-trip). The dominant allocation cost comes from Protocol Buffers serialization, which is inherent to the persistence model. To keep allocation pressure low:
+Every command marshals its events to protobuf, and every reply carries the entity's state, which the caller decodes. To keep allocation pressure low:
 
 - **Keep command and event protos small.** Smaller messages reduce marshal/unmarshal cost.
-- **Use snapshots.** They reduce recovery replay length and the number of events held in the store.
-- **Avoid large state protos.** The state is serialized on every reply; smaller states mean fewer bytes and less GC pressure.
+- **Avoid large state protos.** The state is serialized whenever it changes and decoded on every reply; smaller states mean fewer bytes and less GC pressure.
 
 ### Scale horizontally with clustering
 
