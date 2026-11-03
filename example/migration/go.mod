@@ -6,7 +6,7 @@ require (
 	github.com/jackc/pgx/v5 v5.12.0
 	github.com/spf13/cobra v1.10.2
 	github.com/tochemey/ego/cmd/migrate v0.0.0-20261102185006-eb48ab82c18d
-	github.com/tochemey/ego/v5 v5.0.0-20261102185006-eb48ab82c18d
+	github.com/tochemey/ego/v5 v5.0.0-20261103074525-ef0ae344542a
 	google.golang.org/protobuf v1.36.12
 )
 

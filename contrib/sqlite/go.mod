@@ -4,7 +4,7 @@ go 1.27.0
 
 require (
 	github.com/stretchr/testify v1.12.1
-	github.com/tochemey/ego/v5 v5.0.0-20261102185006-eb48ab82c18d
+	github.com/tochemey/ego/v5 v5.0.0-20261103074525-ef0ae344542a
 	google.golang.org/protobuf v1.36.12
 	modernc.org/sqlite v1.61.1
 )

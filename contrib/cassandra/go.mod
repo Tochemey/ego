@@ -6,7 +6,7 @@ require (
 	github.com/apache/cassandra-gocql-driver/v2 v2.1.2
 	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go/modules/cassandra v0.44.0
-	github.com/tochemey/ego/v5 v5.0.0-20261102195941-b67d7858df6f
+	github.com/tochemey/ego/v5 v5.0.0-20261103074525-ef0ae344542a
 	golang.org/x/sync v0.24.0
 	google.golang.org/protobuf v1.36.12
 )
