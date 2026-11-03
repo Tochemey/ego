@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v5.0.0] - 2026-11-03
 
 This release closes the ways a projection could lose or reorder an entity's events: events that share a timestamp, events that become visible after a projection read past their timestamp (up to ten seconds late), clocks that step back, and changes of cluster size. The journal and offset store contracts change, so stores and existing journals must be migrated.
 
