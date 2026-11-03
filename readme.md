@@ -558,8 +558,9 @@ Applications may implement these interfaces directly. An events store must write
 |---|---|
 | [`github.com/tochemey/ego/contrib/postgres`](./contrib/postgres) | events, snapshots, durable state, offsets |
 | [`github.com/tochemey/ego/contrib/sqlite`](./contrib/sqlite) | events, snapshots, durable state, offsets |
-| [`github.com/tochemey/ego/contrib/cassandra`](./contrib/cassandra) | durable state |
-| [`github.com/tochemey/ego/contrib/dynamodb`](./contrib/dynamodb) | durable state |
+| [`github.com/tochemey/ego/contrib/mysql`](./contrib/mysql) | events, snapshots, durable state, offsets |
+| [`github.com/tochemey/ego/contrib/dynamodb`](./contrib/dynamodb) | events, snapshots, durable state, offsets |
+| [`github.com/tochemey/ego/contrib/cassandra`](./contrib/cassandra) | snapshots, durable state, offsets |
 
 The [`testkit`](./testkit) package provides in-memory stores for tests. Each module's README gives its schema. The stores of one database share the connection the application creates and owns, which can also serve the application's own queries:
 

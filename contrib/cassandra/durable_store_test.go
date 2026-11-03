@@ -24,65 +24,14 @@ package cassandra
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"regexp"
-	"strings"
 	"testing"
-	"time"
 
-	gocql "github.com/apache/cassandra-gocql-driver/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	tccassandra "github.com/testcontainers/testcontainers-go/modules/cassandra"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/anypb"
-	"google.golang.org/protobuf/types/known/wrapperspb"
 
-	"github.com/tochemey/ego/v5/egopb"
 	"github.com/tochemey/ego/v5/persistence"
 )
-
-const (
-	// cassandraImage is the Cassandra image the tests run against.
-	cassandraImage = "cassandra:5.0.6"
-	// testKeyspace is the keyspace that holds the states_store table in the tests.
-	testKeyspace = "ego_test"
-	// schemaFile is the schema the tests apply, the one the README tells users to apply.
-	schemaFile = "resources/durablestore_cassandra.cql"
-	// sessionTimeout bounds every query of the test sessions; a fresh container answers slowly.
-	sessionTimeout = 30 * time.Second
-)
-
-// testHost is the address of the Cassandra container shared by the tests.
-var testHost string
-
-// TestMain starts one Cassandra container for the package, creates the
-// keyspace and the schema, runs the tests and removes the container.
-func TestMain(m *testing.M) {
-	ctx := context.Background()
-
-	container, err := tccassandra.Run(ctx, cassandraImage)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to start cassandra: %v\n", err)
-		os.Exit(1)
-	}
-
-	testHost, err = container.ConnectionHost(ctx)
-	if err == nil {
-		err = createSchema()
-	}
-
-	code := 1
-	if err == nil {
-		code = m.Run()
-	} else {
-		fmt.Fprintf(os.Stderr, "failed to prepare cassandra: %v\n", err)
-	}
-
-	_ = container.Terminate(ctx)
-	os.Exit(code)
-}
 
 func TestDurableStore(t *testing.T) {
 	ctx := context.Background()
@@ -153,9 +102,7 @@ func TestDurableStore(t *testing.T) {
 
 func TestDurableStoreErrors(t *testing.T) {
 	ctx := context.Background()
-	session := newSession(t, testKeyspace)
-	session.Close()
-	store := NewDurableStore(session)
+	store := NewDurableStore(newClosedSession(t))
 
 	assert.Error(t, store.Connect(ctx))
 	assert.Error(t, store.WriteState(ctx, newDurableState(t, "account", 1, "opened")))
@@ -165,65 +112,4 @@ func TestDurableStoreErrors(t *testing.T) {
 	state, err := store.GetLatestState(ctx, "account")
 	assert.Error(t, err)
 	assert.Nil(t, state)
-}
-
-// newSession opens a session on the test container, closed when the test ends.
-func newSession(t *testing.T, keyspace string) *gocql.Session {
-	t.Helper()
-
-	session, err := openSession(keyspace)
-	require.NoError(t, err)
-	t.Cleanup(session.Close)
-	return session
-}
-
-// newDurableState builds a durable state of the persistence ID whose resulting
-// state is a string value.
-func newDurableState(t *testing.T, persistenceID string, version uint64, value string) *egopb.DurableState {
-	t.Helper()
-
-	resultingState, err := anypb.New(wrapperspb.String(value))
-	require.NoError(t, err)
-
-	return &egopb.DurableState{
-		PersistenceId:  persistenceID,
-		VersionNumber:  version,
-		ResultingState: resultingState,
-		Timestamp:      time.Now().UnixNano(),
-		Shard:          persistence.ShardFor(persistenceID),
-	}
-}
-
-// openSession opens a session on the test container, in the given keyspace
-// when it is not empty.
-func openSession(keyspace string) (*gocql.Session, error) {
-	cluster := gocql.NewCluster(testHost)
-	cluster.Keyspace = keyspace
-	cluster.Consistency = gocql.One
-	cluster.Timeout = sessionTimeout
-	cluster.ConnectTimeout = sessionTimeout
-	return cluster.CreateSession()
-}
-
-// createSchema creates the test keyspace and applies the schema file to it.
-func createSchema() error {
-	session, err := openSession("")
-	if err != nil {
-		return err
-	}
-	defer session.Close()
-
-	createKeyspace := fmt.Sprintf(`CREATE KEYSPACE IF NOT EXISTS %s WITH replication = {'class': 'SimpleStrategy', 'replication_factor': 1}`, testKeyspace)
-	if err := session.Query(createKeyspace).Exec(); err != nil {
-		return err
-	}
-
-	schema, err := os.ReadFile(schemaFile)
-	if err != nil {
-		return err
-	}
-
-	statement := regexp.MustCompile(`(?m)^--.*$`).ReplaceAllString(string(schema), "")
-	statement = strings.Replace(statement, "states_store", testKeyspace+".states_store", 1)
-	return session.Query(strings.TrimSpace(statement)).Exec()
 }
