@@ -3,5 +3,17 @@
   "extends": [
     "config:recommended"
   ],
-  "dependencyDashboard": false
+  "dependencyDashboard": false,
+  "packageRules": [
+    {
+      "description": "In-repo modules pin a main-branch pseudo-version on purpose; digest bumps re-trigger on every merge to main.",
+      "matchPackageNames": [
+        "github.com/tochemey/ego/**"
+      ],
+      "matchUpdateTypes": [
+        "digest"
+      ],
+      "enabled": false
+    }
+  ]
 }
