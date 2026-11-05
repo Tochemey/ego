@@ -5,7 +5,7 @@ go 1.27.0
 require (
 	github.com/apache/cassandra-gocql-driver/v2 v2.1.2
 	github.com/stretchr/testify v1.12.1
-	github.com/testcontainers/testcontainers-go/modules/cassandra v0.44.0
+	github.com/testcontainers/testcontainers-go/modules/cassandra v0.45.0
 	github.com/tochemey/ego/v5 v5.0.0
 	golang.org/x/sync v0.24.0
 	google.golang.org/protobuf v1.36.12
@@ -52,7 +52,7 @@ require (
 	github.com/power-devops/perfstat v0.0.0-20260916203055-22a1a467d9f0 // indirect
 	github.com/shirou/gopsutil/v4 v4.26.10 // indirect
 	github.com/sirupsen/logrus v1.10.2 // indirect
-	github.com/testcontainers/testcontainers-go v0.44.0 // indirect
+	github.com/testcontainers/testcontainers-go v0.45.0 // indirect
 	github.com/tklauser/go-sysconf v0.4.0 // indirect
 	github.com/tklauser/numcpus v0.12.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
