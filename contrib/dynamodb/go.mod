@@ -10,7 +10,7 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go/modules/dynamodb v0.45.0
 	github.com/tochemey/ego/v5 v5.0.0
-	golang.org/x/sync v0.24.0
+	golang.org/x/sync v0.25.0
 	google.golang.org/protobuf v1.36.12
 )
 
