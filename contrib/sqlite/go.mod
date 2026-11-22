@@ -6,7 +6,7 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/tochemey/ego/v5 v5.0.0
 	google.golang.org/protobuf v1.36.12
-	modernc.org/sqlite v1.62.0
+	modernc.org/sqlite v1.63.0
 )
 
 require (
