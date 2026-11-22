@@ -1203,8 +1203,12 @@ func TestEngineEraseEntity(t *testing.T) {
 			return existsErr == nil && !exists
 		}, 5*time.Second, 100*time.Millisecond, "the erased entity should have been stopped")
 
-		// a fresh Entity starts over from the initial state
-		require.NoError(t, engine.Entity(ctx, NewEventSourcedEntity(entityID)))
+		// a fresh Entity starts over from the initial state. The stopping entity
+		// holds its name until the stop completes, so the spawn is retried.
+		require.Eventually(t, func() bool {
+			return engine.Entity(ctx, NewEventSourcedEntity(entityID)) == nil
+		}, 5*time.Second, 100*time.Millisecond, "the erased entity should have released its name")
+
 		state, revision, err := engine.SendCommand(ctx, entityID, &testpb.CreateAccount{
 			AccountBalance: 100,
 		}, time.Minute)
