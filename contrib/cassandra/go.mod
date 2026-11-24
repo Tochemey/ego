@@ -3,7 +3,7 @@ module github.com/tochemey/ego/contrib/cassandra
 go 1.27.0
 
 require (
-	github.com/apache/cassandra-gocql-driver/v2 v2.1.2
+	github.com/apache/cassandra-gocql-driver/v2 v2.2.0
 	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go/modules/cassandra v0.45.0
 	github.com/tochemey/ego/v5 v5.0.0
