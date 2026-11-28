@@ -3,10 +3,10 @@ module github.com/tochemey/ego/contrib/dynamodb
 go 1.27.0
 
 require (
-	github.com/aws/aws-sdk-go-v2 v1.48.0
-	github.com/aws/aws-sdk-go-v2/credentials v1.21.3
-	github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue v1.21.23
-	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.74.1
+	github.com/aws/aws-sdk-go-v2 v1.48.2
+	github.com/aws/aws-sdk-go-v2/credentials v1.21.5
+	github.com/aws/aws-sdk-go-v2/feature/dynamodb/attributevalue v1.21.25
+	github.com/aws/aws-sdk-go-v2/service/dynamodb v1.74.3
 	github.com/stretchr/testify v1.12.1
 	github.com/testcontainers/testcontainers-go/modules/dynamodb v0.45.0
 	github.com/tochemey/ego/v5 v5.0.0
@@ -18,12 +18,12 @@ require (
 	dario.cat/mergo v1.0.2 // indirect
 	github.com/Azure/go-ansiterm v0.0.0-20261013165250-51075c6ea6bc // indirect
 	github.com/Microsoft/go-winio v0.6.4 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.12 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.12 // indirect
-	github.com/aws/aws-sdk-go-v2/service/dynamodbstreams v1.48.0 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.25 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.13.12 // indirect
-	github.com/aws/smithy-go v1.28.9 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.14 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.14 // indirect
+	github.com/aws/aws-sdk-go-v2/service/dynamodbstreams v1.48.2 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.27 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/endpoint-discovery v1.13.14 // indirect
+	github.com/aws/smithy-go v1.28.11 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
